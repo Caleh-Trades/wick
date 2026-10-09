@@ -464,7 +464,7 @@ function Stat({ label, value, toneName = "ink" }: { label: string; value: string
   return (
     <div className="border-t border-desk-ink/15 pt-2">
       <div className="text-[0.65rem] font-semibold tracking-[0.16em] text-bench uppercase">{label}</div>
-      <div className={cn("font-mono text-lg tabular-nums", toneName === "up" && "text-[#e6c36a]", toneName === "down" && "text-[#e07856]")}>
+      <div className={cn("font-mono text-lg tabular-nums", toneName === "up" && "text-[#3ee0a2]", toneName === "down" && "text-[#ff5d73]")}>
         {value}
       </div>
     </div>
@@ -498,15 +498,15 @@ function CandleLayer({ bars, domain, plot }: { bars: PlotBar[]; domain: [number,
       downWicks += wick
       downBodies += body
     }
-    if (bar.entry != null) marks.push({ x: cx, y: y(bar.entry), fill: "#e6c36a" })
-    if (bar.exit != null) marks.push({ x: cx, y: y(bar.exit), fill: "#e07856" })
+    if (bar.entry != null) marks.push({ x: cx, y: y(bar.entry), fill: "#3ee0a2" })
+    if (bar.exit != null) marks.push({ x: cx, y: y(bar.exit), fill: "#ff5d73" })
   }
   return (
     <svg className="pointer-events-none absolute" style={{ left: plot.left, top: plot.top, width: plot.width, height: plot.height }} aria-hidden="true">
-      <path d={upWicks} stroke="#e6c36a" strokeWidth={1} fill="none" />
-      <path d={downWicks} stroke="#e07856" strokeWidth={1} fill="none" />
-      <path d={upBodies} fill="#e6c36a" />
-      <path d={downBodies} fill="#e07856" />
+      <path d={upWicks} stroke="#3ee0a2" strokeWidth={1} fill="none" />
+      <path d={downWicks} stroke="#ff5d73" strokeWidth={1} fill="none" />
+      <path d={upBodies} fill="#3ee0a2" />
+      <path d={downBodies} fill="#ff5d73" />
       {marks.map((mark, index) => (
         <circle key={index} cx={mark.x} cy={mark.y} r={3.5} fill={mark.fill} stroke="#16110d" strokeWidth={1} />
       ))}

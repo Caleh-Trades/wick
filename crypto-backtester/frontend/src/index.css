@@ -27,10 +27,10 @@
     --input: #6a4a34;
     --ring: #f0a36a;
     --chart-1: #f0a36a;
-    --chart-2: #e6c36a;
+    --chart-2: #3ee0a2;
     --chart-3: #c4a48c;
     --chart-4: #f6eadc;
-    --chart-5: #e07856;
+    --chart-5: #ff5d73;
     --radius: 0px;
     --sidebar: #2a1c14;
     --sidebar-foreground: #f6eadc;
@@ -62,10 +62,10 @@
     --input: #6a4a34;
     --ring: #f0a36a;
     --chart-1: #f0a36a;
-    --chart-2: #e6c36a;
+    --chart-2: #3ee0a2;
     --chart-3: #c4a48c;
     --chart-4: #f6eadc;
-    --chart-5: #e07856;
+    --chart-5: #ff5d73;
     --sidebar: #2a1c14;
     --sidebar-foreground: #f6eadc;
     --sidebar-primary: #f0a36a;
@@ -80,8 +80,8 @@
     --font-sans: 'Noto Sans Variable', sans-serif;
     --font-heading: 'Noto Sans Variable', sans-serif;
     --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
-    --color-up: #e6c36a;
-    --color-down: #e07856;
+    --color-up: #3ee0a2;
+    --color-down: #ff5d73;
     --color-gold: #f0a36a;
     --color-desk: #16110d;
     --color-desk-ink: #f6eadc;
@@ -285,12 +285,12 @@ button:hover,
 }
 
 @keyframes wick-flash-bid {
-  from { background-color: rgb(230 195 106 / 0.32); }
+  from { background-color: rgb(62 224 162 / 0.32); }
   to { background-color: transparent; }
 }
 
 @keyframes wick-flash-ask {
-  from { background-color: rgb(224 120 86 / 0.32); }
+  from { background-color: rgb(255 93 115 / 0.32); }
   to { background-color: transparent; }
 }
 

@@ -126,8 +126,8 @@ function DeltaRow({ delta, buy, sell, step }: { delta: number; buy: number; sell
         <span className={delta > 0 ? "text-up" : delta < 0 ? "text-down" : "text-foreground"}>{signedStep(delta, step)}</span>
       </div>
       <div className="relative h-2 bg-[#16110d]" aria-hidden="true">
-        <div className="absolute inset-y-0 right-1/2 bg-[#e07856]/70" style={{ width: `${sellWidth}%` }} />
-        <div className="absolute inset-y-0 left-1/2 bg-[#e6c36a]/70" style={{ width: `${buyWidth}%` }} />
+        <div className="absolute inset-y-0 right-1/2 bg-[#ff5d73]/70" style={{ width: `${sellWidth}%` }} />
+        <div className="absolute inset-y-0 left-1/2 bg-[#3ee0a2]/70" style={{ width: `${buyWidth}%` }} />
         <div className="absolute -top-0.5 h-3 w-px bg-[#f6eadc]" style={{ left: `${marker}%` }} />
       </div>
     </div>

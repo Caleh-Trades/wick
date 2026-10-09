@@ -194,9 +194,9 @@ export const EquityChart = memo(function EquityChart({
             <Area
               type="monotone"
               dataKey="drawdown_pct"
-              stroke="#e07856"
+              stroke="#ff5d73"
               strokeWidth={1.5}
-              fill="#e07856"
+              fill="#ff5d73"
               fillOpacity={0.16}
               dot={false}
               isAnimationActive={false}
@@ -292,14 +292,14 @@ export const PriceChart = memo(function PriceChart({
             <Line
               dataKey="entry"
               stroke="none"
-              dot={{ r: 3.5, fill: "#e6c36a", stroke: "#16110d", strokeWidth: 1 }}
+              dot={{ r: 3.5, fill: "#3ee0a2", stroke: "#16110d", strokeWidth: 1 }}
               isAnimationActive={false}
               connectNulls={false}
             />
             <Line
               dataKey="exit"
               stroke="none"
-              dot={{ r: 3.5, fill: "#e07856", stroke: "#16110d", strokeWidth: 1 }}
+              dot={{ r: 3.5, fill: "#ff5d73", stroke: "#16110d", strokeWidth: 1 }}
               isAnimationActive={false}
               connectNulls={false}
             />

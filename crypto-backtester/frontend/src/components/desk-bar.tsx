@@ -17,6 +17,8 @@ type DeskBarProps = {
   onTimeframe: (timeframe: Timeframe) => void
   onRange: (range: RangeId) => void
   onVenue: (venue: Venue) => void
+  page: "desk" | "journal"
+  onPage: (page: "desk" | "journal") => void
 }
 
 export function DeskBar({
@@ -31,6 +33,8 @@ export function DeskBar({
   onTimeframe,
   onRange,
   onVenue,
+  page,
+  onPage,
 }: DeskBarProps) {
   const frame = TIMEFRAMES.find((item) => item.id === timeframe)
   const market = symbol ? marketById(symbol, venue) : undefined
@@ -48,6 +52,22 @@ export function DeskBar({
           <CandleMark />
           <h1 className="font-mono text-sm tracking-[0.32em] text-[#c56a32] uppercase">Wick</h1>
           <BotSettings />
+        </div>
+
+        <div className="flex shrink-0 gap-1" role="group" aria-label="Page">
+          {(["desk", "journal"] as const).map((item) => (
+            <Button
+              key={item}
+              type="button"
+              size="xs"
+              variant={page === item ? "default" : "outline"}
+              className="normal-case tracking-normal"
+              aria-pressed={page === item}
+              onClick={() => onPage(item)}
+            >
+              {item === "desk" ? "Desk" : "Journal"}
+            </Button>
+          ))}
         </div>
 
         <div className="flex shrink-0 gap-1" role="group" aria-label="Venue">

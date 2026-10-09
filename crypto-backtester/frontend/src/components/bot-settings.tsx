@@ -119,7 +119,7 @@ export function BotSettings() {
   -H "Content-Type: application/json" \\
   -d '{"ops":[{"op":"patch-run","riskPct":25}]}'`}</pre>
             <p className="text-xs leading-relaxed text-muted-foreground">
-              Other edits are set-slot, focus, pin, unpin, select-run, add-run, remove-run, and log-trade. log-trade writes a fill in the journal: symbol, side, price, size, and an optional note. Name the slot with its symbol and the run with its name. Leave both off to change the run that is selected now. Keep this desk on your machine. Anyone who can open it can mint a key.
+              Other edits are set-slot, focus, pin, unpin, select-run, add-run, remove-run, and log-trade. log-trade writes a round trip on the journal page: symbol, side, price, size, and an optional exit, strategy, and note. Name the slot with its symbol and the run with its name. Leave both off to change the run that is selected now. Keep this desk on your machine. Anyone who can open it can mint a key.
             </p>
           </div>
         </div>

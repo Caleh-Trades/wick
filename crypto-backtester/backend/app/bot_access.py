@@ -173,6 +173,19 @@ def _require_log(item: dict) -> None:
             raise ValueError(f"log-trade needs a {key}.") from exc
         if not number > 0:
             raise ValueError(f"log-trade {key} has to be above zero.")
+    exit_price = item.get("exitPrice", item.get("exit"))
+    if exit_price not in (None, ""):
+        try:
+            number = float(exit_price)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("log-trade exit has to be a price.") from exc
+        if not number > 0:
+            raise ValueError("log-trade exit has to be above zero.")
+    strategy = item.get("strategy")
+    if strategy is not None and not isinstance(strategy, str):
+        raise ValueError("log-trade strategy has to be text.")
+    if isinstance(strategy, str) and len(strategy) > 48:
+        raise ValueError("log-trade strategy is too long.")
 
 
 def _public(record: dict) -> dict:

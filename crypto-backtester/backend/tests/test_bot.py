@@ -62,3 +62,24 @@ def test_log_trade_needs_a_fill(monkeypatch, tmp_path):
     )
     assert logged.status_code == 200
     assert client.get("/api/bot/inbox").json()["edits"][0]["ops"][0]["note"] == "breakout"
+    closed = client.post(
+        "/api/bot/edit",
+        headers={"Authorization": f"Bearer {secret}"},
+        json={"ops": [{"op": "log-trade", "symbol": "ETH", "side": "short", "price": 200, "size": 1, "exit": 180, "strategy": "SMA crossover"}]},
+    )
+    assert closed.status_code == 200
+    op = client.get("/api/bot/inbox").json()["edits"][-1]["ops"][0]
+    assert op["exit"] == 180
+    assert op["strategy"] == "SMA crossover"
+    bad_exit = client.post(
+        "/api/bot/edit",
+        headers={"Authorization": f"Bearer {secret}"},
+        json={"ops": [{"op": "log-trade", "symbol": "BTC", "side": "buy", "price": 1, "size": 1, "exitPrice": 0}]},
+    )
+    assert bad_exit.status_code == 400
+    too_long = client.post(
+        "/api/bot/edit",
+        headers={"Authorization": f"Bearer {secret}"},
+        json={"ops": [{"op": "log-trade", "symbol": "BTC", "side": "buy", "price": 1, "size": 1, "strategy": "x" * 49}]},
+    )
+    assert too_long.status_code == 400

@@ -20,7 +20,7 @@ import { WorkspaceBar } from "@/components/workspace-bar"
 import { fetchCandles, mergeFunding } from "@/lib/api"
 import { ackBotEdits, fetchBotInbox } from "@/lib/bot-api"
 import { applyBotEdits, editConcerns } from "@/lib/bot-edits"
-import { JournalToggle } from "@/components/journal"
+import { JournalPage } from "@/components/journal"
 import { logTradeOp } from "@/lib/journal"
 import { computeBacktest } from "@/lib/compute"
 import { CHART_MAX, CHART_MIN, clampChart, loadPanes, savePanes, type PaneSizes } from "@/lib/panes"
@@ -69,6 +69,7 @@ export default function App() {
   const [sortKey, setSortKey] = useState<SortKey | null>(null)
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc")
   const [drawToken, setDrawToken] = useState(0)
+  const [page, setPage] = useState<"desk" | "journal">("desk")
   const workspaceRef = useRef(workspace)
   const tapesRef = useRef(tapes)
   const outcomesRef = useRef(outcomes)
@@ -522,8 +523,20 @@ export default function App() {
           onTimeframe={(timeframe) => patchSlot(active.id, { timeframe })}
           onRange={(range) => patchSlot(active.id, { range })}
           onVenue={(venue) => patchSlot(active.id, { venue })}
+          page={page}
+          onPage={(next) => {
+            setPage(next)
+            if (next === "journal") {
+              setSetupOpen(false)
+              setEditing(false)
+            }
+          }}
         />
       ) : null}
+      {page === "journal" ? (
+        <JournalPage symbol={active?.symbol ?? "BTCUSDT"} />
+      ) : (
+      <>
       <WorkspaceBar
         slots={workspace.slots}
         activeId={workspace.activeId}
@@ -585,7 +598,6 @@ export default function App() {
               <p className="py-4 text-sm text-muted-foreground">Pulling the {phrase} tape. The first look at a pair can take a few seconds.</p>
             ) : null}
             {selectedOutcome && !selectedOutcome.ok ? <p className="py-2 font-heading text-2xl">{selectedOutcome.error}</p> : null}
-            <JournalToggle symbol={active?.symbol ?? "BTCUSDT"}>
             {result && active && selected ? (
               <div className="results-body min-h-0 flex-1">
               <Results
@@ -620,7 +632,6 @@ export default function App() {
               />
               </div>
             ) : null}
-            </JournalToggle>
             {running ? (
               <p className="mt-3 font-mono text-xs tracking-wide text-muted-foreground uppercase">Running the next pass…</p>
             ) : null}
@@ -713,6 +724,8 @@ export default function App() {
           onClose={() => setWorkspace((current) => ({ ...current, enlarged: false }))}
         />
       ) : null}
+      </>
+      )}
     </div>
   )
 }

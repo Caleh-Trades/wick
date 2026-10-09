@@ -13,7 +13,7 @@ export function buildSignals(rule: RuleId, candles: TapeCandle[], params: RunPar
   const volumes = candles.map((bar) => (bar.volume != null && bar.volume > 0 ? bar.volume : 1))
   const days = candles.map((bar) => Math.floor(bar.t / 86_400))
   const signals = series(rule, { closes, highs, lows, opens, volumes, days }, params)
-  return signals.map((value) => (value > 0 ? 1 : 0))
+  return signals.map((value) => (value > 0 ? 1 : value < 0 ? -1 : 0))
 }
 
 type Bars = {
@@ -30,9 +30,9 @@ function series(rule: RuleId, bars: Bars, params: RunParams): number[] {
     case "buy_hold":
       return bars.closes.map(() => 1)
     case "sma_cross":
-      return above(sma(bars.closes, params.fast ?? 20), sma(bars.closes, params.slow ?? 50))
+      return cross(sma(bars.closes, params.fast ?? 20), sma(bars.closes, params.slow ?? 50))
     case "ema_cross":
-      return above(ema(bars.closes, params.fast ?? 12), ema(bars.closes, params.slow ?? 26))
+      return cross(ema(bars.closes, params.fast ?? 12), ema(bars.closes, params.slow ?? 26))
     case "donchian":
       return donchian(bars, params.entry ?? 20, params.exit ?? 10)
     case "tsmom":
@@ -157,11 +157,13 @@ function trueRange(highs: number[], lows: number[], closes: number[], index: num
   return Math.max(span, Math.abs(high - prev), Math.abs(low - prev))
 }
 
-function above(fast: Array<number | null>, slow: Array<number | null>): number[] {
+function cross(fast: Array<number | null>, slow: Array<number | null>): number[] {
   return fast.map((fastValue, index) => {
     const slowValue = slow[index]
     if (fastValue == null || slowValue == null) return 0
-    return fastValue > slowValue ? 1 : 0
+    if (fastValue > slowValue) return 1
+    if (fastValue < slowValue) return -1
+    return 0
   })
 }
 
@@ -226,28 +228,35 @@ function bollingerRevert(closes: number[], period: number, mult: number, rsiFilt
       return
     }
     const reading = readings[index]
-    const allowed = !rsiFilter || (reading != null && reading <= RSI_FILTER_LEVEL)
-    if (close < lowBand && allowed) state = 1
-    else if (close > highBand) state = 0
+    const longAllowed = !rsiFilter || (reading != null && reading <= RSI_FILTER_LEVEL)
+    const shortAllowed = !rsiFilter || (reading != null && reading >= 100 - RSI_FILTER_LEVEL)
+    if (close < lowBand && longAllowed) state = 1
+    else if (close > highBand && shortAllowed) state = -1
+    else if (close > highBand && state === 1) state = 0
+    else if (close < lowBand && state === -1) state = 0
     else if (state === 1 && close >= center) state = 0
+    else if (state === -1 && close <= center) state = 0
     signals.push(state)
   })
   return signals
 }
 
 function bollingerBreak(closes: number[], period: number, mult: number): number[] {
-  const [mid, upper] = bollinger(closes, period, mult)
+  const [mid, upper, lower] = bollinger(closes, period, mult)
   const signals: number[] = []
   let state = 0
   closes.forEach((close, index) => {
     const center = mid[index]
     const highBand = upper[index]
-    if (center == null || highBand == null) {
+    const lowBand = lower[index]
+    if (center == null || highBand == null || lowBand == null) {
       signals.push(0)
       return
     }
     if (close > highBand) state = 1
+    else if (close < lowBand) state = -1
     else if (state === 1 && close < center) state = 0
+    else if (state === -1 && close > center) state = 0
     signals.push(state)
   })
   return signals
@@ -262,7 +271,7 @@ function rsiReversal(readings: Array<number | null>, oversold: number, overbough
       continue
     }
     if (reading <= oversold) state = 1
-    else if (reading >= overbought) state = 0
+    else if (reading >= overbought) state = -1
     signals.push(state)
   }
   return signals
@@ -270,12 +279,16 @@ function rsiReversal(readings: Array<number | null>, oversold: number, overbough
 
 function donchian(bars: Bars, entry: number, exitWindow: number): number[] {
   const entryHigh = priorExtreme(bars.highs, entry, true)
+  const entryLow = priorExtreme(bars.lows, entry, false)
+  const exitHigh = priorExtreme(bars.highs, exitWindow, true)
   const exitLow = priorExtreme(bars.lows, exitWindow, false)
   const signals: number[] = []
   let state = 0
   bars.closes.forEach((close, index) => {
     if (entryHigh[index] != null && close > (entryHigh[index] ?? 0)) state = 1
+    else if (entryLow[index] != null && close < (entryLow[index] ?? 0)) state = -1
     else if (state === 1 && exitLow[index] != null && close < (exitLow[index] ?? 0)) state = 0
+    else if (state === -1 && exitHigh[index] != null && close > (exitHigh[index] ?? 0)) state = 0
     signals.push(state)
   })
   return signals
@@ -298,7 +311,10 @@ function momentum(closes: number[], lookback: number): number[] {
     if (start < 0) return 0
     const recent = closes[end] ?? 0
     const base = closes[start] ?? 0
-    return base > 0 && recent > base ? 1 : 0
+    if (!(base > 0)) return 0
+    if (recent > base) return 1
+    if (recent < base) return -1
+    return 0
   })
 }
 
@@ -308,26 +324,42 @@ function macdTrend(bars: Bars, fast: number, slow: number, signalPeriod: number,
   const signals: number[] = []
   let state = 0
   let peak = 0
-  let armed = true
+  let trough = 0
+  let armedLong = true
+  let armedShort = true
   for (let index = 0; index < bars.closes.length; index += 1) {
     const macdLine = line[index]
     const macdSignal = signal[index]
     const bull = macdLine != null && macdSignal != null && macdLine > macdSignal
+    const bear = macdLine != null && macdSignal != null && macdLine < macdSignal
     const close = bars.closes[index] ?? 0
     const high = bars.highs[index] ?? close
-    if (state === 0) {
-      if (bull && armed) {
-        state = 1
-        peak = high
-      } else if (!bull) armed = true
-    } else {
+    const low = bars.lows[index] ?? close
+    if (state === 1) {
       peak = Math.max(peak, high)
       const width = range[index]
       const stopped = width != null && close < peak - width * mult
       if (!bull || stopped) {
         state = 0
-        armed = !bull
+        armedLong = !bull
       }
+    } else if (state === -1) {
+      trough = Math.min(trough, low)
+      const width = range[index]
+      const stopped = width != null && close > trough + width * mult
+      if (!bear || stopped) {
+        state = 0
+        armedShort = !bear
+      }
+    } else if (bull && armedLong) {
+      state = 1
+      peak = high
+    } else if (bear && armedShort) {
+      state = -1
+      trough = low
+    } else {
+      if (!bull) armedLong = true
+      if (!bear) armedShort = true
     }
     signals.push(state)
   }
@@ -347,7 +379,9 @@ function keltner(bars: Bars, length: number, atrLength: number, mult: number): n
       return
     }
     if (close > center + width * mult) state = 1
+    else if (close < center - width * mult) state = -1
     else if (state === 1 && close < center) state = 0
+    else if (state === -1 && close > center) state = 0
     signals.push(state)
   })
   return signals
@@ -380,7 +414,7 @@ function supertrend(bars: Bars, period: number, mult: number): number[] {
     const prevLine = index > 0 ? line[index - 1] : null
     const next = prevLine == null || prevUpper == null || prevLine === prevUpper ? (close > upper ? lower : upper) : close < lower ? upper : lower
     line[index] = next
-    signals.push(next === lower ? 1 : 0)
+    signals.push(next === lower ? 1 : -1)
   }
   return signals
 }
@@ -417,7 +451,7 @@ function openingRange(bars: Bars, rangeBars: number): number[] {
       }
       state = 0
     } else if (close > rangeHigh) state = 1
-    else if (rangeLow != null && close < rangeLow) state = 0
+    else if (rangeLow != null && close < rangeLow) state = -1
     signals.push(state)
   }
   return signals
@@ -449,11 +483,22 @@ function previousDay(bars: Bars): number[] {
     }
     if (prevHigh != null && prevLow != null) {
       if (close > prevHigh) state = 1
-      else if (close < prevLow) state = 0
+      else if (close < prevLow) state = -1
     }
     signals.push(state)
   }
   return signals
+}
+
+function gapSide(gapPct: number, minPct: number, mode: "fade" | "go"): number {
+  if (mode === "go") {
+    if (gapPct >= minPct) return 1
+    if (gapPct <= -minPct) return -1
+    return 0
+  }
+  if (gapPct <= -minPct) return 1
+  if (gapPct >= minPct) return -1
+  return 0
 }
 
 function gap(bars: Bars, minPct: number, mode: "fade" | "go"): number[] {
@@ -466,11 +511,13 @@ function gap(bars: Bars, minPct: number, mode: "fade" | "go"): number[] {
     const open = bars.opens[start] ?? 0
     if (prevClose != null && prevClose > 0) {
       const gapPct = ((open - prevClose) / prevClose) * 100
-      const take = mode === "go" ? gapPct >= minPct : gapPct <= -minPct
-      if (take) {
+      const side = gapSide(gapPct, minPct, mode)
+      if (side !== 0) {
         for (let cursor = start; cursor < index; cursor += 1) {
-          if (mode === "fade" && (bars.closes[cursor] ?? 0) >= prevClose) break
-          signals[cursor] = 1
+          const close = bars.closes[cursor] ?? 0
+          if (mode === "fade" && side > 0 && close >= prevClose) break
+          if (mode === "fade" && side < 0 && close <= prevClose) break
+          signals[cursor] = side
         }
       }
     }
@@ -498,7 +545,7 @@ function vwapReclaim(bars: Bars): number[] {
     total += ((high + low + close) / 3) * size
     volume += size
     const vwap = volume > 0 ? total / volume : close
-    signals.push(close > vwap ? 1 : 0)
+    signals.push(close > vwap ? 1 : close < vwap ? -1 : 0)
   }
   return signals
 }
@@ -509,28 +556,45 @@ function chandelier(bars: Bars, trendLength: number, mult: number): number[] {
   const signals: number[] = []
   let state = 0
   let peak = 0
-  let cooled = true
+  let trough = 0
+  let cooledLong = true
+  let cooledShort = true
   for (let index = 0; index < bars.closes.length; index += 1) {
     const close = bars.closes[index] ?? 0
     const high = bars.highs[index] ?? close
+    const low = bars.lows[index] ?? close
     const center = trend[index]
     const trendUp = center != null && close > center
+    const trendDown = center != null && close < center
     const prevCenter = index > 0 ? trend[index - 1] : null
     const prevClose = index > 0 ? (bars.closes[index - 1] ?? close) : close
-    const crossed = trendUp && (prevCenter == null || prevClose <= prevCenter)
-    if (state === 0) {
-      if (trendUp && cooled && crossed) {
-        state = 1
-        peak = high
-      } else if (!trendUp) cooled = true
-    } else {
+    const crossedUp = trendUp && (prevCenter == null || prevClose <= prevCenter)
+    const crossedDown = trendDown && (prevCenter == null || prevClose >= prevCenter)
+    if (state === 1) {
       peak = Math.max(peak, high)
       const width = range[index]
       const stopped = width != null && close < peak - width * mult
       if (!trendUp || stopped) {
         state = 0
-        cooled = !trendUp
+        cooledLong = !trendUp
       }
+    } else if (state === -1) {
+      trough = Math.min(trough, low)
+      const width = range[index]
+      const stopped = width != null && close > trough + width * mult
+      if (!trendDown || stopped) {
+        state = 0
+        cooledShort = !trendDown
+      }
+    } else if (trendUp && cooledLong && crossedUp) {
+      state = 1
+      peak = high
+    } else if (trendDown && cooledShort && crossedDown) {
+      state = -1
+      trough = low
+    } else {
+      if (!trendUp) cooledLong = true
+      if (!trendDown) cooledShort = true
     }
     signals.push(state)
   }
@@ -546,6 +610,8 @@ function dualTrend(closes: number[], fastLength: number, slowLength: number, fil
     const slowValue = slow[index]
     const filterValue = filter[index]
     if (fastValue == null || slowValue == null || filterValue == null) return 0
-    return fastValue > slowValue && close > filterValue ? 1 : 0
+    if (fastValue > slowValue && close > filterValue) return 1
+    if (fastValue < slowValue && close < filterValue) return -1
+    return 0
   })
 }

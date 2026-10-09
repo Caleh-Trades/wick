@@ -24,8 +24,8 @@ export type OverlaySeries = {
   equity: { time: string; equity: number }[]
 }
 
-const axisTick = { fill: "#7f97a3", fontSize: 11, fontFamily: "IBM Plex Mono, ui-monospace, monospace" }
-const plotGrid = "#1d3a4d"
+const axisTick = { fill: "#c4a48c", fontSize: 11, fontFamily: "IBM Plex Mono, ui-monospace, monospace" }
+const plotGrid = "#6a4a34"
 
 export const EquityChart = memo(function EquityChart({
   result,
@@ -97,7 +97,7 @@ export const EquityChart = memo(function EquityChart({
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-[0.65rem] font-semibold tracking-[0.18em] text-bench uppercase">Equity</p>
-          <p className="font-mono text-2xl text-[#39e7ff] tabular-nums">
+          <p className="font-mono text-2xl text-[#f0a36a] tabular-nums">
             {formatMoney(typeof headline === "number" ? headline : result.metrics.final_equity, 0)}
           </p>
         </div>
@@ -161,7 +161,7 @@ export const EquityChart = memo(function EquityChart({
             <Line
               type="monotone"
               dataKey="benchmark"
-              stroke="#7f97a3"
+              stroke="#c4a48c"
               strokeWidth={1.5}
               strokeDasharray="4 4"
               dot={false}
@@ -194,9 +194,9 @@ export const EquityChart = memo(function EquityChart({
             <Area
               type="monotone"
               dataKey="drawdown_pct"
-              stroke="#ff5d73"
+              stroke="#e07856"
               strokeWidth={1.5}
-              fill="#ff5d73"
+              fill="#e07856"
               fillOpacity={0.16}
               dot={false}
               isAnimationActive={false}
@@ -284,7 +284,7 @@ export const PriceChart = memo(function PriceChart({
             <Line
               type="monotone"
               dataKey="close"
-              stroke="#d7e6ea"
+              stroke="#f6eadc"
               strokeWidth={1.5}
               dot={false}
               isAnimationActive={false}
@@ -292,14 +292,14 @@ export const PriceChart = memo(function PriceChart({
             <Line
               dataKey="entry"
               stroke="none"
-              dot={{ r: 3.5, fill: "#3ee0a2", stroke: "#070b12", strokeWidth: 1 }}
+              dot={{ r: 3.5, fill: "#e6c36a", stroke: "#16110d", strokeWidth: 1 }}
               isAnimationActive={false}
               connectNulls={false}
             />
             <Line
               dataKey="exit"
               stroke="none"
-              dot={{ r: 3.5, fill: "#ff5d73", stroke: "#070b12", strokeWidth: 1 }}
+              dot={{ r: 3.5, fill: "#e07856", stroke: "#16110d", strokeWidth: 1 }}
               isAnimationActive={false}
               connectNulls={false}
             />
@@ -365,7 +365,7 @@ function ChartTip({
   return (
     <div
       className={
-        "border border-border bg-[#0e1522] px-3 py-2 text-xs text-[#d7e6ea]"
+        "border border-border bg-[#2a1c14] px-3 py-2 text-xs text-[#f6eadc]"
       }
     >
       <div className="mb-1 font-mono text-[10px] tracking-wide uppercase opacity-70">

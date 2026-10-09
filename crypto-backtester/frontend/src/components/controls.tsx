@@ -83,7 +83,7 @@ export function Controls({
           {runs.map((run, index) => {
             const active = run.id === selected.id
             return (
-              <li key={run.id} className="flex items-center gap-2 border-t border-border transition-[border-color] duration-150 hover:border-[#39e7ff]">
+              <li key={run.id} className="flex items-center gap-2 border-t border-border transition-[border-color] duration-150 hover:border-[#f0a36a]">
                 <button
                   type="button"
                   className={`flex min-w-0 flex-1 items-center gap-2 py-2 text-left ${active ? "text-foreground" : "text-muted-foreground"}`}

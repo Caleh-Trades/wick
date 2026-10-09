@@ -28,8 +28,7 @@ export function backtest(candles: TapeCandle[], run: Run, periodsPerYear: number
   let open: OpenTrade | null = null
 
   for (let index = simStart; index <= hi; index += 1) {
-    let target = signals[index - 1] ?? 0
-    if (target < 0) target = 0
+    const target = signals[index - 1] ?? 0
     const bar = candles[index]
     if (!bar) continue
     if (sign(account.qty) !== target) {
@@ -40,7 +39,7 @@ export function backtest(candles: TapeCandle[], run: Run, periodsPerYear: number
         trades.push({
           entry_time: open.entryTime,
           exit_time: bar.time,
-          side: "long",
+          side: open.side,
           entry_price: open.entryPrice,
           exit_price: fill,
           quantity: open.quantity,
@@ -52,8 +51,8 @@ export function backtest(candles: TapeCandle[], run: Run, periodsPerYear: number
         open = null
       }
       if (target !== 0 && account.cash > 1) {
-        const fill = openFill(bar.open, slip)
-        const opened = account.open(fill)
+        const fill = openFill(bar.open, target, slip)
+        const opened = account.open(target, fill)
         if (opened.quantity > 0) {
           open = {
             entryTime: bar.time,
@@ -61,6 +60,7 @@ export function backtest(candles: TapeCandle[], run: Run, periodsPerYear: number
             entryPrice: fill,
             entryFee: opened.fee,
             quantity: opened.quantity,
+            side: target > 0 ? "long" : "short",
           }
         }
       }
@@ -86,7 +86,7 @@ export function backtest(candles: TapeCandle[], run: Run, periodsPerYear: number
       trades.push({
         entry_time: open.entryTime,
         exit_time: null,
-        side: "long",
+        side: open.side,
         entry_price: open.entryPrice,
         exit_price: last.close,
         quantity: open.quantity,
@@ -118,7 +118,7 @@ export function backtest(candles: TapeCandle[], run: Run, periodsPerYear: number
       fee_bps: run.feeBps,
       slippage_bps: SLIPPAGE_BPS,
       initial_capital: INITIAL_CAPITAL,
-      allow_short: false,
+      allow_short: true,
     },
     metrics,
     equity,
@@ -139,6 +139,7 @@ type OpenTrade = {
   entryPrice: number
   entryFee: number
   quantity: number
+  side: "long" | "short"
 }
 
 class Account {
@@ -152,14 +153,14 @@ class Account {
     this.fee = fee
   }
 
-  open(fill: number): { quantity: number; fee: number } {
-    if (fill <= 0 || this.cash <= 0) return { quantity: 0, fee: 0 }
+  open(side: number, fill: number): { quantity: number; fee: number } {
+    if (fill <= 0 || this.cash <= 0 || side === 0) return { quantity: 0, fee: 0 }
     const notional = this.cash / (1 + this.fee)
     const feePaid = notional * this.fee
     this.cash -= feePaid
-    this.qty = notional / fill
+    this.qty = side * (notional / fill)
     this.entry = fill
-    return { quantity: this.qty, fee: feePaid }
+    return { quantity: Math.abs(this.qty), fee: feePaid }
   }
 
   close(fill: number): number {
@@ -183,8 +184,8 @@ function sign(qty: number): number {
   return 0
 }
 
-function openFill(price: number, slip: number): number {
-  return price * (1 + slip)
+function openFill(price: number, side: number, slip: number): number {
+  return side > 0 ? price * (1 + slip) : price * (1 - slip)
 }
 
 function closeFill(price: number, qty: number, slip: number): number {

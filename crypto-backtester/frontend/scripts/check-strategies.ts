@@ -33,7 +33,7 @@ const vwap = buildSignals("vwap", [
   candle(midnight + 3600, 14, 14, 10, 14, 1),
   candle(midnight + 7200, 8, 10, 8, 8, 1),
 ], {})
-assert.deepEqual(vwap, [0, 1, 0])
+assert.deepEqual(vwap, [0, 1, -1])
 
 const prior = buildSignals("prev_day", [
   candle(midnight, 10, 10, 9, 10),
@@ -41,7 +41,7 @@ const prior = buildSignals("prev_day", [
   candle(midnight + 86_400, 11, 12, 11, 12),
   candle(midnight + 90_000, 8, 8, 7, 7),
 ], {})
-assert.deepEqual(prior, [0, 0, 1, 0])
+assert.deepEqual(prior, [0, 0, 1, -1])
 
 const range = buildSignals(
   "orb",
@@ -102,14 +102,27 @@ for (const rule of RULES) {
   const signals = buildSignals(rule.id, sample, run.params)
   assert.equal(result.strategy.name, rule.name, rule.id)
   assert.equal(signals.length, sample.length, rule.id)
-  assert.ok(signals.every((value) => value === 0 || value === 1), rule.id)
-  assert.ok(result.trades.every((trade) => trade.side === "long"), rule.id)
-  assert.equal(result.assumptions.allow_short, false)
+  assert.ok(signals.every((value) => value === -1 || value === 0 || value === 1), rule.id)
+  assert.ok(result.trades.every((trade) => trade.side === "long" || trade.side === "short"), rule.id)
+  if (rule.id === "buy_hold") assert.ok(result.trades.every((trade) => trade.side === "long"))
+  assert.equal(result.assumptions.allow_short, true)
+  assert.equal(result.assumptions.slippage_bps, 5)
+  assert.equal(result.assumptions.initial_capital, 10_000)
   assert.equal(result.assumptions.fee_bps, 10)
 }
 
 const filtered = createRun({ rule: "bollinger", params: { period: 5, mult: 1, rsiOn: 1 }, feeBps: 0, name: "Filtered" })
 const faded = backtest(sample, filtered, 365)
-assert.ok(faded.trades.every((trade) => trade.side === "long"))
+assert.ok(faded.trades.every((trade) => trade.side === "long" || trade.side === "short"))
+
+const falling = [10, 10, 10, 9, 8, 6, 4, 3, 3, 4, 5, 6].map((close, index) => candle(midnight + index * 86_400, close, close, close, close))
+const shortSignals = buildSignals("sma_cross", falling, { fast: 2, slow: 3 })
+assert.ok(shortSignals.includes(-1))
+const shortRun = createRun({ rule: "sma_cross", feeBps: 0, params: { fast: 2, slow: 3 }, name: "Short cross" })
+const shorted = backtest(falling, shortRun, 365)
+const shortTrade = shorted.trades.find((trade) => trade.side === "short" && trade.status === "closed")
+assert.ok(shortTrade)
+assert.ok((shortTrade?.pnl ?? 0) > 0)
+assert.ok(buildSignals("buy_hold", falling, {}).every((value) => value === 1))
 
 console.log("strategy library ok")

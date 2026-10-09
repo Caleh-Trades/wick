@@ -130,7 +130,7 @@ export function SymbolSelect({
   const panel = open ? (
     <div
       ref={panelRef}
-      className="bezel fixed z-[80] flex flex-col bg-[#0e1522] p-3 shadow-xl"
+      className="bezel fixed z-[80] flex flex-col bg-[#2a1c14] p-3 shadow-xl"
       style={{ top: box.top, left: box.left, width: box.width }}
     >
       <div className="flex items-center gap-1">
@@ -165,7 +165,7 @@ export function SymbolSelect({
       <label className="mt-2 flex items-center gap-2 text-[11px] tracking-wide text-muted-foreground uppercase">
         <input
           type="checkbox"
-          className="size-3 accent-[#39e7ff]"
+          className="size-3 accent-[#f0a36a]"
           checked={includeTokenized}
           onChange={(event) => {
             setIncludeTokenized(event.target.checked)
@@ -257,8 +257,8 @@ function MarketRow({
       id={id}
       className={cn(
         "flex items-center gap-2 border border-transparent px-1",
-        highlighted && "border-[#39e7ff] bg-[#102433]",
-        active && "text-[#39e7ff]",
+        highlighted && "border-[#f0a36a] bg-[#3d291c]",
+        active && "text-[#f0a36a]",
       )}
     >
       <button
@@ -271,7 +271,7 @@ function MarketRow({
       >
         {active ? <span aria-hidden="true">●</span> : <span className="inline-block w-[0.6rem]" aria-hidden="true" />}
         <span className="w-16 shrink-0 font-mono">{market.base}</span>
-        <span className={cn("min-w-0 flex-1 truncate", active ? "text-[#39e7ff]" : "text-muted-foreground")}>{name ?? ""}</span>
+        <span className={cn("min-w-0 flex-1 truncate", active ? "text-[#f0a36a]" : "text-muted-foreground")}>{name ?? ""}</span>
         {market.lastPrice ? <span className="shrink-0 font-mono text-xs tabular-nums">{market.lastPrice}</span> : null}
       </button>
       <Button
@@ -282,7 +282,7 @@ function MarketRow({
         aria-label={favourite ? `Remove ${market.base} from favourites` : `Favourite ${market.base}`}
         onClick={() => toggleFavourite(market.id)}
       >
-        <Star className={favourite ? "fill-[#39e7ff] text-[#39e7ff]" : ""} />
+        <Star className={favourite ? "fill-[#f0a36a] text-[#f0a36a]" : ""} />
       </Button>
     </li>
   )

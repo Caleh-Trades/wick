@@ -63,31 +63,31 @@ export const RULES: RuleSpec[] = [
   {
     id: "sma_cross",
     name: "SMA crossover",
-    summary: "Long when the fast simple average is above the slow one. Flat when it falls back underneath.",
+    summary: "Long when the fast simple average is above the slow one. Short when it falls back underneath.",
     params: [period("fast", "Fast", 2, 200, 20), period("slow", "Slow", 3, 400, 50)],
   },
   {
     id: "ema_cross",
     name: "EMA crossover",
-    summary: "Same cross as the simple averages, but recent closes count for more than old ones.",
+    summary: "Same cross as the simple averages, but recent closes count for more. Short when the fast average drops under the slow one.",
     params: [period("fast", "Fast", 2, 200, 12), period("slow", "Slow", 3, 400, 26)],
   },
   {
     id: "donchian",
     name: "Donchian breakout",
-    summary: "Long on a close through the entry channel high. Flat on a close through the exit channel low.",
+    summary: "Long on a close through the entry channel high. Short on a close through the entry channel low. The shorter exit channel takes the position off before the opposite break.",
     params: [period("entry", "Entry channel", 2, 200, 20), period("exit", "Exit channel", 1, 200, 10)],
   },
   {
     id: "tsmom",
     name: "Time-series momentum",
-    summary: "Long when the lookback return, measured through the prior bar, is positive. Otherwise flat.",
+    summary: "Long when the lookback return, measured through the prior bar, is positive. Short when that return is negative.",
     params: [period("lookback", "Lookback", 1, 400, 20)],
   },
   {
     id: "bollinger",
     name: "Bollinger mean reversion",
-    summary: "Long on a close under the lower band. Flat back at the middle. The RSI filter, when on, also requires a 14-bar RSI at 30 or below.",
+    summary: "Long on a close under the lower band, short on a close over the upper band, and flat back at the middle. The RSI filter, when on, requires a 14-bar RSI at 30 or below to buy and at 70 or above to short.",
     params: [
       period("period", "Length", 5, 200, 20),
       scale("mult", "Standard deviations", 0.5, 4, 0.1, 2),
@@ -97,13 +97,13 @@ export const RULES: RuleSpec[] = [
   {
     id: "bb_break",
     name: "Bollinger breakout",
-    summary: "Long on a close through the upper band. Flat when price falls back through the middle band.",
+    summary: "Long on a close through the upper band. Short on a close through the lower band. Flat when price returns through the middle band.",
     params: [period("period", "Length", 5, 200, 20), scale("mult", "Standard deviations", 0.5, 4, 0.1, 2)],
   },
   {
     id: "rsi_reversion",
     name: "RSI reversal",
-    summary: "Long when RSI touches oversold. Flat once it reaches overbought.",
+    summary: "Long when RSI touches oversold. Short when it reaches overbought.",
     params: [
       period("period", "Length", 2, 100, 14),
       scale("oversold", "Oversold", 5, 50, 1, 30),
@@ -113,7 +113,7 @@ export const RULES: RuleSpec[] = [
   {
     id: "macd",
     name: "MACD trend",
-    summary: "Long when the MACD line is above its signal. Flat when the cross fails or the close breaks an ATR trail off the high since entry.",
+    summary: "Long when the MACD line is above its signal, short when it is below. Flat when the cross fails or the close breaks an ATR trail off the extreme since entry.",
     params: [
       period("fast", "Fast", 2, 100, 12),
       period("slow", "Slow", 3, 200, 26),
@@ -125,7 +125,7 @@ export const RULES: RuleSpec[] = [
   {
     id: "keltner",
     name: "Keltner breakout",
-    summary: "Long on a close through the upper Keltner band, an EMA plus ATR. Flat back through the EMA.",
+    summary: "Long on a close through the upper Keltner band, an EMA plus ATR. Short through the lower band. Flat back through the EMA.",
     params: [
       period("period", "EMA length", 2, 200, 20),
       period("atr", "ATR length", 2, 100, 14),
@@ -135,49 +135,49 @@ export const RULES: RuleSpec[] = [
   {
     id: "supertrend",
     name: "Supertrend",
-    summary: "Long while the Supertrend line is under price. Flat when price closes through it. No short on the way down.",
+    summary: "Long while the Supertrend line is under price. Short while the line is above price.",
     params: [period("atr", "ATR length", 2, 100, 10), scale("mult", "Multiple", 0.5, 10, 0.1, 3)],
   },
   {
     id: "orb",
     name: "Opening-range breakout",
-    summary: "The first bars of each UTC day set the range. Long on a later close through that high, flat through the low or at the next day.",
+    summary: "The first bars of each UTC day set the range. Long on a later close through that high, short through that low, and flat at the next day.",
     params: [period("bars", "Range bars", 1, 48, 6)],
   },
   {
     id: "prev_day",
     name: "Previous-day break",
-    summary: "Long on a close through the prior UTC day's high. Flat on a close through that day's low.",
+    summary: "Long on a close through the prior UTC day's high. Short on a close through that day's low.",
     params: [],
   },
   {
     id: "gap_fade",
     name: "Gap fade",
-    summary: "Long after a UTC-day gap down of at least the minimum. Flat when the gap fills or the session ends. Gap-up fades would be shorts, so they stay flat.",
+    summary: "Long after a UTC-day gap down of at least the minimum, short after a gap up. Flat when the gap fills or the session ends.",
     params: [scale("gap", "Minimum gap %", 0.05, 20, 0.05, 0.5)],
   },
   {
     id: "gap_go",
     name: "Gap continuation",
-    summary: "Long after a UTC-day gap up of at least the minimum. Flat at the next session. Gap downs stay flat.",
+    summary: "Long after a UTC-day gap up of at least the minimum, short after a gap down. Flat at the next session.",
     params: [scale("gap", "Minimum gap %", 0.05, 20, 0.05, 0.5)],
   },
   {
     id: "vwap",
     name: "VWAP reclaim",
-    summary: "Session VWAP resets each UTC day. Long when the close is above it, flat when the close is below it.",
+    summary: "Session VWAP resets each UTC day. Long when the close is above it, short when the close is below it.",
     params: [],
   },
   {
     id: "chandelier",
     name: "ATR chandelier",
-    summary: "Long after a close crosses above the trend EMA. Flat on a close under the 22-bar ATR chandelier, or back under the EMA.",
+    summary: "Long after a close crosses above the trend EMA, short after a close crosses below it. Flat on a close through the 22-bar ATR chandelier, or back through the EMA.",
     params: [period("period", "Trend EMA", 2, 400, 50), scale("mult", "ATR multiple", 0.5, 10, 0.1, 3)],
   },
   {
     id: "dual_ma",
     name: "Dual moving average",
-    summary: "Long when the fast average is above the slow one and price is above a longer filter average. That filter stands in for a higher timeframe.",
+    summary: "Long when the fast average is above the slow one and price is above a longer filter average. Short when both the cross and the filter point down. That filter stands in for a higher timeframe.",
     params: [
       period("fast", "Fast", 2, 200, 20),
       period("slow", "Slow", 3, 400, 50),
@@ -206,7 +206,7 @@ export const RANGES: { id: RangeId; label: string; days: number }[] = [
   { id: "All", label: "All", days: 0 },
 ]
 
-export const RUN_COLORS = ["#39e7ff", "#3ee0a2", "#ffb086", "#c7b3ff", "#d7e6ea"] as const
+export const RUN_COLORS = ["#f0a36a", "#e6c36a", "#e07856", "#d4a08a", "#f6eadc"] as const
 
 export type DeskState = {
   runs: Run[]

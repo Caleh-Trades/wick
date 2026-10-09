@@ -530,7 +530,7 @@ export default function App() {
         </section>
       </main>
 
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-[#0e1522]/90 p-3 lg:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-[#2a1c14]/90 p-3 lg:hidden">
         <Sheet
           open={setupOpen}
           onOpenChange={(open) => {

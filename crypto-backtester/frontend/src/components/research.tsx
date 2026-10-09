@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type TransitionEvent } from "react"
+import { memo, startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type TransitionEvent } from "react"
 import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 import { X } from "lucide-react"
 
@@ -16,7 +16,7 @@ type View = { start: number; end: number }
 type PlotBox = { left: number; top: number; width: number; height: number }
 type Drag = { kind: "zoom" | "pan"; x0: number; origin: View; x: number }
 
-export function ResearchChart({
+export const ResearchChart = memo(function ResearchChart({
   candles,
   trades,
   interval,
@@ -42,6 +42,7 @@ export function ResearchChart({
   const closeTimer = useRef(0)
   const reduceMotion = useRef(window.matchMedia("(prefers-reduced-motion: reduce)").matches)
   const [grown, setGrown] = useState(reduceMotion.current)
+  const [settled, setSettled] = useState(reduceMotion.current)
   const viewRef = useRef<View>({ start: 0, end: Math.max(0, candles.length - 1) })
   const followRef = useRef(true)
   const countRef = useRef(candles.length)
@@ -83,18 +84,24 @@ export function ResearchChart({
       onClose()
       return
     }
+    setSettled(false)
     const source = readSummaryRect()
     if (source) summaryRef.current = source
-    setGrown(false)
     window.clearTimeout(closeTimer.current)
-    closeTimer.current = window.setTimeout(() => onClose(), 520)
+    requestAnimationFrame(() => {
+      setGrown(false)
+      closeTimer.current = window.setTimeout(() => onClose(), 520)
+    })
   }
 
   function onPanelTransitionEnd(event: TransitionEvent<HTMLDivElement>) {
     if (event.target !== panelRef.current || event.propertyName !== "transform") return
-    if (!closingRef.current) return
-    window.clearTimeout(closeTimer.current)
-    onClose()
+    if (closingRef.current) {
+      window.clearTimeout(closeTimer.current)
+      onClose()
+      return
+    }
+    startTransition(() => setSettled(true))
   }
 
   function commit(next: View, follow = next.end >= candles.length - 1) {
@@ -136,10 +143,15 @@ export function ResearchChart({
     commit({ start: Math.max(0, endMax - span), end: endMax }, true)
   }, [candles])
 
-  const slice = useMemo(() => candles.slice(view.start, view.end + 1), [candles, view.start, view.end])
-  const bars = useMemo(() => plotCandles(slice, trades, 360), [slice, trades])
-  const domain = useMemo(() => priceDomain(slice), [slice])
+  const slice = useMemo(
+    () => (settled ? candles.slice(view.start, view.end + 1) : []),
+    [settled, candles, view.start, view.end],
+  )
+  const bars = useMemo(() => (settled ? plotCandles(slice, trades, 220) : []), [settled, slice, trades])
+  const domain = useMemo(() => (settled ? priceDomain(slice) : ([1, 2] as [number, number])), [settled, slice])
   const phrase = phraseFor(interval)
+  const windowStart = candles[view.start]
+  const windowEnd = candles[view.end]
 
   useLayoutEffect(() => {
     const frame = frameRef.current
@@ -166,7 +178,13 @@ export function ResearchChart({
       cancelAnimationFrame(frameId)
       observer.disconnect()
     }
-  }, [bars, domain])
+  }, [bars, domain, settled])
+
+  useEffect(() => {
+    if (!grown || closingRef.current) return
+    const id = window.setTimeout(() => startTransition(() => setSettled(true)), 540)
+    return () => window.clearTimeout(id)
+  }, [grown])
 
   useEffect(() => {
     const node = shellRef.current
@@ -197,7 +215,7 @@ export function ResearchChart({
     }
     node.addEventListener("wheel", onWheel, { passive: false })
     return () => node.removeEventListener("wheel", onWheel)
-  }, [candles.length])
+  }, [candles.length, settled])
 
   function clientPlotRect(): DOMRect | null {
     const frame = frameRef.current
@@ -314,7 +332,7 @@ export function ResearchChart({
             <p className="text-[0.65rem] font-semibold tracking-[0.18em] text-bench uppercase">Price · {runName}</p>
             <p className="mt-1 font-mono text-[11px] tracking-wide text-bench uppercase">
               {candles.length.toLocaleString("en-US")} {phrase} bars
-              {slice[0] && slice.at(-1) ? ` · ${formatStamp(slice[0].time, interval)} – ${formatStamp(slice.at(-1)!.time, interval)}` : ""}
+              {windowStart && windowEnd ? ` · ${formatStamp(windowStart.time, interval)} – ${formatStamp(windowEnd.time, interval)}` : ""}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -343,6 +361,7 @@ export function ResearchChart({
 
         <Stats metrics={metrics} />
 
+        {settled ? (
         <div ref={shellRef} className="mt-3 flex min-h-0 flex-1 flex-col">
           <div
             ref={frameRef}
@@ -412,13 +431,16 @@ export function ResearchChart({
             </ResponsiveContainer>
           </div>
         </div>
+        ) : (
+          <div className="mt-3 min-h-0 flex-1" />
+        )}
         <p className="mt-2 font-mono text-[10px] tracking-[0.16em] text-bench uppercase">
           Drag to zoom · wheel zooms · alt-drag or the time axis pans · volume underneath
         </p>
       </div>
     </div>
   )
-}
+})
 
 function Stats({ metrics }: { metrics: Metrics | null }) {
   return (
@@ -447,25 +469,41 @@ function CandleLayer({ bars, domain, plot }: { bars: PlotBar[]; domain: [number,
   const [min, max] = domain
   const span = max - min || 1
   const slot = plot.width / Math.max(bars.length, 1)
-  const body = Math.max(1.5, Math.min(9, slot * 0.62))
+  const bodyWidth = Math.max(1.5, Math.min(9, slot * 0.62))
   const y = (value: number) => ((max - value) / span) * plot.height
+  let upWicks = ""
+  let downWicks = ""
+  let upBodies = ""
+  let downBodies = ""
+  const marks: { x: number; y: number; fill: string }[] = []
+  for (let index = 0; index < bars.length; index += 1) {
+    const bar = bars[index]
+    if (!bar) continue
+    const cx = (index + 0.5) * slot
+    const rising = bar.close >= bar.open
+    const top = Math.min(y(bar.open), y(bar.close))
+    const height = Math.max(1, Math.abs(y(bar.close) - y(bar.open)))
+    const wick = `M${cx.toFixed(1)} ${y(bar.high).toFixed(1)}V${y(bar.low).toFixed(1)}`
+    const body = `M${(cx - bodyWidth / 2).toFixed(1)} ${top.toFixed(1)}h${bodyWidth.toFixed(1)}v${height.toFixed(1)}h${(-bodyWidth).toFixed(1)}Z`
+    if (rising) {
+      upWicks += wick
+      upBodies += body
+    } else {
+      downWicks += wick
+      downBodies += body
+    }
+    if (bar.entry != null) marks.push({ x: cx, y: y(bar.entry), fill: "#7dcea0" })
+    if (bar.exit != null) marks.push({ x: cx, y: y(bar.exit), fill: "#e7a090" })
+  }
   return (
     <svg className="pointer-events-none absolute" style={{ left: plot.left, top: plot.top, width: plot.width, height: plot.height }} aria-hidden="true">
-      {bars.map((bar, index) => {
-        const cx = (index + 0.5) * slot
-        const up = bar.close >= bar.open
-        const color = up ? "#7dcea0" : "#d07a6a"
-        const top = Math.min(y(bar.open), y(bar.close))
-        const height = Math.max(1, Math.abs(y(bar.close) - y(bar.open)))
-        return (
-          <g key={`${bar.time}-${index}`}>
-            <line x1={cx} x2={cx} y1={y(bar.high)} y2={y(bar.low)} stroke={color} strokeWidth={1} />
-            <rect x={cx - body / 2} y={top} width={body} height={height} fill={color} />
-            {bar.entry != null ? <circle cx={cx} cy={y(bar.entry)} r={3.5} fill="#7dcea0" stroke="#1c1916" strokeWidth={1} /> : null}
-            {bar.exit != null ? <circle cx={cx} cy={y(bar.exit)} r={3.5} fill="#e7a090" stroke="#1c1916" strokeWidth={1} /> : null}
-          </g>
-        )
-      })}
+      <path d={upWicks} stroke="#7dcea0" strokeWidth={1} fill="none" />
+      <path d={downWicks} stroke="#d07a6a" strokeWidth={1} fill="none" />
+      <path d={upBodies} fill="#7dcea0" />
+      <path d={downBodies} fill="#d07a6a" />
+      {marks.map((mark, index) => (
+        <circle key={index} cx={mark.x} cy={mark.y} r={3.5} fill={mark.fill} stroke="#1c1916" strokeWidth={1} />
+      ))}
     </svg>
   )
 }
@@ -530,10 +568,10 @@ function targetBox(): Frame {
 }
 
 function placedTransform(origin: DOMRect | null, target: Frame, grown: boolean): string {
-  if (grown || !origin) return "translate(0px, 0px) scale(1, 1)"
+  if (grown || !origin) return "translate3d(0px, 0px, 0) scale(1, 1)"
   const sx = origin.width / target.width
   const sy = origin.height / target.height
   const tx = origin.left + origin.width / 2 - (target.left + target.width / 2)
   const ty = origin.top + origin.height / 2 - (target.top + target.height / 2)
-  return `translate(${tx}px, ${ty}px) scale(${sx}, ${sy})`
+  return `translate3d(${tx}px, ${ty}px, 0) scale(${sx}, ${sy})`
 }

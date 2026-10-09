@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent, type PointerEvent } from "react"
+import { memo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react"
 import { Eye, EyeOff, Trash2 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -43,7 +43,7 @@ type ResultsProps = {
   onSort: (key: SortKey) => void
 }
 
-export function Results({
+export const Results = memo(function Results({
   runs,
   outcomes,
   selected,
@@ -218,7 +218,7 @@ export function Results({
       </div>
     </div>
   )
-}
+})
 
 function useSplit(initial = 0.42) {
   const [share, setShare] = useState(initial)

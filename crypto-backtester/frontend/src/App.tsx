@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { PriceChart, type OverlaySeries } from "@/components/charts"
 import { Controls } from "@/components/controls"
@@ -31,7 +31,10 @@ import {
   uniqueName,
   type DeskState,
 } from "@/lib/runs"
-import type { MarketId, Outcome, RangeId, Run, SortKey, Tape, Timeframe } from "@/lib/types"
+import type { MarketId, Outcome, RangeId, Run, SortKey, Tape, TapeCandle, Timeframe, Trade } from "@/lib/types"
+
+const EMPTY_CANDLES: TapeCandle[] = []
+const EMPTY_TRADES: Trade[] = []
 
 export default function App() {
   const [desk, setDesk] = useState<DeskState>(() => loadDesk())
@@ -218,31 +221,35 @@ export default function App() {
       })
   }
 
-  function selectRun(id: string) {
-    const run = desk.runs.find((item) => item.id === id)
-    setDesk((current) => ({ ...current, selectedId: id }))
-    if (!run) return
-    const tape = tapesRef.current[run.symbol]
-    if (!tape || tape.interval !== desk.timeframe || tape.range !== desk.range) {
-      void tapesFor([run.symbol])
-        .then((map) => {
-          const loaded = map[run.symbol]
-          if (!loaded) return
-          setOutcomes((prev) => ({ ...prev, [run.id]: remember(run, loaded) }))
-        })
-        .catch((reason: unknown) => {
-          setError(reason instanceof Error ? reason.message : "The tape didn't load.")
-        })
-      return
-    }
-    setOutcomes((prev) => {
-      const existing = prev[run.id]
-      if (existing?.ok && existing.fingerprint === fingerprint(run)) return prev
-      return { ...prev, [run.id]: remember(run, tape) }
-    })
-  }
+  const selectRun = useCallback(
+    (id: string) => {
+      const current = deskRef.current
+      const run = current.runs.find((item) => item.id === id)
+      setDesk((state) => ({ ...state, selectedId: id }))
+      if (!run) return
+      const tape = tapesRef.current[run.symbol]
+      if (!tape || tape.interval !== current.timeframe || tape.range !== current.range) {
+        void tapesFor([run.symbol])
+          .then((map) => {
+            const loaded = map[run.symbol]
+            if (!loaded) return
+            setOutcomes((prev) => ({ ...prev, [run.id]: remember(run, loaded) }))
+          })
+          .catch((reason: unknown) => {
+            setError(reason instanceof Error ? reason.message : "The tape didn't load.")
+          })
+        return
+      }
+      setOutcomes((prev) => {
+        const existing = prev[run.id]
+        if (existing?.ok && existing.fingerprint === fingerprint(run)) return prev
+        return { ...prev, [run.id]: remember(run, tape) }
+      })
+    },
+    [remember, tapesFor],
+  )
 
-  function removeRun(id: string) {
+  const removeRun = useCallback((id: string) => {
     const current = deskRef.current
     const index = current.runs.findIndex((run) => run.id === id)
     if (index < 0) return
@@ -258,22 +265,28 @@ export default function App() {
       delete copy[id]
       return copy
     })
-  }
+  }, [])
 
-  function toggleHidden(id: string) {
-    const run = desk.runs.find((item) => item.id === id)
-    setDesk((current) => ({
-      ...current,
-      runs: current.runs.map((item) => (item.id === id ? { ...item, hidden: !item.hidden } : item)),
-    }))
-    if (run?.hidden) stageRun(run)
-  }
+  const stageRun = useCallback(
+    (run: Run) => {
+      const tape = tapesRef.current[run.symbol]
+      if (!tape || tape.interval !== deskRef.current.timeframe || tape.range !== deskRef.current.range) return
+      setOutcomes((prev) => ({ ...prev, [run.id]: remember(run, tape) }))
+    },
+    [remember],
+  )
 
-  function stageRun(run: Run) {
-    const tape = tapesRef.current[run.symbol]
-    if (!tape || tape.interval !== deskRef.current.timeframe || tape.range !== deskRef.current.range) return
-    setOutcomes((prev) => ({ ...prev, [run.id]: remember(run, tape) }))
-  }
+  const toggleHidden = useCallback(
+    (id: string) => {
+      const run = deskRef.current.runs.find((item) => item.id === id)
+      setDesk((current) => ({
+        ...current,
+        runs: current.runs.map((item) => (item.id === id ? { ...item, hidden: !item.hidden } : item)),
+      }))
+      if (run?.hidden) stageRun(run)
+    },
+    [stageRun],
+  )
 
   function addRun() {
     if (desk.runs.length >= MAX_RUNS) return
@@ -374,32 +387,49 @@ export default function App() {
     }
   }
 
-  function onSort(key: SortKey) {
-    if (sortKey === key) setSortDir((dir) => (dir === "desc" ? "asc" : "desc"))
+  const sortRef = useRef({ key: sortKey, dir: sortDir })
+  sortRef.current = { key: sortKey, dir: sortDir }
+  const onSort = useCallback((key: SortKey) => {
+    const current = sortRef.current
+    if (current.key === key) setSortDir(current.dir === "desc" ? "asc" : "desc")
     else {
       setSortKey(key)
       setSortDir("desc")
     }
-  }
+  }, [])
+
+  const enlarge = useCallback(() => {
+    setDesk((current) => (current.enlarged ? current : { ...current, enlarged: true }))
+  }, [])
+
+  const closeEnlarge = useCallback(() => {
+    setDesk((current) => (current.enlarged ? { ...current, enlarged: false } : current))
+  }, [])
 
   const selectedOutcome = selected ? outcomes[selected.id] : undefined
   const result = selectedOutcome?.ok ? selectedOutcome.result : null
-  const overlays: OverlaySeries[] = desk.runs.flatMap((run, index) => {
-    if (run.hidden) return []
-    const outcome = outcomes[run.id]
-    if (!outcome?.ok) return []
-    return [
-      {
-        id: run.id,
-        name: run.name,
-        color: runColor(index),
-        equity: outcome.result.equity.map((point) => ({ time: point.time, equity: point.equity })),
-      },
-    ]
-  })
+  const overlays = useMemo<OverlaySeries[]>(
+    () =>
+      desk.runs.flatMap((run, index) => {
+        if (run.hidden) return []
+        const outcome = outcomes[run.id]
+        if (!outcome?.ok) return []
+        return [
+          {
+            id: run.id,
+            name: run.name,
+            color: runColor(index),
+            equity: outcome.result.equity.map((point) => ({ time: point.time, equity: point.equity })),
+          },
+        ]
+      }),
+    [desk.runs, outcomes],
+  )
   const phrase = phraseFor(desk.timeframe)
   const activeTape = selected ? tapes[selected.symbol] : undefined
   const tapeReady = Boolean(activeTape && activeTape.interval === desk.timeframe && activeTape.range === desk.range)
+  const visibleCandles = tapeReady && activeTape ? activeTape.candles : EMPTY_CANDLES
+  const visibleTrades = result?.trades ?? EMPTY_TRADES
 
   return (
     <div className="min-h-svh pb-24 lg:pb-8">
@@ -461,12 +491,7 @@ export default function App() {
               {selectedOutcome && !selectedOutcome.ok ? (
                 <p className="font-heading text-3xl">{selectedOutcome.error}</p>
               ) : null}
-              <PriceChart
-                candles={activeTape.candles}
-                trades={[]}
-                interval={activeTape.interval}
-                onEnlarge={() => setDesk((current) => ({ ...current, enlarged: true }))}
-              />
+              <PriceChart candles={activeTape.candles} trades={EMPTY_TRADES} interval={activeTape.interval} onEnlarge={enlarge} />
             </div>
           ) : null}
 
@@ -476,11 +501,11 @@ export default function App() {
               outcomes={outcomes}
               selected={selected}
               result={result}
-              candles={tapeReady && activeTape ? activeTape.candles : []}
+              candles={visibleCandles}
               overlays={overlays}
               sortKey={sortKey}
               sortDir={sortDir}
-              onEnlarge={() => setDesk((current) => ({ ...current, enlarged: true }))}
+              onEnlarge={enlarge}
               onSelect={selectRun}
               onToggleHidden={toggleHidden}
               onRemove={removeRun}
@@ -537,12 +562,12 @@ export default function App() {
 
       {desk.enlarged ? (
         <ResearchChart
-          candles={tapeReady && activeTape ? activeTape.candles : []}
-          trades={result?.trades ?? []}
+          candles={visibleCandles}
+          trades={visibleTrades}
           interval={activeTape?.interval ?? desk.timeframe}
           metrics={result?.metrics ?? null}
           runName={selected?.name ?? "Run"}
-          onClose={() => setDesk((current) => ({ ...current, enlarged: false }))}
+          onClose={closeEnlarge}
         />
       ) : null}
     </div>

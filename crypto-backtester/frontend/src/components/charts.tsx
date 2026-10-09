@@ -1,4 +1,4 @@
-import type { ReactNode } from "react"
+import { memo, type ReactNode } from "react"
 import {
   Area,
   CartesianGrid,
@@ -24,7 +24,7 @@ export type OverlaySeries = {
 
 const axisTick = { fill: "#8a8176", fontSize: 11, fontFamily: "IBM Plex Mono, ui-monospace, monospace" }
 
-export function EquityChart({
+export const EquityChart = memo(function EquityChart({
   result,
   overlays,
   selectedId,
@@ -33,8 +33,8 @@ export function EquityChart({
   overlays: OverlaySeries[]
   selectedId: string
 }) {
-  const rows = thinRows(overlayRows(result, overlays), 900)
-  const drawdown = thinRows(result.equity, 900)
+  const rows = thinRows(overlayRows(result, overlays), 480)
+  const drawdown = thinRows(result.equity, 480)
   const selectedSeries = overlays.find((series) => series.id === selectedId)
   const fill = selectedSeries?.color ?? "#e4b15a"
   const headline = selectedSeries
@@ -174,9 +174,9 @@ export function EquityChart({
       <p className="mt-2 font-mono text-[10px] tracking-[0.16em] text-bench uppercase">Drawdown from peak equity</p>
     </div>
   )
-}
+})
 
-export function PriceChart({
+export const PriceChart = memo(function PriceChart({
   candles,
   trades,
   interval,
@@ -187,7 +187,7 @@ export function PriceChart({
   interval: string
   onEnlarge: () => void
 }) {
-  const rows = plotCandles(candles, trades, 700)
+  const rows = plotCandles(candles, trades, 360)
   const domain = priceDomain(candles)
   return (
     <div data-price-summary="" className="flex h-full min-h-0 flex-col">
@@ -258,7 +258,7 @@ export function PriceChart({
       </div>
     </div>
   )
-}
+})
 
 function overlayRows(result: BacktestResult, overlays: OverlaySeries[]) {
   const times = new Set<string>()

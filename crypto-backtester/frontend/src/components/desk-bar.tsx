@@ -66,7 +66,7 @@ export function DeskBar({
           ))}
         </div>
 
-        <div className="flex gap-1" role="group" aria-label="Range">
+        <div className="flex max-w-full shrink-0 gap-1 overflow-x-auto" role="group" aria-label="Range">
           {RANGES.map((item) => (
             <Button
               key={item.id}

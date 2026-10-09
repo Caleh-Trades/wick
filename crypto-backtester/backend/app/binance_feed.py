@@ -89,10 +89,18 @@ def list_usdt_markets() -> list[dict[str, str]]:
     return markets
 
 
+def _binance_span(spec: dict, days: int | None) -> int:
+    """Requested multi-year windows on hourly bars and coarser. Finer bars keep the page cap."""
+    span = span_days(spec, days)
+    if int(spec["seconds"]) < 3600 or not days or days <= 0:
+        return span
+    return max(1, min(int(days), 365 * 12))
+
+
 def load_binance_series(symbol: str, interval: str, days: int | None = None) -> tuple[list[Candle], str]:
     symbol = _require_symbol(symbol)
     spec = get_interval(interval)
-    span = span_days(spec, days)
+    span = _binance_span(spec, days)
     key = f"binance_{symbol}_{interval}_{span}"
     with _lock(key):
         cached = _read_cache(key)

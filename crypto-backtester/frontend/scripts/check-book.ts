@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 
 import { projectLadder, rollingFlow, stepDecimals, streamNames, takerSide, type Print } from "../src/lib/book.ts"
 import { mergeForming } from "../src/lib/forming.ts"
-import { barsLabel, windowNote } from "../src/lib/runs.ts"
+import { barsLabel, rangeDays, windowNote } from "../src/lib/runs.ts"
 import type { TapeCandle } from "../src/lib/types.ts"
 
 const now = Date.parse("2026-10-09T12:00:00Z")
@@ -115,5 +115,26 @@ assert.ok(note)
 assert.match(note!, /1-minute/)
 assert.doesNotMatch(note!, /daily/)
 assert.equal(windowNote("1D", minuteTape), null)
+assert.equal(rangeDays("1Y"), 366)
+assert.equal(rangeDays("2Y"), 732)
+assert.equal(rangeDays("4Y"), 1464)
+assert.equal(rangeDays("6Y"), 2196)
+for (const range of ["2Y", "4Y", "6Y"] as const) {
+  const limited = windowNote(range, minuteTape)
+  assert.ok(limited)
+  assert.match(limited!, /Deepest window/)
+  assert.match(limited!, /1-minute/)
+}
+const sixYearDaily = {
+  interval: "1d",
+  candles: [{ t: 1_700_000_000 }, { t: 1_700_000_000 + 2196 * 86_400 }],
+}
+assert.equal(windowNote("6Y", sixYearDaily), null)
+const shortDaily = windowNote("6Y", {
+  interval: "1d",
+  candles: [{ t: 1_700_000_000 }, { t: 1_700_000_000 + 400 * 86_400 }],
+})
+assert.ok(shortDaily)
+assert.match(shortDaily!, /daily/)
 
 console.log("book ok")

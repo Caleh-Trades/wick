@@ -203,6 +203,9 @@ export const RANGES: { id: RangeId; label: string; days: number }[] = [
   { id: "1M", label: "1M", days: 31 },
   { id: "3M", label: "3M", days: 92 },
   { id: "1Y", label: "1Y", days: 366 },
+  { id: "2Y", label: "2Y", days: 732 },
+  { id: "4Y", label: "4Y", days: 1464 },
+  { id: "6Y", label: "6Y", days: 2196 },
   { id: "All", label: "All", days: 0 },
 ]
 
@@ -474,7 +477,7 @@ function isTimeframe(value: unknown): value is Timeframe {
 }
 
 function isRange(value: unknown): value is RangeId {
-  return value === "1D" || value === "5D" || value === "1M" || value === "3M" || value === "1Y" || value === "All"
+  return RANGES.some((item) => item.id === value)
 }
 
 function browserStorage(): Storage | null {

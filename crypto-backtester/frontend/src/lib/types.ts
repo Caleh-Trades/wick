@@ -105,7 +105,7 @@ export type Candle = {
 
 export type TapeCandle = Candle & { t: number; volume?: number }
 
-export type RangeId = "1D" | "5D" | "1M" | "3M" | "1Y" | "All"
+export type RangeId = "1D" | "5D" | "1M" | "3M" | "1Y" | "2Y" | "4Y" | "6Y" | "All"
 
 export type Timeframe = "1m" | "3m" | "5m" | "15m" | "30m" | "1h" | "4h" | "1d"
 

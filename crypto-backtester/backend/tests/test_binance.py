@@ -184,6 +184,10 @@ def test_candles_route_loads_perp_funding_without_inventing_it(monkeypatch):
 
     monkeypatch.setattr("app.main.load_binance_series", load)
     monkeypatch.setattr("app.main.load_funding", lambda symbol, start, end: (_ for _ in ()).throw(DataUnavailable("down")))
+    monkeypatch.setattr(
+        "app.main.load_kraken_funding",
+        lambda symbol, start, end: (_ for _ in ()).throw(DataUnavailable("kraken down")),
+    )
     response = TestClient(app).get("/api/candles", params={"symbol": "BTCUSDT", "interval": "1h", "days": 1, "venue": "perp"})
     assert response.status_code == 200
     body = response.json()

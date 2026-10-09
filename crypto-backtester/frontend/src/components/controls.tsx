@@ -283,7 +283,7 @@ export function Controls({
         A signal is fixed on the close and filled on the next bar’s open. Slippage stays at 5 bps. Ten basis points is
         0.10%.
         {venue === "perp"
-          ? " Perps size the position with this leverage, up to 20×, deduct funding, and liquidate through a 0.40% maintenance margin."
+          ? " Perps size the position with this leverage, up to 20×, deduct funding, and liquidate through a 0.40% maintenance margin. If Binance history is blocked, candles and funding come from the Kraken USD perpetual."
           : ""}
       </p>
     </form>

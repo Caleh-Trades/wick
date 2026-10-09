@@ -16,6 +16,12 @@ from app.binance_feed import (
     load_funding,
     normalize_venue,
 )
+from app.kraken_perp import (
+    list_kraken_perp_markets,
+    load_kraken_funding,
+    load_kraken_perp_series,
+    load_kraken_perp_tail,
+)
 from app.data import (
     DataUnavailable,
     UnknownInterval,
@@ -31,6 +37,7 @@ from app.schemas import BacktestRequest
 from app.strategies import StrategyError, get_strategy, list_strategies
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger("wick")
 
 app = FastAPI(
     title="Wick",
@@ -70,10 +77,20 @@ def meta() -> dict:
 
 @app.get("/api/markets")
 def markets(venue: str = Query(default="spot", pattern="^(spot|perp)$")) -> dict:
+    venue = normalize_venue(venue)
     try:
-        return {"markets": list_usdt_markets(normalize_venue(venue)), "venue": normalize_venue(venue)}
-    except (DataUnavailable, UnknownSymbol) as exc:
+        listed = list_usdt_markets(venue)
+    except DataUnavailable as exc:
+        if venue != "perp":
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        logger.warning("Binance perp list failed (%s). Using Kraken.", exc)
+        try:
+            listed = list_kraken_perp_markets()
+        except DataUnavailable as kraken_exc:
+            raise HTTPException(status_code=503, detail=str(kraken_exc)) from kraken_exc
+    except UnknownSymbol as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"markets": listed, "venue": venue}
 
 
 @app.get("/api/funding")
@@ -83,7 +100,11 @@ def funding(
     end: int = Query(ge=0),
 ) -> dict:
     try:
-        rates, stale = load_funding(symbol, start, end)
+        try:
+            rates, stale = load_funding(symbol, start, end)
+        except DataUnavailable as exc:
+            logger.warning("Binance funding failed for %s (%s). Using Kraken.", symbol, exc)
+            rates, stale = load_kraken_funding(symbol, start, end)
     except UnknownSymbol as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except DataUnavailable as exc:
@@ -104,11 +125,13 @@ def candles(
     funding_stale = False
     try:
         spec = get_interval(interval)
-        if venue == "perp" or is_binance_symbol(symbol):
+        if venue == "perp":
+            series, source = _perp_history(symbol, interval, days, since)
+        elif is_binance_symbol(symbol):
             if since is None:
-                series, source = load_binance_series(symbol, interval, days, venue=venue)
+                series, source = load_binance_series(symbol, interval, days, venue="spot")
             else:
-                series, source = load_binance_tail(symbol, interval, since, venue=venue)
+                series, source = load_binance_tail(symbol, interval, since, venue="spot")
         elif since is None:
             if days is None:
                 series, source = load_series(symbol, interval)
@@ -118,7 +141,7 @@ def candles(
             series, source = load_tail(symbol, interval, since)
         if venue == "perp" and series:
             try:
-                funding_rates, funding_stale = load_funding(symbol, series[0].time, series[-1].time)
+                funding_rates, funding_stale = _perp_funding(symbol, series[0].time, series[-1].time)
             except DataUnavailable:
                 funding_rates = None
                 funding_stale = True
@@ -174,6 +197,26 @@ def backtest(body: BacktestRequest) -> dict:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     return _serialize(body, strategy.name, source, result)
+
+
+def _perp_history(symbol: str, interval: str, days: int | None, since: int | None) -> tuple[list, str]:
+    try:
+        if since is None:
+            return load_binance_series(symbol, interval, days, venue="perp")
+        return load_binance_tail(symbol, interval, since, venue="perp")
+    except DataUnavailable as exc:
+        logger.warning("Binance perp history failed for %s (%s). Using Kraken.", symbol, exc)
+        if since is None:
+            return load_kraken_perp_series(symbol, interval, days)
+        return load_kraken_perp_tail(symbol, interval, since)
+
+
+def _perp_funding(symbol: str, start: int, end: int) -> tuple[list[dict], bool]:
+    try:
+        return load_funding(symbol, start, end)
+    except DataUnavailable as exc:
+        logger.warning("Binance funding failed for %s (%s). Using Kraken.", symbol, exc)
+        return load_kraken_funding(symbol, start, end)
 
 
 def _validate_request(body: BacktestRequest) -> None:

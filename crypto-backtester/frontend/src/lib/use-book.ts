@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react"
 
-import { projectLadder, rollingFlow, streamNames, takerSide, TAPE_LENGTH, type FlowSide, type Level, type Print } from "@/lib/book"
+import { projectLadder, rollingFlow, streamNames, takerSide, tickerName, TAPE_LENGTH, type FlowSide, type Level, type Print } from "@/lib/book"
 import { barSeconds, mergeForming } from "@/lib/forming"
 import type { TapeCandle, Venue } from "@/lib/types"
 
@@ -8,6 +8,8 @@ const SOCKET_URL: Record<Venue, string> = {
   spot: "wss://data-stream.binance.vision/ws",
   perp: "wss://fstream.binance.com/ws",
 }
+/** Depth on fstream `/ws` is live. Trades and the 24h ticker only arrive on `/market`. */
+const PERP_TAPE_URL = "wss://fstream.binance.com/market/ws"
 const REPAINT_MS = 1000
 const STALE_MS = 3_000
 const SILENCE_MS = 10_000
@@ -26,6 +28,8 @@ export type LiveView = {
   spread: number | null
   mid: number | null
   last: { price: number; side: FlowSide; changed: boolean } | null
+  quote: number | null
+  changePct: number | null
   prints: Print[]
   freshIds: string[]
   delta: number
@@ -44,6 +48,8 @@ const EMPTY: LiveView = {
   spread: null,
   mid: null,
   last: null,
+  quote: null,
+  changePct: null,
   prints: [],
   freshIds: [],
   delta: 0,
@@ -51,128 +57,193 @@ const EMPTY: LiveView = {
   sell: 0,
 }
 
-let view: LiveView = EMPTY
+type BookConn = {
+  key: string
+  symbol: string
+  venue: Venue
+  refs: number
+  depthRefs: number
+  socket: WebSocket | null
+  tapeSocket: WebSocket | null
+  accept: boolean
+  tapeAccept: boolean
+  attempt: number
+  retry: number
+  tapeRetry: number
+  silence: number
+  requestId: number
+  pendingUnsub: number | null
+  pendingSub: number | null
+  tapePending: number | null
+  activeParams: string[]
+  tapeActive: string[]
+  latest: { bids: [string, string][]; asks: [string, string][] } | null
+  prints: Print[]
+  seen: Set<string>
+  sizes: Map<string, number>
+  publishedPrice: number | null
+  sawGood: boolean
+  primed: boolean
+  heardAt: number | null
+  quote: number | null
+  changePct: number | null
+  view: LiveView
+}
+
+const books = new Map<string, BookConn>()
 const listeners = new Set<() => void>()
-let socket: WebSocket | null = null
-let symbol = ""
-let venue: Venue = "spot"
-let accept = false
-let attempt = 0
-let retry = 0
-let silence = 0
-let requestId = 0
-let pendingUnsub: number | null = null
-let pendingSub: number | null = null
-let activeParams: string[] = []
-let latest: { bids: [string, string][]; asks: [string, string][] } | null = null
-let prints: Print[] = []
-let seen = new Set<string>()
-let sizes = new Map<string, number>()
-let publishedPrice: number | null = null
-let sawGood = false
-let primed = false
-let heardAt: number | null = null
 let repaint = 0
 
-function emit(next: LiveView) {
-  view = next
+function bookKey(symbol: string, venue: Venue): string {
+  return `${venue}:${symbol.toUpperCase()}`
+}
+
+function emit() {
   for (const listener of listeners) listener()
 }
 
-function clearBook(nextSymbol: string, status: BookStatus) {
-  latest = null
-  prints = []
-  seen = new Set()
-  sizes = new Map()
-  publishedPrice = null
-  sawGood = false
-  primed = false
-  heardAt = null
-  accept = false
-  emit({ ...EMPTY, symbol: nextSymbol, venue, status })
+function blank(symbol: string, venue: Venue, status: BookStatus): LiveView {
+  return { ...EMPTY, symbol, venue, status }
 }
 
-export function retainBook(next: string | null, nextVenue: Venue = "spot") {
-  const id = (next ?? "").toUpperCase()
-  const venueChanged = nextVenue !== venue
-  if (!id.endsWith("USDT")) {
-    venue = nextVenue
-    symbol = ""
-    clearBook("", "stale")
-    return
-  }
-  if (
-    id === symbol &&
-    !venueChanged &&
-    socket &&
-    (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)
-  ) {
-    return
-  }
-  const previous = activeParams.slice()
-  symbol = id
-  venue = nextVenue
-  clearBook(id, "connecting")
-  if (venueChanged) {
-    dropSocket()
-    openSocket()
-    return
-  }
-  if (!socket || socket.readyState !== WebSocket.OPEN) {
-    openSocket()
-    return
-  }
-  if (previous.length > 0) {
-    const idNum = ++requestId
-    pendingUnsub = idNum
-    pendingSub = null
-    socket.send(JSON.stringify({ method: "UNSUBSCRIBE", params: previous, id: idNum }))
-    return
-  }
-  sendSubscribe()
+function getView(symbol: string | null, venue: Venue): LiveView {
+  const id = (symbol ?? "").toUpperCase()
+  if (!id) return EMPTY
+  return books.get(bookKey(id, venue))?.view ?? blank(id, venue, id.endsWith("USDT") ? "connecting" : "stale")
 }
 
-function dropSocket() {
-  const ws = socket
-  socket = null
-  window.clearTimeout(silence)
-  accept = false
-  activeParams = []
-  pendingSub = null
-  pendingUnsub = null
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    try {
-      ws.close()
-    } catch {
-      /* the next socket replaces it */
-    }
-  } else {
-    ws?.close()
-  }
-}
-
-export function getLive(): LiveView {
-  return view
-}
-
-export function subscribeLive(listener: () => void): () => void {
+function subscribe(listener: () => void): () => void {
   listeners.add(listener)
   return () => listeners.delete(listener)
 }
 
-export function useLiveBook(symbolId: string | null, nextVenue: Venue = "spot"): LiveView {
-  const live = useSyncExternalStore(subscribeLive, getLive, getLive)
-  useEffect(() => {
-    retainBook(symbolId, nextVenue)
-  }, [symbolId, nextVenue])
-  const wanted = (symbolId ?? "").toUpperCase()
-  if (live.symbol !== wanted || live.venue !== nextVenue) {
-    return { ...EMPTY, symbol: wanted, venue: nextVenue, status: wanted.endsWith("USDT") ? "connecting" : "stale" }
+function ensure(symbol: string, venue: Venue): BookConn | null {
+  const id = symbol.toUpperCase()
+  if (!id.endsWith("USDT")) return null
+  const key = bookKey(id, venue)
+  const existing = books.get(key)
+  if (existing) return existing
+  const conn: BookConn = {
+    key,
+    symbol: id,
+    venue,
+    refs: 0,
+    depthRefs: 0,
+    socket: null,
+    tapeSocket: null,
+    accept: false,
+    tapeAccept: false,
+    attempt: 0,
+    retry: 0,
+    tapeRetry: 0,
+    silence: 0,
+    requestId: 0,
+    pendingUnsub: null,
+    pendingSub: null,
+    tapePending: null,
+    activeParams: [],
+    tapeActive: [],
+    latest: null,
+    prints: [],
+    seen: new Set(),
+    sizes: new Map(),
+    publishedPrice: null,
+    sawGood: false,
+    primed: false,
+    heardAt: null,
+    quote: null,
+    changePct: null,
+    view: blank(id, venue, "connecting"),
   }
+  books.set(key, conn)
+  return conn
+}
+
+/** Keep a socket for this contract. Depth stays up while any holder asks for the book. */
+export function holdBook(symbol: string | null, venue: Venue, depth: boolean): () => void {
+  const conn = symbol ? ensure(symbol, venue) : null
+  if (!conn) return () => undefined
+  conn.refs += 1
+  if (depth) conn.depthRefs += 1
+  syncSocket(conn)
+  return () => release(conn, depth)
+}
+
+function release(conn: BookConn, depth: boolean) {
+  conn.refs = Math.max(0, conn.refs - 1)
+  if (depth) conn.depthRefs = Math.max(0, conn.depthRefs - 1)
+  if (conn.refs <= 0) {
+    dropSocket(conn)
+    books.delete(conn.key)
+    emit()
+    return
+  }
+  syncSocket(conn)
+}
+
+function depthParams(conn: BookConn): string[] {
+  if (conn.venue === "perp") {
+    if (conn.depthRefs <= 0) return []
+    return [`${conn.symbol.toLowerCase()}@depth20@100ms`]
+  }
+  if (conn.depthRefs <= 0) return [tickerName(conn.symbol)]
+  return streamNames(conn.symbol, "spot")
+}
+
+function tapeStreamParams(conn: BookConn): string[] {
+  if (conn.venue !== "perp") return []
+  const pair = conn.symbol.toLowerCase()
+  if (conn.depthRefs > 0) return [`${pair}@aggTrade`, tickerName(conn.symbol)]
+  return [tickerName(conn.symbol)]
+}
+
+function syncSocket(conn: BookConn) {
+  if (!repaint) repaint = window.setInterval(republish, REPAINT_MS)
+  const next = depthParams(conn)
+  if (next.length === 0) {
+    if (conn.socket) {
+      const ws = conn.socket
+      conn.socket = null
+      conn.accept = false
+      conn.activeParams = []
+      ws.close()
+    }
+  } else if (!conn.socket || (conn.socket.readyState !== WebSocket.OPEN && conn.socket.readyState !== WebSocket.CONNECTING)) {
+    openSocket(conn)
+  } else if (conn.socket.readyState === WebSocket.OPEN && !sameParams(conn.activeParams, next)) {
+    if (conn.activeParams.length > 0) {
+      const idNum = ++conn.requestId
+      conn.pendingUnsub = idNum
+      conn.pendingSub = null
+      conn.socket.send(JSON.stringify({ method: "UNSUBSCRIBE", params: conn.activeParams, id: idNum }))
+    } else {
+      sendSubscribe(conn)
+    }
+  }
+  syncTape(conn)
+}
+
+function sameParams(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((item, index) => item === right[index])
+}
+
+export function useLiveBook(symbolId: string | null, nextVenue: Venue = "spot"): LiveView {
+  const live = useSyncExternalStore(subscribe, () => getView(symbolId, nextVenue), () => getView(symbolId, nextVenue))
+  useEffect(() => holdBook(symbolId, nextVenue, true), [symbolId, nextVenue])
   return live
 }
 
-export function useFormingCandles(candles: TapeCandle[], interval: string, symbolId: string | null): TapeCandle[] {
+/** Read a slot or favourite quote without opening a second socket. */
+export function useBookView(symbolId: string | null, nextVenue: Venue = "spot"): LiveView {
+  return useSyncExternalStore(subscribe, () => getView(symbolId, nextVenue), () => getView(symbolId, nextVenue))
+}
+
+export function useFormingCandles(
+  candles: TapeCandle[],
+  interval: string,
+  symbolId: string | null,
+  nextVenue: Venue = "spot",
+): TapeCandle[] {
   const [live, setLive] = useState(candles)
   const [fetchedAt, setFetchedAt] = useState(() => Date.now())
   const [source, setSource] = useState(candles)
@@ -184,12 +255,15 @@ export function useFormingCandles(candles: TapeCandle[], interval: string, symbo
   }
 
   useEffect(() => {
-    return subscribeLive(() => {
-      if (!symbolId || getLive().symbol !== symbolId.toUpperCase()) return
-      const next = mergeForming(candles, prints, barSeconds(interval), fetchedAt)
+    return subscribe(() => {
+      const id = symbolId?.toUpperCase()
+      if (!id) return
+      const conn = books.get(bookKey(id, nextVenue))
+      if (!conn) return
+      const next = mergeForming(candles, conn.prints, barSeconds(interval), fetchedAt)
       setLive((current) => (next === candles || sameTail(current, next) ? current : next))
     })
-  }, [candles, fetchedAt, interval, symbolId])
+  }, [candles, fetchedAt, interval, nextVenue, symbolId])
 
   return source !== candles ? candles : live
 }
@@ -202,162 +276,298 @@ function sameTail(left: TapeCandle[], right: TapeCandle[]): boolean {
   return a.t === b.t && a.open === b.open && a.high === b.high && a.low === b.low && a.close === b.close && a.volume === b.volume
 }
 
-function openSocket() {
-  window.clearTimeout(retry)
-  if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return
-  const ws = new WebSocket(SOCKET_URL[venue])
-  socket = ws
+function openSocket(conn: BookConn) {
+  window.clearTimeout(conn.retry)
+  if (conn.socket && (conn.socket.readyState === WebSocket.OPEN || conn.socket.readyState === WebSocket.CONNECTING)) return
+  const ws = new WebSocket(SOCKET_URL[conn.venue])
+  conn.socket = ws
   ws.onopen = () => {
-    if (socket !== ws) return
-    attempt = 0
-    armSilence()
-    sendSubscribe()
-    if (!repaint) repaint = window.setInterval(publish, REPAINT_MS)
+    if (conn.socket !== ws) return
+    conn.attempt = 0
+    armSilence(conn)
+    sendSubscribe(conn)
   }
   ws.onmessage = (event) => {
-    if (socket !== ws) return
-    armSilence()
-    heardAt = Date.now()
-    let payload: Record<string, unknown>
-    try {
-      payload = JSON.parse(String(event.data)) as Record<string, unknown>
-    } catch {
-      return
-    }
-    const nested = payload.data
-    if (nested && typeof nested === "object") payload = nested as Record<string, unknown>
-    if (typeof payload.id === "number") {
-      onAck(payload.id)
-      return
-    }
-    if (!accept || !symbol) return
-    if (typeof payload.s === "string" && payload.s !== symbol) return
-    if (payload.e === "trade" || payload.e === "aggTrade") {
-      takeTrade(payload)
-      return
-    }
-    const bids = Array.isArray(payload.bids) ? payload.bids : Array.isArray(payload.b) ? payload.b : null
-    const asks = Array.isArray(payload.asks) ? payload.asks : Array.isArray(payload.a) ? payload.a : null
-    if (bids && asks) {
-      latest = { bids: bids as [string, string][], asks: asks as [string, string][] }
-      if (!primed) {
-        primed = true
-        publish()
-      }
-    }
+    if (conn.socket !== ws) return
+    handleFrame(conn, String(event.data), "depth")
   }
   ws.onerror = () => ws.close()
   ws.onclose = () => {
-    if (socket !== ws) return
-    socket = null
-    window.clearTimeout(silence)
-    accept = false
-    activeParams = []
-    if (sawGood) emit({ ...view, status: "stale" })
-    const delay = Math.min(30_000, 1000 * 2 ** Math.min(attempt, 5))
-    attempt += 1
-    retry = window.setTimeout(openSocket, delay)
+    if (conn.socket !== ws) return
+    conn.socket = null
+    window.clearTimeout(conn.silence)
+    conn.accept = false
+    conn.activeParams = []
+    if (conn.refs <= 0) return
+    if (conn.sawGood || conn.quote != null) conn.view = { ...conn.view, status: "stale", heardAt: conn.heardAt }
+    emit()
+    const delay = Math.min(30_000, 1000 * 2 ** Math.min(conn.attempt, 5))
+    conn.attempt += 1
+    conn.retry = window.setTimeout(() => {
+      if (conn.refs > 0) openSocket(conn)
+    }, delay)
   }
 }
 
-function sendSubscribe() {
-  if (!socket || socket.readyState !== WebSocket.OPEN || !symbol) return
-  activeParams = streamNames(symbol, venue)
-  const idNum = ++requestId
-  pendingSub = idNum
-  pendingUnsub = null
-  accept = false
-  socket.send(JSON.stringify({ method: "SUBSCRIBE", params: activeParams, id: idNum }))
+function sendSubscribe(conn: BookConn) {
+  if (!conn.socket || conn.socket.readyState !== WebSocket.OPEN) return
+  conn.activeParams = depthParams(conn)
+  if (conn.activeParams.length === 0) return
+  const idNum = ++conn.requestId
+  conn.pendingSub = idNum
+  conn.pendingUnsub = null
+  conn.accept = false
+  conn.socket.send(JSON.stringify({ method: "SUBSCRIBE", params: conn.activeParams, id: idNum }))
 }
 
-function onAck(id: number) {
-  if (id === pendingUnsub) {
-    pendingUnsub = null
-    activeParams = []
-    sendSubscribe()
+function onAck(conn: BookConn, id: number) {
+  if (id === conn.pendingUnsub) {
+    conn.pendingUnsub = null
+    conn.activeParams = []
+    sendSubscribe(conn)
     return
   }
-  if (id === pendingSub) {
-    pendingSub = null
-    accept = true
+  if (id === conn.pendingSub) {
+    conn.pendingSub = null
+    conn.accept = true
   }
 }
 
-function takeTrade(payload: Record<string, unknown>) {
-  if (payload.s !== symbol) return
+function takeTicker(conn: BookConn, payload: Record<string, unknown>) {
+  const price = Number(payload.c)
+  const change = Number(payload.P)
+  if (Number.isFinite(price) && price > 0) conn.quote = price
+  if (Number.isFinite(change)) conn.changePct = change
+}
+
+function takeTrade(conn: BookConn, payload: Record<string, unknown>) {
+  if (payload.s !== conn.symbol) return
   const price = Number(payload.p)
   const size = Number(payload.q)
   const t = Number(payload.T)
   if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(size) || size <= 0 || !Number.isFinite(t)) return
   const tradeId = payload.a ?? payload.t
   const id = tradeId == null ? `${t}|${payload.p}|${payload.q}` : String(tradeId)
-  if (seen.has(id)) return
-  seen.add(id)
-  prints.push({ id, t, side: takerSide(payload.m === true), price, size })
-  if (prints.length > PRINT_MEMORY) {
-    const dropped = prints.splice(0, prints.length - PRINT_MEMORY)
-    for (const print of dropped) seen.delete(print.id)
+  if (conn.seen.has(id)) return
+  conn.seen.add(id)
+  conn.prints.push({ id, t, side: takerSide(payload.m === true), price, size })
+  if (conn.prints.length > PRINT_MEMORY) {
+    const dropped = conn.prints.splice(0, conn.prints.length - PRINT_MEMORY)
+    for (const print of dropped) conn.seen.delete(print.id)
   }
 }
 
-function armSilence() {
-  window.clearTimeout(silence)
-  silence = window.setTimeout(() => socket?.close(), SILENCE_MS)
+function armSilence(conn: BookConn) {
+  window.clearTimeout(conn.silence)
+  conn.silence = window.setTimeout(() => {
+    conn.socket?.close()
+    conn.tapeSocket?.close()
+  }, SILENCE_MS)
 }
 
-function publish() {
-  if (!symbol) return
-  const now = Date.now()
-  const quiet = heardAt == null || now - heardAt > STALE_MS
-  const flow = rollingFlow(prints, now)
-  const tape = prints.slice(-TAPE_LENGTH).reverse()
-  if (!latest || !accept) {
-    if (view.bids.length > 0 || view.asks.length > 0 || sawGood) {
-      emit({ ...view, status: "stale", heardAt, prints: tape, ...flow, freshIds: [] })
-    }
+function dropSocket(conn: BookConn) {
+  window.clearTimeout(conn.retry)
+  window.clearTimeout(conn.tapeRetry)
+  window.clearTimeout(conn.silence)
+  const ws = conn.socket
+  const tape = conn.tapeSocket
+  conn.socket = null
+  conn.tapeSocket = null
+  conn.accept = false
+  conn.tapeAccept = false
+  conn.activeParams = []
+  conn.tapeActive = []
+  conn.pendingSub = null
+  conn.pendingUnsub = null
+  conn.tapePending = null
+  ws?.close()
+  tape?.close()
+}
+
+function syncTape(conn: BookConn) {
+  const next = tapeStreamParams(conn)
+  if (next.length === 0) {
+    closeTape(conn)
     return
   }
-  const ladder = projectLadder(latest.bids, latest.asks, sizes)
+  if (!conn.tapeSocket || (conn.tapeSocket.readyState !== WebSocket.OPEN && conn.tapeSocket.readyState !== WebSocket.CONNECTING)) {
+    openTape(conn)
+    return
+  }
+  if (conn.tapeSocket.readyState !== WebSocket.OPEN) return
+  if (sameParams(conn.tapeActive, next)) return
+  sendTapeSubscribe(conn)
+}
+
+function openTape(conn: BookConn) {
+  window.clearTimeout(conn.tapeRetry)
+  if (conn.tapeSocket && (conn.tapeSocket.readyState === WebSocket.OPEN || conn.tapeSocket.readyState === WebSocket.CONNECTING)) return
+  const ws = new WebSocket(PERP_TAPE_URL)
+  conn.tapeSocket = ws
+  ws.onopen = () => {
+    if (conn.tapeSocket !== ws) return
+    sendTapeSubscribe(conn)
+  }
+  ws.onmessage = (event) => {
+    if (conn.tapeSocket !== ws) return
+    handleFrame(conn, String(event.data), "tape")
+  }
+  ws.onerror = () => ws.close()
+  ws.onclose = () => {
+    if (conn.tapeSocket !== ws) return
+    conn.tapeSocket = null
+    conn.tapeAccept = false
+    conn.tapeActive = []
+    conn.tapePending = null
+    if (conn.refs <= 0 || tapeStreamParams(conn).length === 0) return
+    const delay = Math.min(30_000, 1000 * 2 ** Math.min(conn.attempt, 5))
+    conn.tapeRetry = window.setTimeout(() => {
+      if (conn.refs > 0) openTape(conn)
+    }, delay)
+  }
+}
+
+function sendTapeSubscribe(conn: BookConn) {
+  if (!conn.tapeSocket || conn.tapeSocket.readyState !== WebSocket.OPEN) return
+  const params = tapeStreamParams(conn)
+  if (params.length === 0) return
+  conn.tapeActive = params
+  const idNum = ++conn.requestId
+  conn.tapePending = idNum
+  conn.tapeAccept = false
+  conn.tapeSocket.send(JSON.stringify({ method: "SUBSCRIBE", params, id: idNum }))
+}
+
+function closeTape(conn: BookConn) {
+  window.clearTimeout(conn.tapeRetry)
+  const ws = conn.tapeSocket
+  conn.tapeSocket = null
+  conn.tapeAccept = false
+  conn.tapeActive = []
+  conn.tapePending = null
+  ws?.close()
+}
+
+function handleFrame(conn: BookConn, raw: string, kind: "depth" | "tape") {
+  armSilence(conn)
+  conn.heardAt = Date.now()
+  let payload: Record<string, unknown>
+  try {
+    payload = JSON.parse(raw) as Record<string, unknown>
+  } catch {
+    return
+  }
+  const nested = payload.data
+  if (nested && typeof nested === "object") payload = nested as Record<string, unknown>
+  if (typeof payload.id === "number") {
+    if (kind === "tape") {
+      if (payload.id === conn.tapePending) {
+        conn.tapePending = null
+        conn.tapeAccept = true
+      }
+      return
+    }
+    onAck(conn, payload.id)
+    return
+  }
+  if (kind === "tape" ? !conn.tapeAccept : !conn.accept) return
+  if (typeof payload.s === "string" && payload.s !== conn.symbol) return
+  if (payload.e === "24hrTicker") {
+    takeTicker(conn, payload)
+    return
+  }
+  if (payload.e === "trade" || payload.e === "aggTrade") {
+    takeTrade(conn, payload)
+    return
+  }
+  if (kind !== "depth" || conn.depthRefs <= 0) return
+  const bids = Array.isArray(payload.bids) ? payload.bids : Array.isArray(payload.b) ? payload.b : null
+  const asks = Array.isArray(payload.asks) ? payload.asks : Array.isArray(payload.a) ? payload.a : null
+  if (bids && asks) {
+    conn.latest = { bids: bids as [string, string][], asks: asks as [string, string][] }
+    if (!conn.primed) {
+      conn.primed = true
+      publish(conn)
+    }
+  }
+}
+
+function republish() {
+  let changed = false
+  for (const conn of books.values()) {
+    if (conn.refs <= 0) continue
+    publish(conn, false)
+    changed = true
+  }
+  if (changed) {
+    for (const listener of listeners) listener()
+  }
+}
+
+function publish(conn: BookConn, notify = true) {
+  const now = Date.now()
+  const quiet = conn.heardAt == null || now - conn.heardAt > STALE_MS
+  const flow = rollingFlow(conn.prints, now)
+  const tape = conn.prints.slice(-TAPE_LENGTH).reverse()
+  const quoteFields = { quote: conn.quote, changePct: conn.changePct }
+  if (!conn.latest || !conn.accept || conn.depthRefs <= 0) {
+    if (conn.view.bids.length > 0 || conn.view.asks.length > 0 || conn.sawGood || conn.quote != null) {
+      conn.view = {
+        ...conn.view,
+        ...quoteFields,
+        status: quiet ? "stale" : conn.view.bids.length > 0 ? "connected" : conn.quote != null ? "connected" : "stale",
+        heardAt: conn.heardAt,
+        prints: tape,
+        ...flow,
+        freshIds: [],
+      }
+      if (quiet && (conn.sawGood || conn.view.bids.length > 0)) conn.view = { ...conn.view, status: "stale" }
+    }
+    if (notify) emit()
+    return
+  }
+  const ladder = projectLadder(conn.latest.bids, conn.latest.asks, conn.sizes)
   if (ladder.crossed) {
-    sizes = new Map()
-    sawGood = false
-    emit({
-      ...EMPTY,
-      symbol,
-      venue,
+    conn.sizes = new Map()
+    conn.view = {
+      ...conn.view,
+      ...quoteFields,
       status: "stale",
-      asOf: view.asOf,
-      heardAt,
+      heardAt: conn.heardAt,
       prints: tape,
       ...flow,
-      last: view.last ? { ...view.last, changed: false } : null,
-    })
+      freshIds: [],
+    }
+    if (notify) emit()
     return
   }
   const nextSizes = new Map<string, number>()
   for (const level of ladder.bids) nextSizes.set(`bid:${level.priceKey}`, level.size)
   for (const level of ladder.asks) nextSizes.set(`ask:${level.priceKey}`, level.size)
-  const lastPrint = prints[prints.length - 1]
-  const priceChanged = lastPrint != null && lastPrint.price !== publishedPrice
-  const freshIds = tape.filter((print) => !view.prints.some((row) => row.id === print.id)).map((print) => print.id)
-  sizes = nextSizes
-  if (lastPrint) publishedPrice = lastPrint.price
-  sawGood = true
-  emit({
-    symbol,
-    venue,
+  const lastPrint = conn.prints[conn.prints.length - 1]
+  const priceChanged = lastPrint != null && lastPrint.price !== conn.publishedPrice
+  const freshIds = tape.filter((print) => !conn.view.prints.some((row) => row.id === print.id)).map((print) => print.id)
+  conn.sizes = nextSizes
+  if (lastPrint) conn.publishedPrice = lastPrint.price
+  conn.sawGood = true
+  conn.view = {
+    symbol: conn.symbol,
+    venue: conn.venue,
     status: quiet ? "stale" : "connected",
     asOf: now,
-    heardAt,
+    heardAt: conn.heardAt,
     bids: ladder.bids,
     asks: ladder.asks,
     spread: ladder.spread,
     mid: ladder.mid,
-    last: lastPrint ? { price: lastPrint.price, side: lastPrint.side, changed: priceChanged } : view.last,
+    last: lastPrint ? { price: lastPrint.price, side: lastPrint.side, changed: priceChanged } : conn.view.last,
+    quote: conn.quote,
+    changePct: conn.changePct,
     prints: tape,
     freshIds,
     delta: flow.delta,
     buy: flow.buy,
     sell: flow.sell,
-  })
+  }
+  if (notify) emit()
 }

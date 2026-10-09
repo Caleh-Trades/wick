@@ -1,4 +1,4 @@
-import { memo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react"
+import { memo } from "react"
 import { Eye, EyeOff, Trash2 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -12,8 +12,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { EquityChart, PriceChart, type OverlaySeries } from "@/components/charts"
-import { OrderBook } from "@/components/order-book"
+import { EquityChart, type OverlaySeries } from "@/components/charts"
 import {
   formatFactor,
   formatMoney,
@@ -25,7 +24,7 @@ import {
   tone,
 } from "@/lib/format"
 import { fingerprint, marketById, ruleName, runColor } from "@/lib/runs"
-import type { BacktestResult, Outcome, Run, SortKey, TapeCandle, Venue } from "@/lib/types"
+import type { BacktestResult, Outcome, Run, SortKey, Venue } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 type ResultsProps = {
@@ -33,13 +32,10 @@ type ResultsProps = {
   outcomes: Record<string, Outcome>
   selected: Run
   result: BacktestResult
-  candles: TapeCandle[]
-  interval: string
   venue: Venue
   overlays: OverlaySeries[]
   sortKey: SortKey | null
   sortDir: "asc" | "desc"
-  onEnlarge: () => void
   onSelect: (id: string) => void
   onToggleHidden: (id: string) => void
   onRemove: (id: string) => void
@@ -52,13 +48,10 @@ export const Results = memo(function Results({
   outcomes,
   selected,
   result,
-  candles,
-  interval,
   venue,
   overlays,
   sortKey,
   sortDir,
-  onEnlarge,
   onSelect,
   onToggleHidden,
   onRemove,
@@ -67,18 +60,17 @@ export const Results = memo(function Results({
 }: ResultsProps) {
   const market = marketById(result.symbol, venue)
   const metrics = result.metrics
-  const split = useSplit()
-  const [pane, setPane] = useState<"chart" | "book">("chart")
-  const closed = result.trades.filter((trade) => trade.status === "closed").length
-  const liquidated = result.trades.filter((trade) => trade.status === "liquidated").length
-  const open = result.trades.filter((trade) => trade.status === "open").length
+  const trades = venue === "spot" ? result.trades.filter((trade) => trade.side !== "short") : result.trades
+  const closed = trades.filter((trade) => trade.status === "closed").length
+  const liquidated = trades.filter((trade) => trade.status === "liquidated").length
+  const open = trades.filter((trade) => trade.status === "open").length
   const rows = sortedRows(runs, outcomes, sortKey, sortDir)
   const selectedOutcome = outcomes[selected.id]
   const setupChanged = Boolean(selectedOutcome?.ok && selectedOutcome.fingerprint !== fingerprint(selected))
 
   return (
-    <div className="flex flex-col gap-8">
-      <div>
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      <div className="shrink-0">
         <h2 className="max-w-3xl font-heading text-2xl leading-tight text-balance sm:text-3xl">
           {headline(result, market?.name ?? result.symbol)}
         </h2>
@@ -87,67 +79,11 @@ export const Results = memo(function Results({
         ) : null}
       </div>
 
-      <div className="flex flex-col gap-2">
-        <div className="flex gap-1 xl:hidden" role="tablist" aria-label="Chart or book">
-          <Button
-            type="button"
-            size="xs"
-            variant={pane === "chart" ? "default" : "outline"}
-            className="normal-case tracking-normal"
-            role="tab"
-            aria-selected={pane === "chart"}
-            onClick={() => setPane("chart")}
-          >
-            Chart
-          </Button>
-          <Button
-            type="button"
-            size="xs"
-            variant={pane === "book" ? "default" : "outline"}
-            className="normal-case tracking-normal"
-            role="tab"
-            aria-selected={pane === "book"}
-            onClick={() => setPane("book")}
-          >
-            Book
-          </Button>
-        </div>
-        <div className="grid h-[min(78vh,56rem)] min-h-[32rem] grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_22rem]">
-          <div ref={split.ref} className={cn("flex h-full min-h-0 flex-col", pane === "book" && "hidden xl:flex")}>
-            <div className="min-h-[9rem]" style={{ flex: `${split.share} 1 0%` }}>
-              <PriceChart
-                symbol={selected.symbol}
-                candles={candles}
-                trades={result.trades}
-                interval={interval}
-                venue={venue}
-                onEnlarge={onEnlarge}
-              />
-            </div>
-            <div
-              role="separator"
-              aria-orientation="horizontal"
-              aria-label="Resize price and equity charts"
-              aria-valuemin={22}
-              aria-valuemax={75}
-              aria-valuenow={Math.round(split.share * 100)}
-              tabIndex={0}
-              className="relative z-10 flex h-3 shrink-0 cursor-row-resize items-center before:absolute before:inset-x-0 before:top-1/2 before:h-px before:bg-border"
-              onPointerDown={split.onPointerDown}
-              onPointerMove={split.onPointerMove}
-              onPointerUp={split.onPointerUp}
-              onKeyDown={split.onKeyDown}
-            />
-            <div className="min-h-[11rem]" style={{ flex: `${1 - split.share} 1 0%` }}>
-              <EquityChart result={result} overlays={overlays} selectedId={selected.id} drawToken={drawToken} />
-            </div>
-          </div>
-          <div className={cn("h-full min-h-0", pane === "chart" && "hidden xl:block")}>
-            <OrderBook symbol={selected.symbol} venue={venue} />
-          </div>
-        </div>
+      <div className="min-h-0 flex-[2.6]">
+        <EquityChart result={result} overlays={overlays} selectedId={selected.id} drawToken={drawToken} />
       </div>
 
+      <div className="flex min-h-0 flex-1 flex-col gap-8 overflow-auto">
       <div className="bezel grid grid-cols-2 gap-x-6 gap-y-5 p-4 md:grid-cols-4">
         <Metric label="Total return" value={formatPct(metrics.total_return_pct)} tone={tone(metrics.total_return_pct)} />
         <Metric label="Buy and hold" value={formatPct(metrics.benchmark_return_pct)} tone={tone(metrics.benchmark_return_pct)} />
@@ -209,11 +145,14 @@ export const Results = memo(function Results({
       <div className="bezel p-4">
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
           <h3 className="font-heading text-2xl">Trades</h3>
+          <p className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
+            {venue === "perp" ? "Binance perp" : "Binance spot"}
+          </p>
           <p className="font-mono text-xs text-muted-foreground uppercase">
             {closed} closed{liquidated ? ` · ${liquidated} liquidated` : ""}{open ? ` · ${open} open` : ""}
           </p>
         </div>
-        {result.trades.length === 0 ? (
+        {trades.length === 0 ? (
           <p className="border-t border-border py-6 text-sm text-muted-foreground">
             No round trips. The rule stayed in cash through this window.
           </p>
@@ -231,7 +170,7 @@ export const Results = memo(function Results({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {result.trades.map((trade) => (
+                {trades.map((trade) => (
                   <TableRow key={`${trade.entry_time}-${trade.side}-${trade.status}`}>
                     <TableCell>
                       <Badge variant={trade.side === "long" ? "default" : "secondary"}>
@@ -267,44 +206,10 @@ export const Results = memo(function Results({
           </div>
         )}
       </div>
+      </div>
     </div>
   )
 })
-
-function useSplit(initial = 0.5) {
-  const [share, setShare] = useState(initial)
-  const ref = useRef<HTMLDivElement>(null)
-  const dragging = useRef(false)
-
-  function move(clientY: number) {
-    const stack = ref.current
-    if (!stack) return
-    const rect = stack.getBoundingClientRect()
-    if (rect.height <= 0) return
-    setShare(Math.min(0.75, Math.max(0.22, (clientY - rect.top) / rect.height)))
-  }
-
-  return {
-    share,
-    ref,
-    onPointerDown(event: PointerEvent<HTMLDivElement>) {
-      dragging.current = true
-      event.currentTarget.setPointerCapture(event.pointerId)
-      move(event.clientY)
-    },
-    onPointerMove(event: PointerEvent<HTMLDivElement>) {
-      if (!dragging.current) return
-      move(event.clientY)
-    },
-    onPointerUp() {
-      dragging.current = false
-    },
-    onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-      if (event.key === "ArrowUp") setShare((value) => Math.max(0.22, value - 0.04))
-      if (event.key === "ArrowDown") setShare((value) => Math.min(0.75, value + 0.04))
-    },
-  }
-}
 
 function Comparison({
   rows,

@@ -31,10 +31,14 @@ export type Ladder = {
 
 type RawLevel = { priceKey: string; price: number; size: number }
 
+export function tickerName(symbol: string): string {
+  return `${symbol.toLowerCase()}@ticker`
+}
+
 export function streamNames(symbol: string, venue: "spot" | "perp" = "spot"): string[] {
   const pair = symbol.toLowerCase()
   const trade = venue === "perp" ? "aggTrade" : "trade"
-  return [`${pair}@depth20@100ms`, `${pair}@${trade}`]
+  return [`${pair}@depth20@100ms`, `${pair}@${trade}`, tickerName(symbol)]
 }
 
 /** Binance `m` is true when the buyer is the maker, so the taker sold. */

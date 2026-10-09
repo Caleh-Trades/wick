@@ -38,7 +38,7 @@ export const ResearchChart = memo(function ResearchChart({
   runName: string
   onClose: () => void
 }) {
-  const candles = useFormingCandles(fetched, interval, symbol)
+  const candles = useFormingCandles(fetched, interval, symbol, venue)
   const closeRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const frameRef = useRef<HTMLDivElement>(null)

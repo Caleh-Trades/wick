@@ -95,8 +95,8 @@ export const EquityChart = memo(function EquityChart({
   }, [drawToken])
 
   return (
-    <div className="bezel flex h-full min-h-0 flex-col px-4 py-4 text-foreground sm:px-6 sm:py-5">
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+    <div className="bezel flex h-full min-h-0 flex-col px-4 py-3 text-foreground sm:px-6">
+      <div className="mb-2 flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-[0.65rem] font-semibold tracking-[0.18em] text-bench uppercase">Equity</p>
           <p className="font-mono text-2xl text-[#c56a32] tabular-nums">
@@ -226,7 +226,7 @@ export const PriceChart = memo(function PriceChart({
   venue: Venue
   onEnlarge: () => void
 }) {
-  const shown = useFormingCandles(candles, interval, symbol)
+  const shown = useFormingCandles(candles, interval, symbol, venue)
   const rows = plotCandles(shown, trades, 360)
   const domain = priceDomain(rows)
   const tick = symbol ? marketSpec(symbol, venue)?.tickSize : undefined
@@ -242,10 +242,10 @@ export const PriceChart = memo(function PriceChart({
     )
   }
   return (
-    <div data-price-summary="" className="bezel flex h-full min-h-0 flex-col p-4">
-      <div className="mb-2 flex shrink-0 flex-wrap items-end justify-between gap-3">
+    <div data-price-summary="" className="bezel flex h-full min-h-0 flex-col px-3 py-2">
+      <div className="mb-1 flex shrink-0 flex-wrap items-end justify-between gap-2">
         <div className="flex items-baseline gap-3">
-          <h3 className="font-heading text-2xl">Price</h3>
+          <h3 className="font-heading text-xl">Price</h3>
           <QuotePrice symbol={symbol} venue={venue} close={shown.at(-1)?.close} />
         </div>
         <div className="flex items-center gap-4 font-mono text-[11px] tracking-wide text-muted-foreground uppercase">

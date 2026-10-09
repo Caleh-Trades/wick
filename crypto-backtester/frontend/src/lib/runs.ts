@@ -477,15 +477,15 @@ function clampNum(value: unknown, min: number, max: number, fallback: number): n
   return Math.min(max, Math.max(min, number))
 }
 
-function isTimeframe(value: unknown): value is Timeframe {
+export function isTimeframe(value: unknown): value is Timeframe {
   return TIMEFRAMES.some((item) => item.id === value)
 }
 
-function isRange(value: unknown): value is RangeId {
+export function isRange(value: unknown): value is RangeId {
   return RANGES.some((item) => item.id === value)
 }
 
-function isVenue(value: unknown): value is Venue {
+export function isVenue(value: unknown): value is Venue {
   return value === "spot" || value === "perp"
 }
 

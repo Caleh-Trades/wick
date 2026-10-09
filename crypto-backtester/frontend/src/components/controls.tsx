@@ -261,15 +261,17 @@ export function Controls({
         />
       </Field>
 
-      <Button
-        type="button"
-        variant={selected.allowShort ? "default" : "outline"}
-        aria-pressed={selected.allowShort}
-        className="w-full"
-        onClick={() => patch({ allowShort: !selected.allowShort })}
-      >
-        {selected.allowShort ? "Shorts on" : "Shorts off"}
-      </Button>
+      {venue === "perp" ? (
+        <Button
+          type="button"
+          variant={selected.allowShort ? "default" : "outline"}
+          aria-pressed={selected.allowShort}
+          className="w-full"
+          onClick={() => patch({ allowShort: !selected.allowShort })}
+        >
+          {selected.allowShort ? "Shorts on" : "Shorts off"}
+        </Button>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-2">
         <Button type="submit" disabled={running || problem != null}>
@@ -284,7 +286,7 @@ export function Controls({
         0.10%.
         {venue === "perp"
           ? " Perps size the position with this leverage, up to 20×, deduct funding, and liquidate through a 0.40% maintenance margin. If Binance history is blocked, candles and funding come from the Kraken USD perpetual."
-          : ""}
+          : " Spot stays long or flat."}
       </p>
     </form>
   )

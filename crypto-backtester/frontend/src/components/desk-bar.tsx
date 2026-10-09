@@ -1,6 +1,6 @@
 import { SymbolSelect } from "@/components/symbol-select"
 import { Button } from "@/components/ui/button"
-import { formatClock, formatDay, formatPrice, sourceLabel } from "@/lib/format"
+import { formatClock, formatDay, formatPrice } from "@/lib/format"
 import { RANGES, TIMEFRAMES, barsLabel, marketById, windowNote } from "@/lib/runs"
 import type { MarketId, RangeId, Tape, Timeframe, Venue } from "@/lib/types"
 
@@ -101,7 +101,7 @@ export function DeskBar({
         </div>
 
         <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
-          <span>{tape?.source ? sourceLabel(tape.source) : venue === "perp" ? "Perp" : "Binance spot"}</span>
+          <span>{venue === "perp" ? "Binance perp" : "Binance spot"}</span>
           {tape && last && first ? (
             <>
               <span>{market?.base ?? tape.symbol}</span>

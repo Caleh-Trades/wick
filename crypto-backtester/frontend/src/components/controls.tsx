@@ -83,7 +83,7 @@ export function Controls({
           {runs.map((run, index) => {
             const active = run.id === selected.id
             return (
-              <li key={run.id} className="flex items-center gap-2 border-t border-border transition-[border-color] duration-150 hover:border-[#f0a36a]">
+              <li key={run.id} className="flex items-center gap-2 border-t border-border transition-[border-color] duration-150 hover:border-[#c56a32]">
                 <button
                   type="button"
                   className={`flex min-w-0 flex-1 items-center gap-2 py-2 text-left ${active ? "text-foreground" : "text-muted-foreground"}`}
@@ -210,6 +210,22 @@ export function Controls({
       ) : null}
 
       {problem ? <p className="text-sm text-down">{problem}</p> : null}
+
+      <Field label="Base balance" htmlFor={`${idPrefix}-capital`}>
+        <Input
+          id={`${idPrefix}-capital`}
+          type="number"
+          inputMode="decimal"
+          min={1}
+          max={1_000_000_000}
+          step={100}
+          value={selected.capital}
+          onChange={(event) => {
+            const value = numberOr(event.target.value, selected.capital)
+            patch({ capital: Math.min(1_000_000_000, Math.max(1, value)) })
+          }}
+        />
+      </Field>
 
       <Field label="Fee (bps)" htmlFor={`${idPrefix}-fee`}>
         <Input

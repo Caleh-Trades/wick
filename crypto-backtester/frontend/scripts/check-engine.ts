@@ -20,6 +20,9 @@ function bars(prices: number[]): TapeCandle[] {
 
 const hold = createRun({ rule: "buy_hold", feeBps: 0, name: "Hold" })
 const held = backtest(bars([100, 100, 110, 120, 130]), hold, 365)
+const doubled = backtest(bars([100, 100, 110, 120, 130]), { ...hold, capital: 20_000 }, 365)
+assert.equal(doubled.assumptions.initial_capital, 20_000)
+assert.ok(Math.abs(doubled.metrics.final_equity - held.metrics.final_equity * 2) < 1e-6)
 assert.ok(Math.abs(held.metrics.total_return_pct - 29.93503248375813) < 1e-9)
 for (const point of held.equity) assert.ok(Math.abs(point.equity - point.benchmark) < 1e-9)
 assert.ok(Math.abs((held.trades[0]?.entry_price ?? 0) - 100.05) < 1e-9)

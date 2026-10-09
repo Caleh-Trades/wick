@@ -21,7 +21,7 @@ export function OrderBook({ symbol }: { symbol: string | null }) {
         <p className="inline-flex items-center gap-1.5 font-mono text-[10px] tracking-wide text-muted-foreground uppercase" role="status">
           <span
             className="size-1.5 rounded-full"
-            style={{ background: book.status === "connected" ? "#e6c36a" : book.status === "stale" ? "#e07856" : "#c4a48c" }}
+            style={{ background: book.status === "connected" ? "#e6c36a" : book.status === "stale" ? "#e07856" : "#8d6b56" }}
           />
           <StatusLabel status={book.status} asOf={book.asOf} />
         </p>
@@ -125,10 +125,10 @@ function DeltaRow({ delta, buy, sell, step }: { delta: number; buy: number; sell
         <span className="tracking-wide text-muted-foreground uppercase">60s delta</span>
         <span className={delta > 0 ? "text-up" : delta < 0 ? "text-down" : "text-foreground"}>{signedStep(delta, step)}</span>
       </div>
-      <div className="relative h-2 bg-[#16110d]" aria-hidden="true">
+      <div className="relative h-2 bg-[#f3e6d6]" aria-hidden="true">
         <div className="absolute inset-y-0 right-1/2 bg-[#ff5d73]/70" style={{ width: `${sellWidth}%` }} />
         <div className="absolute inset-y-0 left-1/2 bg-[#3ee0a2]/70" style={{ width: `${buyWidth}%` }} />
-        <div className="absolute -top-0.5 h-3 w-px bg-[#f6eadc]" style={{ left: `${marker}%` }} />
+        <div className="absolute -top-0.5 h-3 w-px bg-[#3c2a22]" style={{ left: `${marker}%` }} />
       </div>
     </div>
   )
@@ -164,7 +164,7 @@ function LevelRow({
     <div
       className={cn(
         "book-row relative border border-transparent px-1 py-0.5 font-mono text-[11px] text-foreground transition-[border-color] duration-150",
-        best && "border-[#f0a36a]",
+        best && "border-[#c56a32]",
         level.changed && (tone === "bid" ? "book-flash-bid" : "book-flash-ask"),
       )}
     >

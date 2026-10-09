@@ -2,7 +2,7 @@
 
 Wick is a local crypto strategy desk. It replays classical rules on spot Bitcoin, Ether, and the other dollar markets, fills each signal on the next bar’s open, and lines each run up against buy and hold.
 
-Costs are part of the test. Fees and slippage are charged on the way in and the way out. Every rule except buy and hold can short when its signal points down. Buy and hold stays long.
+Costs are part of the test. Fees and slippage are charged on the way in and the way out. The base balance starts at $10,000 and can be changed per run. Every rule except buy and hold can short when its signal points down. Buy and hold stays long.
 
 ## Run the API
 

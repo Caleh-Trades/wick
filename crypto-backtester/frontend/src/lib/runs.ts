@@ -206,7 +206,7 @@ export const RANGES: { id: RangeId; label: string; days: number }[] = [
   { id: "All", label: "All", days: 0 },
 ]
 
-export const RUN_COLORS = ["#f0a36a", "#e6c36a", "#e07856", "#d4a08a", "#f6eadc"] as const
+export const RUN_COLORS = ["#c56a32", "#b8860b", "#c45c3e", "#8a5a44", "#3c2a22"] as const
 
 export type DeskState = {
   runs: Run[]
@@ -339,6 +339,7 @@ export function createRun(partial?: Partial<Run>, existing: Run[] = []): Run {
     rule,
     params,
     feeBps: partial?.feeBps ?? 10,
+    capital: clampNum(partial?.capital, 1, 1_000_000_000, 10_000),
     allowShort: partial?.allowShort !== false,
     hidden: partial?.hidden ?? false,
   }
@@ -418,7 +419,7 @@ export function pollIntervalMs(timeframe: Timeframe): number {
 export function fingerprint(run: Run): string {
   const spec = ruleById(normalizeRule(run.rule))
   const fields = (spec?.params ?? []).map((param) => `${param.key}:${run.params[param.key] ?? param.default}`)
-  return [run.symbol, normalizeRule(run.rule), fields.join(","), run.feeBps, run.allowShort ? "short" : "flat"].join("|")
+  return [run.symbol, normalizeRule(run.rule), fields.join(","), run.feeBps, run.capital, run.allowShort ? "short" : "flat"].join("|")
 }
 
 function sanitizeRun(value: unknown): Run | null {
@@ -434,6 +435,7 @@ function sanitizeRun(value: unknown): Run | null {
     rule,
     params: sanitizeParams(raw.params),
     feeBps: clampInt(raw.feeBps, 0, 1000, 10),
+    capital: clampNum(raw.capital, 1, 1_000_000_000, 10_000),
     allowShort: raw.allowShort !== false,
     hidden: Boolean(raw.hidden),
   }

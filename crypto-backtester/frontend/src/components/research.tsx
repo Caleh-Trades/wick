@@ -12,7 +12,7 @@ import type { Metrics, TapeCandle, Trade } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const MIN_BARS = 20
-const axisTick = { fill: "#c4a48c", fontSize: 11, fontFamily: "IBM Plex Mono, ui-monospace, monospace" }
+const axisTick = { fill: "#8d6b56", fontSize: 11, fontFamily: "IBM Plex Mono, ui-monospace, monospace" }
 
 type View = { start: number; end: number }
 type PlotBox = { left: number; top: number; width: number; height: number }
@@ -328,7 +328,7 @@ export const ResearchChart = memo(function ResearchChart({
       <div
         ref={panelRef}
         onTransitionEnd={onPanelTransitionEnd}
-        className="bezel plot-solid fixed flex origin-center flex-col overflow-hidden px-4 py-4 text-[#f6eadc] will-change-transform sm:px-6"
+        className="bezel plot-solid fixed flex origin-center flex-col overflow-hidden px-4 py-4 text-[#3c2a22] will-change-transform sm:px-6"
         style={panelStyle}
       >
         <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
@@ -378,7 +378,7 @@ export const ResearchChart = memo(function ResearchChart({
           >
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={bars} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid vertical={false} stroke="#6a4a34" />
+                <CartesianGrid vertical={false} stroke="#e2cdb8" />
                 <XAxis
                   dataKey="time"
                   tickFormatter={(value) => formatAxis(String(value), interval)}
@@ -405,7 +405,7 @@ export const ResearchChart = memo(function ResearchChart({
             {plot ? <CandleLayer bars={bars} domain={domain} plot={plot} /> : null}
             {boxLeft && boxLeft.width > 0 ? (
               <div
-                className="pointer-events-none absolute border border-[#f0a36a] bg-[#f0a36a]/15"
+                className="pointer-events-none absolute border border-[#c56a32] bg-[#c56a32]/15"
                 style={{ left: boxLeft.left, top: boxLeft.top, width: boxLeft.width, height: boxLeft.height }}
               />
             ) : null}
@@ -425,14 +425,14 @@ export const ResearchChart = memo(function ResearchChart({
                 <Tooltip
                   content={({ active, payload, label }) =>
                     active ? (
-                      <div className="border border-border bg-[#2a1c14] px-3 py-2 font-mono text-xs text-[#f6eadc]">
+                      <div className="border border-border bg-[#fffaf4] px-3 py-2 font-mono text-xs text-[#3c2a22]">
                         <div className="text-[10px] tracking-wide uppercase opacity-70">{label ? formatStamp(String(label), interval) : ""}</div>
                         <div>Volume {formatVolume(numberFrom(payload, "volume") ?? 0)}</div>
                       </div>
                     ) : null
                   }
                 />
-                <Bar dataKey="volume" fill="#c4a48c" isAnimationActive={false} />
+                <Bar dataKey="volume" fill="#8d6b56" isAnimationActive={false} />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -508,7 +508,7 @@ function CandleLayer({ bars, domain, plot }: { bars: PlotBar[]; domain: [number,
       <path d={upBodies} fill="#3ee0a2" />
       <path d={downBodies} fill="#ff5d73" />
       {marks.map((mark, index) => (
-        <circle key={index} cx={mark.x} cy={mark.y} r={3.5} fill={mark.fill} stroke="#16110d" strokeWidth={1} />
+        <circle key={index} cx={mark.x} cy={mark.y} r={3.5} fill={mark.fill} stroke="#f3e6d6" strokeWidth={1} />
       ))}
     </svg>
   )
@@ -528,7 +528,7 @@ function CandleTip({
   const bar = payload?.[0]?.payload
   if (!active || !bar || label == null) return null
   return (
-    <div className="border border-border bg-[#2a1c14] px-3 py-2 font-mono text-xs text-[#f6eadc]">
+    <div className="border border-border bg-[#fffaf4] px-3 py-2 font-mono text-xs text-[#3c2a22]">
       <div className="mb-1 text-[10px] tracking-wide uppercase opacity-70">{formatStamp(String(label), interval)}</div>
       <div>O {formatPrice(bar.open)}</div>
       <div>H {formatPrice(bar.high)}</div>

@@ -12,6 +12,10 @@ export function backtest(candles: TapeCandle[], run: Run, periodsPerYear: number
   if (run.feeBps < 0 || run.feeBps > 1_000) {
     throw new Error("Fees have to be between 0 and 1000 basis points.")
   }
+  const capital = run.capital
+  if (!(capital > 0) || capital > 1_000_000_000) {
+    throw new Error("Base balance has to sit between 1 and 1,000,000,000.")
+  }
   const rule = normalizeRule(run.rule)
   const params = resolveRunParams({ ...run, rule })
   const signals = buildSignals(rule, candles, params)
@@ -19,11 +23,11 @@ export function backtest(candles: TapeCandle[], run: Run, periodsPerYear: number
   const slip = SLIPPAGE_BPS / 10_000
   const simStart = 1
   const hi = candles.length - 1
-  const bench = benchmark(candles, simStart, hi, INITIAL_CAPITAL, fee, slip)
-  const account = new Account(INITIAL_CAPITAL, fee)
+  const bench = benchmark(candles, simStart, hi, capital, fee, slip)
+  const account = new Account(capital, fee)
   const equity: EquityPoint[] = []
   const trades: Trade[] = []
-  let peak = INITIAL_CAPITAL
+  let peak = capital
   let exposed = 0
   let open: OpenTrade | null = null
 
@@ -74,7 +78,7 @@ export function backtest(candles: TapeCandle[], run: Run, periodsPerYear: number
     equity.push({
       time: bar.time,
       equity: marked,
-      benchmark: bench[index] ?? INITIAL_CAPITAL,
+      benchmark: bench[index] ?? capital,
       drawdown_pct: peak ? ((marked - peak) / peak) * 100 : 0,
       price: bar.close,
     })
@@ -101,7 +105,7 @@ export function backtest(candles: TapeCandle[], run: Run, periodsPerYear: number
   }
 
   const window = candles.slice(simStart, hi + 1)
-  const metrics = measure(equity, trades, INITIAL_CAPITAL, exposed, periodsPerYear)
+  const metrics = measure(equity, trades, capital, exposed, periodsPerYear)
   const first = window[0]
   const last = window[window.length - 1]
   return {
@@ -119,7 +123,7 @@ export function backtest(candles: TapeCandle[], run: Run, periodsPerYear: number
       fill: "next_open",
       fee_bps: run.feeBps,
       slippage_bps: SLIPPAGE_BPS,
-      initial_capital: INITIAL_CAPITAL,
+      initial_capital: capital,
       allow_short: allowShort,
     },
     metrics,

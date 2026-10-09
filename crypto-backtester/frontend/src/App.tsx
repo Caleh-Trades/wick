@@ -198,7 +198,7 @@ export default function App() {
     }
     deskRef.current = updated
     setDesk(updated)
-    if (prev && prev.allowShort !== next.allowShort) {
+    if (prev && (prev.allowShort !== next.allowShort || prev.capital !== next.capital)) {
       const tape = tapesRef.current[next.symbol]
       if (tape && tape.interval === updated.timeframe && tape.range === updated.range) {
         setOutcomes((current) => ({ ...current, [next.id]: remember(next, tape) }))
@@ -316,6 +316,7 @@ export default function App() {
         rule: source.rule,
         params: { ...source.params },
         feeBps: source.feeBps,
+        capital: source.capital,
         allowShort: source.allowShort,
       },
       desk.runs,
@@ -537,7 +538,7 @@ export default function App() {
         </section>
       </main>
 
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-[#2a1c14]/90 p-3 lg:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-[#fffaf4]/90 p-3 lg:hidden">
         <Sheet
           open={setupOpen}
           onOpenChange={(open) => {

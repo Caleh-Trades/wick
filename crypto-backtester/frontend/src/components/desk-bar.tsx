@@ -43,7 +43,7 @@ export function DeskBar({
       <div className="mx-auto flex max-w-[1440px] flex-wrap items-center gap-x-4 gap-y-3 px-4 py-3">
         <div className="flex items-center gap-2">
           <CandleMark />
-          <h1 className="font-mono text-sm tracking-[0.32em] text-[#f0a36a] uppercase">Wick</h1>
+          <h1 className="font-mono text-sm tracking-[0.32em] text-[#c56a32] uppercase">Wick</h1>
         </div>
 
         {symbol ? (
@@ -127,7 +127,7 @@ function LiveClock() {
 
 function CandleMark() {
   return (
-    <svg viewBox="0 0 32 32" className="size-6 text-[#f0a36a]" aria-hidden="true">
+    <svg viewBox="0 0 32 32" className="size-6 text-[#c56a32]" aria-hidden="true">
       <line x1="16" y1="4" x2="16" y2="28" stroke="currentColor" strokeWidth="1" />
       <rect x="12" y="10" width="8" height="12" fill="none" stroke="currentColor" strokeWidth="1" />
     </svg>

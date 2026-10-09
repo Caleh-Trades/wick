@@ -70,14 +70,9 @@ export const Results = memo(function Results({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
-      <div className="shrink-0">
-        <h2 className="max-w-3xl font-heading text-2xl leading-tight text-balance sm:text-3xl">
-          {headline(result, market?.name ?? result.symbol)}
-        </h2>
-        {setupChanged ? (
-          <p className="mt-2 text-sm text-muted-foreground">This setup is newer than the last pass. Run it again to refresh.</p>
-        ) : null}
-      </div>
+      {setupChanged ? (
+        <p className="shrink-0 text-sm text-muted-foreground">This setup is newer than the last pass. Run it again to refresh.</p>
+      ) : null}
 
       <div className="min-h-0 flex-[2.6]">
         <EquityChart result={result} overlays={overlays} selectedId={selected.id} drawToken={drawToken} />
@@ -404,22 +399,6 @@ function sortValue(row: ComparisonRow, key: SortKey): number | null {
   if (key === "win_rate_pct") return metrics.win_rate_pct
   if (key === "cagr_pct") return metrics.cagr_pct
   return metrics.trades
-}
-
-function headline(result: BacktestResult, asset: string): string {
-  const name = result.strategy.name
-  const total = formatPct(result.metrics.total_return_pct)
-  const excess = result.metrics.excess_return_pct
-  if (result.strategy.id === "buy_hold") {
-    return `${asset} bought and held finished ${total}.`
-  }
-  if (excess > 0.05) {
-    return `On ${asset}, ${name} finished ${total}, ahead of buy and hold by ${formatPct(excess)}.`
-  }
-  if (excess < -0.05) {
-    return `On ${asset}, ${name} finished ${total}, trailing buy and hold by ${formatPct(Math.abs(excess)).replace("+", "")}.`
-  }
-  return `On ${asset}, ${name} finished ${total}, about even with buy and hold.`
 }
 
 function Metric({

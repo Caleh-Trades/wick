@@ -12,8 +12,8 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { EquityChart, type OverlaySeries } from "@/components/charts"
-import { MarketPane } from "@/components/market-pane"
+import { EquityChart, PriceChart, type OverlaySeries } from "@/components/charts"
+import { OrderBook } from "@/components/order-book"
 import {
   formatFactor,
   formatMoney,
@@ -66,6 +66,7 @@ export const Results = memo(function Results({
   const market = marketById(result.symbol)
   const metrics = result.metrics
   const split = useSplit()
+  const [pane, setPane] = useState<"chart" | "book">("chart")
   const closed = result.trades.filter((trade) => trade.status === "closed").length
   const open = result.trades.length - closed
   const rows = sortedRows(runs, outcomes, sortKey, sortDir)
@@ -83,32 +84,63 @@ export const Results = memo(function Results({
         ) : null}
       </div>
 
-      <div ref={split.ref} className="flex h-[min(72vh,52rem)] min-h-[28rem] flex-col">
-        <div className="min-h-[9rem]" style={{ flex: `${split.share} 1 0%` }}>
-          <MarketPane
-            symbol={selected.symbol}
-            candles={candles}
-            trades={result.trades}
-            interval={interval}
-            onEnlarge={onEnlarge}
-          />
+      <div className="flex flex-col gap-2">
+        <div className="flex gap-1 xl:hidden" role="tablist" aria-label="Chart or book">
+          <Button
+            type="button"
+            size="xs"
+            variant={pane === "chart" ? "default" : "outline"}
+            className="normal-case tracking-normal"
+            role="tab"
+            aria-selected={pane === "chart"}
+            onClick={() => setPane("chart")}
+          >
+            Chart
+          </Button>
+          <Button
+            type="button"
+            size="xs"
+            variant={pane === "book" ? "default" : "outline"}
+            className="normal-case tracking-normal"
+            role="tab"
+            aria-selected={pane === "book"}
+            onClick={() => setPane("book")}
+          >
+            Book
+          </Button>
         </div>
-        <div
-          role="separator"
-          aria-orientation="horizontal"
-          aria-label="Resize price and equity charts"
-          aria-valuemin={22}
-          aria-valuemax={75}
-          aria-valuenow={Math.round(split.share * 100)}
-          tabIndex={0}
-          className="relative z-10 flex h-3 shrink-0 cursor-row-resize items-center before:absolute before:inset-x-0 before:top-1/2 before:h-px before:bg-border"
-          onPointerDown={split.onPointerDown}
-          onPointerMove={split.onPointerMove}
-          onPointerUp={split.onPointerUp}
-          onKeyDown={split.onKeyDown}
-        />
-        <div className="min-h-[11rem]" style={{ flex: `${1 - split.share} 1 0%` }}>
-          <EquityChart result={result} overlays={overlays} selectedId={selected.id} drawToken={drawToken} />
+        <div className="grid h-[min(78vh,56rem)] min-h-[32rem] grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_22rem]">
+          <div ref={split.ref} className={cn("flex h-full min-h-0 flex-col", pane === "book" && "hidden xl:flex")}>
+            <div className="min-h-[9rem]" style={{ flex: `${split.share} 1 0%` }}>
+              <PriceChart
+                symbol={selected.symbol}
+                candles={candles}
+                trades={result.trades}
+                interval={interval}
+                onEnlarge={onEnlarge}
+              />
+            </div>
+            <div
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="Resize price and equity charts"
+              aria-valuemin={22}
+              aria-valuemax={75}
+              aria-valuenow={Math.round(split.share * 100)}
+              tabIndex={0}
+              className="relative z-10 flex h-3 shrink-0 cursor-row-resize items-center before:absolute before:inset-x-0 before:top-1/2 before:h-px before:bg-border"
+              onPointerDown={split.onPointerDown}
+              onPointerMove={split.onPointerMove}
+              onPointerUp={split.onPointerUp}
+              onKeyDown={split.onKeyDown}
+            />
+            <div className="min-h-[11rem]" style={{ flex: `${1 - split.share} 1 0%` }}>
+              <EquityChart result={result} overlays={overlays} selectedId={selected.id} drawToken={drawToken} />
+            </div>
+          </div>
+          <div className={cn("h-full min-h-0", pane === "chart" && "hidden xl:block")}>
+            <OrderBook symbol={selected.symbol} />
+          </div>
         </div>
       </div>
 

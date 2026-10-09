@@ -10,6 +10,7 @@ import {
   YAxis,
 } from "recharts"
 
+import { QuotePrice } from "@/components/quote-price"
 import { Button } from "@/components/ui/button"
 import { formatAxis, formatCompactMoney, formatMoney, formatPct, formatPrice, formatStamp } from "@/lib/format"
 import { plotCandles, priceDomain, thinRows } from "@/lib/plot"
@@ -227,7 +228,10 @@ export const PriceChart = memo(function PriceChart({
   if (shown.length === 0) {
     return (
       <div data-price-summary="" className="bezel flex h-full min-h-0 flex-col p-4">
-        <h3 className="font-heading text-2xl">Price</h3>
+        <div className="flex items-baseline gap-3">
+          <h3 className="font-heading text-2xl">Price</h3>
+          <QuotePrice symbol={symbol} />
+        </div>
         <p className="mt-6 text-sm text-muted-foreground">Waiting for bars.</p>
       </div>
     )
@@ -235,7 +239,10 @@ export const PriceChart = memo(function PriceChart({
   return (
     <div data-price-summary="" className="bezel flex h-full min-h-0 flex-col p-4">
       <div className="mb-2 flex shrink-0 flex-wrap items-end justify-between gap-3">
-        <h3 className="font-heading text-2xl">Price</h3>
+        <div className="flex items-baseline gap-3">
+          <h3 className="font-heading text-2xl">Price</h3>
+          <QuotePrice symbol={symbol} close={shown.at(-1)?.close} />
+        </div>
         <div className="flex items-center gap-4 font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
           <span>Close</span>
           <span className="text-up">Entry</span>

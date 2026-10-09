@@ -2,6 +2,7 @@ import { memo, startTransition, useEffect, useLayoutEffect, useMemo, useRef, use
 import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 import { X } from "lucide-react"
 
+import { QuotePrice } from "@/components/quote-price"
 import { Button } from "@/components/ui/button"
 import { formatAxis, formatPct, formatPlainPct, formatPrice, formatStamp, formatStat, tone } from "@/lib/format"
 import { barsLabel } from "@/lib/runs"
@@ -332,7 +333,10 @@ export const ResearchChart = memo(function ResearchChart({
       >
         <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-[0.65rem] font-semibold tracking-[0.18em] text-bench uppercase">Price · {runName}</p>
+            <p className="flex flex-wrap items-baseline gap-3 text-[0.65rem] font-semibold tracking-[0.18em] text-bench uppercase">
+              <span>Price · {runName}</span>
+              <QuotePrice symbol={symbol} close={candles.at(-1)?.close} />
+            </p>
             <p className="mt-1 font-mono text-[11px] tracking-wide text-bench uppercase">
               {barsLabel(interval, candles.length)}
               {windowStart && windowEnd ? ` · ${formatStamp(windowStart.time, interval)} – ${formatStamp(windowEnd.time, interval)}` : ""}

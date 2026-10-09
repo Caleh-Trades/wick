@@ -487,7 +487,7 @@ export default function App() {
           ) : null}
 
           {!result && selected ? (
-            <div className="flex h-[42vh] min-h-[16rem] flex-col gap-4">
+            <div className="flex h-[min(72vh,48rem)] min-h-[24rem] flex-col gap-4">
               {loading && !tapeReady ? (
                 <p className="text-sm text-muted-foreground">Pulling the {phrase} tape. The first look at a pair can take a few seconds.</p>
               ) : null}

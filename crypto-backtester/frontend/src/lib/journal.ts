@@ -1,9 +1,12 @@
 import type { BotOp } from "./bot-edits.ts"
 import { normalizeSymbol } from "./markets.ts"
-import { ruleName } from "./runs.ts"
+import { isRange, isTimeframe, isVenue, normalizeRule, ruleName } from "./runs.ts"
+import type { RunParams, Venue } from "./types.ts"
 
 const KEY = "wick-journal"
+const KEPT_KEY = "wick-kept"
 const MAX_ENTRIES = 200
+const MAX_KEPT = 40
 const MAX_STRATEGY = 48
 
 export type JournalSide = "buy" | "sell"
@@ -12,12 +15,43 @@ export type JournalEntry = {
   id: string
   time: string
   symbol: string
+  venue: Venue
   side: JournalSide
   price: number
   size: number
   strategy: string
   exitPrice: number | null
   note: string
+}
+
+export type KeptMetrics = {
+  total_return_pct: number
+  cagr_pct: number | null
+  max_drawdown_pct: number
+  sharpe: number | null
+  win_rate_pct: number | null
+  profit_factor: number | null
+  trades: number
+  final_equity: number
+}
+
+export type KeptRun = {
+  id: string
+  time: string
+  name: string
+  symbol: string
+  venue: Venue
+  timeframe: string
+  range: string
+  rule: string
+  params: RunParams
+  combo: { rule: string; params: RunParams }[]
+  feeBps: number
+  capital: number
+  leverage: number
+  riskPct: number
+  allowShort: boolean
+  metrics: KeptMetrics
 }
 
 export type StrategyStat = {
@@ -98,6 +132,7 @@ export function logTrade(input: {
   side: string
   price: number
   size: number
+  venue?: string
   strategy?: string
   exitPrice?: number | null
   note?: string
@@ -116,6 +151,7 @@ export function logTradeOp(op: BotOp): boolean {
       side: typeof op.side === "string" ? op.side : "",
       price: Number(op.price),
       size: Number(op.size),
+      venue: typeof op.venue === "string" ? op.venue : "spot",
       strategy: typeof op.strategy === "string" ? op.strategy : "",
       exitPrice: exitFromOp(op),
       note: typeof op.note === "string" ? op.note : "",
@@ -165,6 +201,7 @@ function sanitize(value: unknown): JournalEntry | null {
     side: typeof raw.side === "string" ? raw.side : "",
     price: Number(raw.price),
     size: Number(raw.size),
+    venue: typeof raw.venue === "string" ? raw.venue : "spot",
     strategy: typeof raw.strategy === "string" ? raw.strategy : "",
     exitPrice: raw.exitPrice,
     note: typeof raw.note === "string" ? raw.note : "",
@@ -178,6 +215,7 @@ function entryFromFields(input: {
   side: string
   price: number
   size: number
+  venue?: string
   strategy?: string
   exitPrice?: number | null
   note?: string
@@ -193,6 +231,7 @@ function entryFromFields(input: {
     time,
     symbol,
     side,
+    venue: asVenue(input.venue),
     price: input.price,
     size: input.size,
     strategy: asStrategy(input.strategy),
@@ -228,4 +267,141 @@ function asExit(value: number | null | undefined): number | null {
   if (value == null) return null
   const number = Number(value)
   return number > 0 ? number : null
+}
+
+function asVenue(value: string | undefined): Venue {
+  return isVenue(value) ? value : "spot"
+}
+
+const keptListeners = new Set<Listener>()
+let kept: KeptRun[] | null = null
+
+export function keptRuns(): KeptRun[] {
+  if (kept) return kept
+  kept = loadKept()
+  return kept
+}
+
+export function watchKept(listener: Listener): () => void {
+  keptListeners.add(listener)
+  return () => keptListeners.delete(listener)
+}
+
+export function keepRun(input: Omit<KeptRun, "id" | "time"> & { id?: string; time?: string }): KeptRun | null {
+  const row = sanitizeKept(input)
+  if (!row) return null
+  const next = [row, ...keptRuns().filter((item) => item.id !== row.id)]
+  commitKept(next)
+  return row
+}
+
+export function removeKeptRun(id: string): void {
+  commitKept(keptRuns().filter((item) => item.id !== id))
+}
+
+function commitKept(next: KeptRun[]): void {
+  kept = next.slice(0, MAX_KEPT)
+  try {
+    localStorage.setItem(KEPT_KEY, JSON.stringify(kept))
+  } catch {
+    /* the list still shows for this visit */
+  }
+  for (const listener of keptListeners) listener()
+}
+
+function loadKept(): KeptRun[] {
+  try {
+    const raw = localStorage.getItem(KEPT_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.map(sanitizeKept).filter((row) => row != null).slice(0, MAX_KEPT)
+  } catch {
+    return []
+  }
+}
+
+function sanitizeKept(value: unknown): KeptRun | null {
+  if (!value || typeof value !== "object") return null
+  const raw = value as Partial<KeptRun>
+  const symbol = asSymbol(typeof raw.symbol === "string" ? raw.symbol : "")
+  const venue = asVenue(typeof raw.venue === "string" ? raw.venue : "")
+  const timeframe = typeof raw.timeframe === "string" && isTimeframe(raw.timeframe) ? raw.timeframe : null
+  const range = typeof raw.range === "string" && isRange(raw.range) ? raw.range : null
+  const rule = typeof raw.rule === "string" ? normalizeRule(raw.rule) : null
+  const metrics = asMetrics(raw.metrics)
+  if (!symbol || !timeframe || !range || !rule || !metrics) return null
+  const time = typeof raw.time === "string" && !Number.isNaN(Date.parse(raw.time)) ? new Date(raw.time).toISOString() : new Date().toISOString()
+  return {
+    id: typeof raw.id === "string" && raw.id.trim() ? raw.id : crypto.randomUUID(),
+    time,
+    name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim().slice(0, 48) : ruleName(rule),
+    symbol,
+    venue,
+    timeframe,
+    range,
+    rule,
+    params: asParams(raw.params),
+    combo: asCombo(raw.combo, rule),
+    feeBps: clampKept(raw.feeBps, 0, 1000, 10),
+    capital: clampKept(raw.capital, 1, 1_000_000_000, 10_000),
+    leverage: clampKept(raw.leverage, 1, 20, venue === "perp" ? 3 : 1),
+    riskPct: clampKept(raw.riskPct, 0.1, 100, 100),
+    allowShort: venue === "perp" && raw.allowShort !== false,
+    metrics,
+  }
+}
+
+function asMetrics(value: unknown): KeptMetrics | null {
+  if (!value || typeof value !== "object") return null
+  const raw = value as Partial<KeptMetrics>
+  const total = Number(raw.total_return_pct)
+  const drawdown = Number(raw.max_drawdown_pct)
+  const equity = Number(raw.final_equity)
+  const trades = Number(raw.trades)
+  if (!Number.isFinite(total) || !Number.isFinite(drawdown) || !Number.isFinite(equity) || !Number.isFinite(trades)) return null
+  return {
+    total_return_pct: total,
+    cagr_pct: finiteOrNull(raw.cagr_pct),
+    max_drawdown_pct: drawdown,
+    sharpe: finiteOrNull(raw.sharpe),
+    win_rate_pct: finiteOrNull(raw.win_rate_pct),
+    profit_factor: finiteOrNull(raw.profit_factor),
+    trades,
+    final_equity: equity,
+  }
+}
+
+function finiteOrNull(value: unknown): number | null {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
+
+function asParams(value: unknown): RunParams {
+  if (!value || typeof value !== "object") return {}
+  const params: RunParams = {}
+  for (const [key, item] of Object.entries(value)) {
+    const number = Number(item)
+    if (Number.isFinite(number)) params[key] = number
+  }
+  return params
+}
+
+function asCombo(value: unknown, primary: string): { rule: string; params: RunParams }[] {
+  if (!Array.isArray(value)) return []
+  const combo: { rule: string; params: RunParams }[] = []
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue
+    const rule = normalizeRule(String((item as { rule?: unknown }).rule ?? ""))
+    if (!rule || rule === primary || combo.some((row) => row.rule === rule)) continue
+    combo.push({ rule, params: asParams((item as { params?: unknown }).params) })
+    if (combo.length >= 3) break
+  }
+  return combo
+}
+
+function clampKept(value: unknown, min: number, max: number, fallback: number): number {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return fallback
+  return Math.min(max, Math.max(min, number))
 }

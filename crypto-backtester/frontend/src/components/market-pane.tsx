@@ -39,7 +39,7 @@ export function MarketPane({
     observer.observe(node)
     return () => observer.disconnect()
   }, [])
-  const book = rowWidth > 0 ? Math.min(bookWidth, Math.max(160, rowWidth - 300)) : bookWidth
+  const book = fitBook(rowWidth, bookWidth)
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -75,6 +75,18 @@ export function MarketPane({
       </div>
     </div>
   )
+}
+
+/** Leave the chart enough room, and keep the ladder wide enough for price, size, total, and notional. */
+export function fitBook(rowWidth: number, preferred: number): number {
+  if (rowWidth <= 0) return preferred
+  const chartFloor = 180
+  const bookFloor = 240
+  const handle = 12
+  const room = rowWidth - chartFloor - handle
+  const wanted = Math.min(520, Math.max(bookFloor, preferred))
+  if (room >= bookFloor) return Math.min(wanted, room)
+  return Math.max(200, rowWidth - 120 - handle)
 }
 
 function dragBook(event: ReactPointerEvent<HTMLDivElement>, bookWidth: number, onBookWidth: (width: number) => void) {

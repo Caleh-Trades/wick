@@ -5,7 +5,7 @@ import { QuotePrice } from "@/components/quote-price"
 import { Button } from "@/components/ui/button"
 import { formatAxis, formatPrice, formatStamp } from "@/lib/format"
 import { marketSpec } from "@/lib/markets"
-import { plotCandles, priceDomain, type PlotBar } from "@/lib/plot"
+import { plotCandles, priceDomain, spotTrades, type PlotBar } from "@/lib/plot"
 import { useBookView, useFormingCandles } from "@/lib/use-book"
 import type { TapeCandle, Trade, Venue } from "@/lib/types"
 
@@ -35,8 +35,8 @@ export const PriceChart = memo(function PriceChart({
   const shown = useMemo(() => withLivePrice(formed, livePrice), [formed, livePrice])
   const frameRef = useRef<HTMLDivElement>(null)
   const [plot, setPlot] = useState<PlotBox | null>(null)
-  const bars = useMemo(() => plotCandles(shown, trades, 280), [shown, trades])
-  const domain = useMemo(() => priceDomain(shown), [shown])
+  const bars = useMemo(() => plotCandles(shown, spotTrades(trades, venue), 280), [shown, trades, venue])
+  const domain = useMemo(() => priceDomain(bars), [bars])
   const tick = symbol ? marketSpec(symbol, venue)?.tickSize : undefined
 
   useLayoutEffect(() => {
@@ -84,7 +84,7 @@ export const PriceChart = memo(function PriceChart({
         </div>
         <div className="flex items-center gap-3 font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
           <span className="text-up">Long</span>
-          <span className="text-down">Short</span>
+          {venue === "perp" ? <span className="text-down">Short</span> : null}
           <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={onEnlarge}>
             Enlarge
           </Button>
@@ -107,6 +107,7 @@ export const PriceChart = memo(function PriceChart({
               orientation="right"
               domain={domain}
               allowDataOverflow
+              padding={{ top: 0, bottom: 0 }}
               tickFormatter={(value) => formatPrice(Number(value), tick)}
               tick={axisTick}
               axisLine={false}

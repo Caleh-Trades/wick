@@ -118,5 +118,6 @@ function withTotals(levels: RawLevel[], side: "bid" | "ask", previous: Map<strin
       changed: prior !== undefined && prior !== level.size,
     }
   })
+  // Asks are summed from the best price outward, then flipped so the best sits next to the mid.
   return reverse ? summed.reverse() : summed
 }

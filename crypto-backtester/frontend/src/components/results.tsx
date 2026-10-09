@@ -40,6 +40,7 @@ type ResultsProps = {
   onToggleHidden: (id: string) => void
   onRemove: (id: string) => void
   onSort: (key: SortKey) => void
+  onKeep: () => void
   drawToken: number
 }
 
@@ -56,6 +57,7 @@ export const Results = memo(function Results({
   onToggleHidden,
   onRemove,
   onSort,
+  onKeep,
   drawToken,
 }: ResultsProps) {
   const market = marketById(result.symbol, venue)
@@ -198,6 +200,9 @@ export const Results = memo(function Results({
           Risk {riskLabel(result.assumptions.risk_pct)}
           {result.assumptions.funding_stale ? " · Funding stale" : ""}
         </p>
+        <Button type="button" size="xs" variant="outline" className="mt-2 w-fit normal-case tracking-normal" onClick={onKeep}>
+          Keep this run
+        </Button>
       </div>
     </div>
   )
@@ -234,61 +239,65 @@ function Comparison({
         <SortText label="PF" sortKey="profit_factor" active={sortKey} dir={sortDir} onSort={onSort} />
         <SortText label="Trades" sortKey="trades" active={sortKey} dir={sortDir} onSort={onSort} />
       </div>
-      <ul className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto border-t border-border">
-        {rows.map((row) => {
-          const metrics = row.outcome?.ok ? row.outcome.result.metrics : null
-          return (
-            <li key={row.run.id} className={cn("border-b border-border", row.run.hidden && "opacity-60")}>
-              <button type="button" className="flex w-full items-start gap-2 py-2 text-left" onClick={() => onSelect(row.run.id)}>
-                <span className="mt-1 size-2 shrink-0" style={{ backgroundColor: runColor(row.index) }} />
-                <span className="min-w-0 flex-1">
-                  <span className={cn("block truncate text-sm", row.run.id === selectedId && "text-[#c56a32]")}>{row.run.name}</span>
-                  <span className="block font-mono text-[10px] leading-relaxed break-words text-muted-foreground uppercase">
-                    {marketById(row.run.symbol, venue)?.base ?? row.run.symbol}
-                    {" · "}
-                    {strategyLabel(row.run)}
-                    {` · ${riskLabel(row.run.riskPct)} risk`}
-                    {row.run.hidden ? " · hidden" : ""}
-                  </span>
-                  {metrics ? (
-                    <span className="mt-1 grid grid-cols-2 gap-x-2 gap-y-0.5 font-mono text-[11px] tabular-nums">
-                      <Pair label="Return" value={formatPct(metrics.total_return_pct)} className={toneClass(metrics.total_return_pct)} />
-                      <Pair label="Excess" value={formatPct(metrics.excess_return_pct)} className={toneClass(metrics.excess_return_pct)} />
-                      <Pair label="Max DD" value={formatPct(metrics.max_drawdown_pct)} className="text-down" />
-                      <Pair label="Sharpe" value={formatStat(metrics.sharpe)} />
-                      <Pair label="Win" value={formatPlainPct(metrics.win_rate_pct, 0)} />
-                      <Pair
-                        label="PF"
-                        value={formatFactor(metrics.profit_factor, metrics.trades, metrics.win_rate_pct)}
-                      />
-                      <Pair label="CAGR" value={formatPct(metrics.cagr_pct)} />
-                      <Pair label="Trades" value={String(metrics.trades)} />
-                    </span>
-                  ) : (
-                    <span className="mt-1 block text-xs text-muted-foreground">
-                      {row.outcome?.ok === false ? row.outcome.error : "Not run yet."}
-                    </span>
-                  )}
-                </span>
-              </button>
-              <div className="flex justify-end gap-1 pb-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label={row.run.hidden ? `Show ${row.run.name}` : `Hide ${row.run.name}`}
-                  onClick={() => onToggleHidden(row.run.id)}
-                >
-                  {row.run.hidden ? <EyeOff /> : <Eye />}
-                </Button>
-                <Button type="button" variant="ghost" size="icon-xs" aria-label={`Remove ${row.run.name}`} onClick={() => onRemove(row.run.id)}>
-                  <Trash2 />
-                </Button>
-              </div>
-            </li>
-          )
-        })}
-      </ul>
+      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto border-t border-border">
+        <table className="w-full table-fixed border-collapse text-left">
+          <caption className="sr-only">Runs on this tape</caption>
+          <thead className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
+            <tr className="border-b border-border">
+              <th className="w-[34%] py-1 pr-2 font-medium">Run</th>
+              <th className="py-1 pr-2 text-right font-medium">Return</th>
+              <th className="py-1 pr-2 text-right font-medium">Sharpe</th>
+              <th className="py-1 pr-2 text-right font-medium">Win</th>
+              <th className="w-12 py-1 text-right font-medium">Trades</th>
+              <th className="w-14 py-1 font-medium"><span className="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              const metrics = row.outcome?.ok && row.outcome.result.assumptions.venue === venue ? row.outcome.result.metrics : null
+              const base = marketById(row.run.symbol, venue)?.base ?? row.run.symbol
+              return (
+                <tr key={row.run.id} className={cn("border-b border-border align-top", row.run.hidden && "opacity-60")}>
+                  <td className="py-2 pr-2">
+                    <button type="button" className="flex w-full items-start gap-2 text-left" onClick={() => onSelect(row.run.id)}>
+                      <span className="mt-1 size-2 shrink-0" style={{ backgroundColor: runColor(row.index) }} />
+                      <span className="min-w-0">
+                        <span className={cn("block truncate text-sm", row.run.id === selectedId && "text-[#c56a32]")}>{row.run.name}</span>
+                        <span className="block font-mono text-[10px] leading-relaxed break-words text-muted-foreground uppercase">
+                          {base} · {strategyLabel(row.run)}
+                          {row.run.hidden ? " · hidden" : ""}
+                        </span>
+                      </span>
+                    </button>
+                  </td>
+                  <td className={cn("py-2 pr-2 text-right font-mono text-[11px] tabular-nums", metrics ? toneClass(metrics.total_return_pct) : "text-muted-foreground")}>
+                    {metrics ? formatPct(metrics.total_return_pct) : "—"}
+                  </td>
+                  <td className="py-2 pr-2 text-right font-mono text-[11px] tabular-nums">{metrics ? formatStat(metrics.sharpe) : "—"}</td>
+                  <td className="py-2 pr-2 text-right font-mono text-[11px] tabular-nums">{metrics ? formatPlainPct(metrics.win_rate_pct, 0) : "—"}</td>
+                  <td className="py-2 text-right font-mono text-[11px] tabular-nums">{metrics ? metrics.trades : "—"}</td>
+                  <td className="py-1 text-right">
+                    <div className="flex justify-end">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label={row.run.hidden ? `Show ${row.run.name}` : `Hide ${row.run.name}`}
+                        onClick={() => onToggleHidden(row.run.id)}
+                      >
+                        {row.run.hidden ? <EyeOff /> : <Eye />}
+                      </Button>
+                      <Button type="button" variant="ghost" size="icon-xs" aria-label={`Remove ${row.run.name}`} onClick={() => onRemove(row.run.id)}>
+                        <Trash2 />
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
@@ -312,15 +321,6 @@ function SortText({
       {label}
       {on ? (dir === "desc" ? " ↓" : " ↑") : ""}
     </button>
-  )
-}
-
-function Pair({ label, value, className }: { label: string; value: string; className?: string }) {
-  return (
-    <span className="flex justify-between gap-1">
-      <span className="text-muted-foreground">{label}</span>
-      <span className={className}>{value}</span>
-    </span>
   )
 }
 

@@ -1,9 +1,9 @@
 import assert from "node:assert/strict"
 
 import { projectLadder, rollingFlow, stepDecimals, streamNames, takerSide, type Print } from "../src/lib/book.ts"
-import { formatCompact, formatPrice } from "../src/lib/format.ts"
+import { formatBookSize, formatCompact, formatPrice } from "../src/lib/format.ts"
 import { mergeForming } from "../src/lib/forming.ts"
-import { priceDomain } from "../src/lib/plot.ts"
+import { priceDomain, spotTrades } from "../src/lib/plot.ts"
 import { barsLabel, rangeDays, windowNote } from "../src/lib/runs.ts"
 import type { TapeCandle } from "../src/lib/types.ts"
 
@@ -27,7 +27,11 @@ assert.equal(first.bids[1]?.total, 3)
 assert.equal(first.asks[0]?.price, 111)
 assert.equal(first.asks.at(-1)?.price, 110)
 assert.equal(first.asks[0]?.total, 4)
+assert.equal(first.asks.at(-1)?.total, 1)
+assert.equal(first.asks.at(-1)?.notional, 110)
 assert.equal(first.asks[0]?.notional, 333)
+assert.notEqual(formatBookSize(2.5), formatBookSize(2.506))
+assert.equal(formatBookSize(0.006), "0.0060")
 assert.equal(first.bids[0]?.notional, 100)
 assert.equal(first.spread, 10)
 assert.equal(first.mid, 105)
@@ -71,6 +75,21 @@ const pad = (64_000 - 60_000) * 0.04
 assert.ok(Math.abs(axisLow - (60_000 - pad)) < 1e-6)
 assert.ok(Math.abs(axisHigh - (64_000 + pad)) < 1e-6)
 assert.ok(axisLow > 50_000)
+const nearPrice = priceDomain([{ low: 80_000, high: 86_000 }])
+assert.ok(nearPrice[0] > 79_000)
+assert.ok(nearPrice[0] < 80_000)
+assert.ok(nearPrice[1] < 87_000)
+assert.deepEqual(
+  spotTrades(
+    [
+      { side: "long" },
+      { side: "short" },
+    ],
+    "spot",
+  ).map((trade) => trade.side),
+  ["long"],
+)
+assert.equal(spotTrades([{ side: "short" as const }], "perp").length, 1)
 assert.equal(takerSide(true), "sell")
 assert.equal(takerSide(false), "buy")
 

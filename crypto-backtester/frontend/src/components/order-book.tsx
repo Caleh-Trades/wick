@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react"
 
-import { formatClock, formatCompact, formatPrice } from "@/lib/format"
+import { formatBookSize, formatClock, formatCompact, formatPrice } from "@/lib/format"
 import { marketSpec } from "@/lib/markets"
 import { useLiveBook, type BookStatus, type LiveView } from "@/lib/use-book"
 import type { Level } from "@/lib/book"
@@ -12,7 +12,7 @@ export function OrderBook({ symbol, venue }: { symbol: string | null; venue: Ven
   const spec = symbol ? marketSpec(symbol, venue) : undefined
   const tick = spec?.tickSize
   const rows = [...book.asks, ...book.bids]
-  const scale = rows.reduce((max, level) => Math.max(max, level.notional), 0)
+  const scale = rows.reduce((max, level) => Math.max(max, level.price * level.size), 0)
   const showLadder = book.asks.length > 0 && book.bids.length > 0
   const asksRef = useRef<HTMLDivElement>(null)
 
@@ -146,9 +146,11 @@ function DeltaRow({ delta, buy, sell }: { delta: number; buy: number; sell: numb
   )
 }
 
+const LEVEL_GRID = "grid-cols-[minmax(0,1.35fr)_minmax(3.2rem,0.8fr)_minmax(3.4rem,0.9fr)_minmax(3.4rem,0.9fr)]"
+
 function LevelHead() {
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_3.2rem_3.2rem_3.6rem] gap-2 px-1 pb-1 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
+    <div className={cn("grid gap-1.5 px-1 pb-1 font-mono text-[10px] tracking-wide text-muted-foreground uppercase", LEVEL_GRID)}>
       <span>Price</span>
       <span className="text-right">Size</span>
       <span className="text-right">Total</span>
@@ -170,7 +172,8 @@ function LevelRow({
   tick?: string
   best: boolean
 }) {
-  const width = scale > 0 ? Math.min(100, (level.notional / scale) * 100) : 0
+  const notional = level.price * level.size
+  const width = scale > 0 ? Math.min(100, (notional / scale) * 100) : 0
   return (
     <div
       className={cn(
@@ -186,11 +189,11 @@ function LevelRow({
           background: tone === "bid" ? "rgb(62 224 162 / 0.16)" : "rgb(255 93 115 / 0.16)",
         }}
       />
-      <div className="relative grid grid-cols-[minmax(0,1fr)_3.2rem_3.2rem_3.6rem] gap-2">
-        <span className={tone === "bid" ? "text-up" : "text-down"}>{formatPrice(level.price, tick)}</span>
-        <span className="text-right">{formatCompact(level.size)}</span>
-        <span className="text-right text-muted-foreground">{formatCompact(level.total)}</span>
-        <span className="text-right text-muted-foreground">{formatCompact(level.notional)}</span>
+      <div className={cn("relative grid gap-1.5", LEVEL_GRID)}>
+        <span className={cn("truncate", tone === "bid" ? "text-up" : "text-down")}>{formatPrice(level.price, tick)}</span>
+        <span className="text-right tabular-nums">{formatBookSize(level.size)}</span>
+        <span className="text-right text-muted-foreground tabular-nums">{formatBookSize(level.total)}</span>
+        <span className="text-right text-muted-foreground tabular-nums">{formatCompact(notional)}</span>
       </div>
     </div>
   )

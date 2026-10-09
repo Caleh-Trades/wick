@@ -313,6 +313,18 @@ button:hover,
     max-height: 440px;
   }
 
+  .price-split-pair {
+    height: auto !important;
+    max-height: none;
+    min-height: 0;
+  }
+
+  .price-split-pair > div {
+    height: 46vh;
+    min-height: 240px;
+    max-height: 440px;
+  }
+
   .price-plot {
     min-height: 180px;
   }

@@ -6,13 +6,15 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { formatMoney, formatPlainPct, formatPrice, formatSize, formatStamp } from "@/lib/format"
-import { journalEntries, journalStats, logTrade, removeJournalEntry, tradePnl, watchJournal, type JournalEntry, type JournalSide } from "@/lib/journal"
-import { RULES } from "@/lib/runs"
+import { formatMoney, formatPct, formatPlainPct, formatPrice, formatSize, formatStamp, formatStat } from "@/lib/format"
+import { journalEntries, journalStats, keptRuns, logTrade, removeJournalEntry, removeKeptRun, tradePnl, watchJournal, watchKept, type JournalEntry, type JournalSide, type KeptRun } from "@/lib/journal"
+import { RULES, ruleName } from "@/lib/runs"
+import type { Venue } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-export function JournalPage({ symbol }: { symbol: string }) {
+export function JournalPage({ symbol, venue, onRestore }: { symbol: string; venue: Venue; onRestore: (kept: KeptRun) => void }) {
   const [entries, setEntries] = useState(journalEntries)
+  const [kept, setKept] = useState(keptRuns)
   const [market, setMarket] = useState(symbol)
   const [side, setSide] = useState<JournalSide>("buy")
   const [strategy, setStrategy] = useState("none")
@@ -24,6 +26,7 @@ export function JournalPage({ symbol }: { symbol: string }) {
   const stats = useMemo(() => journalStats(entries), [entries])
 
   useEffect(() => watchJournal(() => setEntries(journalEntries())), [])
+  useEffect(() => watchKept(() => setKept(keptRuns())), [])
   useEffect(() => setMarket(symbol), [symbol])
 
   function submit() {
@@ -41,6 +44,7 @@ export function JournalPage({ symbol }: { symbol: string }) {
       side,
       price: Number(price),
       size: Number(size),
+      venue,
       strategy: strategy === "none" ? "" : strategy,
       exitPrice: exit,
       note,
@@ -74,6 +78,19 @@ export function JournalPage({ symbol }: { symbol: string }) {
           <Stat label="Average trade" value={stats.average == null ? "—" : signedMoney(stats.average)} toneName={stats.average == null ? "ink" : moneyTone(stats.average)} />
         </section>
 
+        <section aria-label="Kept runs">
+          <p className="font-mono text-[11px] tracking-wide text-muted-foreground uppercase">Kept runs</p>
+          {kept.length === 0 ? (
+            <p className="mt-2 text-sm text-muted-foreground">Keep a run from the desk. Reopening it restores that symbol, spot or perp, timeframe, rule, fee, and the saved metrics.</p>
+          ) : (
+            <ul className="mt-2 flex flex-col gap-2">
+              {kept.map((row) => (
+                <KeptRow key={row.id} row={row} onRestore={onRestore} />
+              ))}
+            </ul>
+          )}
+        </section>
+
         {stats.strategies.length > 0 ? (
           <section aria-label="By strategy">
             <p className="font-mono text-[11px] tracking-wide text-muted-foreground uppercase">By strategy</p>
@@ -101,7 +118,9 @@ export function JournalPage({ symbol }: { symbol: string }) {
             submit()
           }}
         >
-          <p className="font-mono text-[11px] tracking-wide text-muted-foreground uppercase">Log a trade</p>
+          <p className="font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
+            Log a trade · {venue === "perp" ? "Binance perp" : "Binance spot"}
+          </p>
           <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
             <div className="flex flex-col gap-1">
               <Label htmlFor="journal-symbol">Symbol</Label>
@@ -189,6 +208,7 @@ function TradeRow({ entry }: { entry: JournalEntry }) {
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
           <Badge variant={entry.side === "buy" ? "default" : "secondary"}>{entry.side === "buy" ? "Buy" : "Sell"}</Badge>
           <span className="text-sm">{base}</span>
+          <span className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">{entry.venue === "perp" ? "Perp" : "Spot"}</span>
           {entry.strategy ? <span className="text-sm text-muted-foreground">{entry.strategy}</span> : null}
           <span className="font-mono text-xs tabular-nums text-muted-foreground">
             {formatPrice(entry.price)}
@@ -209,6 +229,43 @@ function TradeRow({ entry }: { entry: JournalEntry }) {
       <Button type="button" variant="ghost" size="icon-xs" aria-label={`Remove ${base} ${entry.side}`} onClick={() => removeJournalEntry(entry.id)}>
         <Trash2 />
       </Button>
+    </li>
+  )
+}
+
+function KeptRow({ row, onRestore }: { row: KeptRun; onRestore: (kept: KeptRun) => void }) {
+  const base = row.symbol.replace(/USDT$/, "")
+  return (
+    <li className="bezel flex items-start justify-between gap-3 px-3 py-2">
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <span className="text-sm">{row.name}</span>
+          <span className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
+            {base} · {row.venue === "perp" ? "Perp" : "Spot"} · {row.timeframe} · {row.range}
+          </span>
+        </div>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {ruleName(row.rule)}
+          {row.combo.length > 0 ? ` + ${row.combo.map((item) => ruleName(item.rule)).join(" + ")}` : ""} · {row.feeBps} bps
+        </p>
+        <p className="mt-1 flex flex-wrap gap-x-3 font-mono text-[11px] tabular-nums text-muted-foreground">
+          <span className={cn(moneyTone(row.metrics.total_return_pct) === "up" && "text-up", moneyTone(row.metrics.total_return_pct) === "down" && "text-down")}>
+            {formatPct(row.metrics.total_return_pct)}
+          </span>
+          <span>Sharpe {formatStat(row.metrics.sharpe)}</span>
+          <span>Win {row.metrics.win_rate_pct == null ? "—" : formatPlainPct(row.metrics.win_rate_pct, 0)}</span>
+          <span>{row.metrics.trades} closed</span>
+          <span>{formatMoney(row.metrics.final_equity, 0)}</span>
+        </p>
+      </div>
+      <div className="flex shrink-0 gap-1">
+        <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={() => onRestore(row)}>
+          Reopen
+        </Button>
+        <Button type="button" variant="ghost" size="icon-xs" aria-label={`Remove kept ${row.name}`} onClick={() => removeKeptRun(row.id)}>
+          <Trash2 />
+        </Button>
+      </div>
     </li>
   )
 }

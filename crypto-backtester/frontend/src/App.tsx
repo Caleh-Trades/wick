@@ -21,14 +21,16 @@ import { fetchCandles, mergeFunding } from "@/lib/api"
 import { ackBotEdits, fetchBotInbox } from "@/lib/bot-api"
 import { applyBotEdits, editConcerns } from "@/lib/bot-edits"
 import { JournalPage } from "@/components/journal"
-import { logTradeOp } from "@/lib/journal"
+import { keepRun, logTradeOp, type KeptRun } from "@/lib/journal"
 import { computeBacktest } from "@/lib/compute"
+import { spotTrades } from "@/lib/plot"
 import { CHART_MAX, CHART_MIN, clampChart, loadPanes, savePanes, type PaneSizes } from "@/lib/panes"
 import {
   MAX_RUNS,
   createRun,
   comboKey,
   fingerprint,
+  normalizeRule,
   phraseFor,
   pollIntervalMs,
   rangeDays,
@@ -48,7 +50,7 @@ import {
   type Slot,
   type Workspace,
 } from "@/lib/workspace"
-import type { MarketId, Outcome, Run, SortKey, Tape, TapeCandle, Trade, Venue } from "@/lib/types"
+import type { MarketId, Outcome, RangeId, Run, SortKey, Tape, TapeCandle, Timeframe, Trade, Venue } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const EMPTY_CANDLES: TapeCandle[] = []
@@ -485,16 +487,64 @@ export default function App() {
     }
   }
 
+  function keepSelected() {
+    if (!active || !selected || !fitsSlot(active, selectedOutcome)) return
+    const metrics = selectedOutcome.result.metrics
+    keepRun({
+      name: selected.name,
+      symbol: active.symbol,
+      venue: active.venue,
+      timeframe: active.timeframe,
+      range: active.range,
+      rule: selected.rule,
+      params: { ...selected.params },
+      combo: (selected.combo ?? []).map((item) => ({ rule: item.rule, params: { ...item.params } })),
+      feeBps: selected.feeBps,
+      capital: selected.capital,
+      leverage: active.venue === "perp" ? selected.leverage : 1,
+      riskPct: selected.riskPct,
+      allowShort: active.venue === "perp" && selected.allowShort,
+      metrics: {
+        total_return_pct: metrics.total_return_pct,
+        cagr_pct: metrics.cagr_pct,
+        max_drawdown_pct: metrics.max_drawdown_pct,
+        sharpe: metrics.sharpe,
+        win_rate_pct: metrics.win_rate_pct,
+        profit_factor: metrics.profit_factor,
+        trades: metrics.trades,
+        final_equity: metrics.final_equity,
+      },
+    })
+    setPage("journal")
+  }
+
+  function restoreKept(kept: KeptRun) {
+    const run = createRun({
+      name: kept.name,
+      symbol: kept.symbol as MarketId,
+      rule: normalizeRule(kept.rule),
+      params: { ...kept.params },
+      combo: kept.combo.map((item) => ({ rule: normalizeRule(item.rule), params: { ...item.params } })),
+      feeBps: kept.feeBps,
+      capital: kept.capital,
+      leverage: kept.venue === "perp" ? kept.leverage : 1,
+      riskPct: kept.riskPct,
+      allowShort: kept.venue === "perp" && kept.allowShort,
+    })
+    setPage("desk")
+    setWorkspace((current) => placeKept(current, kept, run))
+  }
+
   const activeKey = active ? tapeKey(active) : ""
   const activeTape = active ? tapes[activeKey] : undefined
   const selectedOutcome = selected ? outcomes[selected.id] : undefined
-  const result = selectedOutcome?.ok ? selectedOutcome.result : null
+  const result = active && fitsSlot(active, selectedOutcome) ? selectedOutcome.result : null
   const overlays = useMemo<OverlaySeries[]>(() => {
     if (!active) return []
     return active.runs.flatMap((run, index) => {
       if (run.hidden) return []
       const outcome = outcomes[run.id]
-      if (!outcome?.ok) return []
+      if (!fitsSlot(active, outcome)) return []
       return [
         {
           id: run.id,
@@ -534,7 +584,7 @@ export default function App() {
         />
       ) : null}
       {page === "journal" ? (
-        <JournalPage symbol={active?.symbol ?? "BTCUSDT"} />
+        <JournalPage symbol={active?.symbol ?? "BTCUSDT"} venue={active?.venue ?? "spot"} onRestore={restoreKept} />
       ) : (
       <>
       <WorkspaceBar
@@ -554,12 +604,12 @@ export default function App() {
               {error}
             </div>
           ) : null}
-          <div className="price-split flex min-h-0 min-w-0" style={{ flex: `${panes.chart} 1 0%` }}>
+          <div
+            className={cn("price-split flex min-h-0 min-w-0", shown.length > 1 && "price-split-pair flex-col xl:flex-row")}
+            style={{ flex: `${panes.chart} 1 0%` }}
+          >
             {shown.map((slot) => (
-              <div
-                key={slot.id}
-                className={cn("min-h-0 min-w-0 flex-1 p-3", slot.id !== workspace.activeId && "hidden xl:block")}
-              >
+              <div key={slot.id} className="min-h-0 min-w-0 flex-1 p-3">
                 <MarketPane
                   symbol={slot.symbol}
                   candles={tapes[tapeKey(slot)]?.candles ?? EMPTY_CANDLES}
@@ -621,6 +671,7 @@ export default function App() {
                   }))
                 }}
                 onRemove={removeRun}
+                onKeep={keepSelected}
                 onSort={(key) => {
                   if (sortKey === key) setSortDir((dir) => (dir === "desc" ? "asc" : "desc"))
                   else {
@@ -735,10 +786,11 @@ function applySlotPatch(slot: Slot, patch: Partial<Slot>): Slot {
   const symbol = patch.symbol ?? slot.symbol
   const timeframe = patch.timeframe ?? slot.timeframe
   const range = patch.range ?? slot.range
+  const venueChanged = patch.venue != null && patch.venue !== slot.venue
   const runs = (patch.runs ?? slot.runs).map((run) => ({
     ...run,
     symbol,
-    allowShort: venue === "spot" ? false : run.allowShort,
+    allowShort: venue === "spot" ? false : venueChanged ? true : run.allowShort,
   }))
   return { ...slot, ...patch, venue, symbol, timeframe, range, runs }
 }
@@ -747,10 +799,44 @@ function alignRun(run: Run, slot: Pick<Slot, "symbol" | "venue">): Run {
   return { ...run, symbol: slot.symbol, allowShort: slot.venue === "perp" ? run.allowShort !== false : false }
 }
 
+function placeKept(current: Workspace, kept: KeptRun, run: Run): Workspace {
+  const timeframe = kept.timeframe as Timeframe
+  const range = kept.range as RangeId
+  const existing = current.slots.find((slot) => slot.symbol === kept.symbol && slot.venue === kept.venue)
+  if (existing) {
+    const replacing = existing.runs.length >= MAX_RUNS
+    const runs = replacing
+      ? existing.runs.map((item) => (item.id === existing.selectedId ? { ...run, id: item.id } : item))
+      : [...existing.runs, run]
+    return {
+      ...current,
+      activeId: existing.id,
+      slots: current.slots.map((slot) =>
+        slot.id === existing.id ? { ...slot, timeframe, range, runs, selectedId: replacing ? existing.selectedId : run.id } : slot,
+      ),
+    }
+  }
+  const slot = { ...createSlot(kept.symbol as MarketId, kept.venue, timeframe, range), runs: [run], selectedId: run.id }
+  if (current.slots.length >= MAX_SLOTS) {
+    return {
+      ...current,
+      slots: current.slots.map((item) => (item.id === current.activeId ? { ...slot, id: item.id } : item)),
+    }
+  }
+  return { ...current, slots: [...current.slots, slot], activeId: slot.id }
+}
+
+function fitsSlot(slot: Slot, outcome: Outcome | undefined): outcome is Extract<Outcome, { ok: true }> {
+  if (!outcome?.ok) return false
+  if (outcome.result.assumptions.venue !== slot.venue || outcome.result.symbol !== slot.symbol) return false
+  if (slot.venue === "spot" && (outcome.result.assumptions.allow_short || outcome.result.trades.some((trade) => trade.side === "short"))) return false
+  return true
+}
+
 function tradesFor(slot: Slot, outcomes: Record<string, Outcome>): Trade[] {
   const outcome = outcomes[slot.selectedId]
-  if (!outcome?.ok) return []
-  return slot.venue === "spot" ? outcome.result.trades.filter((trade) => trade.side !== "short") : outcome.result.trades
+  if (!fitsSlot(slot, outcome)) return []
+  return spotTrades(outcome.result.trades, slot.venue)
 }
 
 function mergeFundingTape(base: Tape, tail: Tape, venue: Venue): Tape {

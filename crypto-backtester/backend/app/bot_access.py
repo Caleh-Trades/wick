@@ -186,6 +186,9 @@ def _require_log(item: dict) -> None:
         raise ValueError("log-trade strategy has to be text.")
     if isinstance(strategy, str) and len(strategy) > 48:
         raise ValueError("log-trade strategy is too long.")
+    venue = item.get("venue")
+    if venue is not None and venue not in {"spot", "perp"}:
+        raise ValueError("log-trade venue is spot or perp.")
 
 
 def _public(record: dict) -> dict:

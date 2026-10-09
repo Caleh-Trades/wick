@@ -14,6 +14,11 @@ export type PlotBar = {
   liquidated: boolean
 }
 
+export function spotTrades<T extends { side: "long" | "short" }>(trades: T[], venue: "spot" | "perp"): T[] {
+  if (venue === "perp") return trades
+  return trades.filter((trade) => trade.side !== "short")
+}
+
 export function priceDomain(candles: Array<{ low: number; high: number }>): [number, number] {
   let lo = Infinity
   let hi = -Infinity

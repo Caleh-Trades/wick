@@ -1,7 +1,7 @@
 const KEY = "wick-panes"
 
 export const CHART_MIN = 0.26
-export const CHART_MAX = 0.75
+export const CHART_MAX = 0.42
 
 export type PaneSizes = {
   book: number

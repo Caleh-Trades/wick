@@ -515,7 +515,7 @@ export default function App() {
           <div
             role="separator"
             aria-orientation="horizontal"
-            aria-label="Resize the price chart"
+            aria-label="Resize the results pane"
             aria-valuemin={Math.round(CHART_MIN * 100)}
             aria-valuemax={Math.round(CHART_MAX * 100)}
             aria-valuenow={Math.round(panes.chart * 100)}

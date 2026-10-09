@@ -25,6 +25,16 @@ export function formatCompactMoney(value: number): string {
   return formatMoney(value, abs >= 1000 ? 0 : 2)
 }
 
+export function formatSize(value: number): string {
+  if (!Number.isFinite(value)) return "—"
+  const abs = Math.abs(value)
+  if (abs === 0) return "0"
+  if (abs >= 1000) return value.toLocaleString("en-US", { maximumFractionDigits: 2 })
+  if (abs >= 1) return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 })
+  const digits = Math.min(8, Math.max(4, Math.ceil(-Math.log10(abs)) + 2))
+  return value.toFixed(digits)
+}
+
 export function formatPrice(value: number): string {
   const abs = Math.abs(value)
   const digits = abs >= 1000 ? 2 : abs >= 1 ? 2 : abs >= 0.01 ? 4 : 6
@@ -79,7 +89,7 @@ export function formatAxis(iso: string, interval: string): string {
   if (interval === "1d") {
     return date.toLocaleDateString("en-US", { month: "short", year: "2-digit", timeZone: "UTC" })
   }
-  if (interval === "1m" || interval === "5m") {
+  if (interval === "1m" || interval === "3m" || interval === "5m") {
     return date.toLocaleTimeString("en-US", {
       hour: "2-digit",
       minute: "2-digit",

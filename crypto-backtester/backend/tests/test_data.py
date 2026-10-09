@@ -1,6 +1,6 @@
 import time
 
-from app.data import _fetch, get_interval, get_symbol, load_series, load_tail, resample, span_days
+from app.data import DataUnavailable, _fetch, get_interval, get_symbol, load_series, load_tail, resample, span_days
 from app.engine import Candle
 
 
@@ -83,6 +83,17 @@ def test_intraday_intervals_include_minute_bars():
     assert thirty["seconds"] == 1_800
     assert thirty["coinbase"] == 300
     assert thirty["periods_per_year"] == 365 * 48
+    three = get_interval("3m")
+    assert three["seconds"] == 180
+    assert three["coinbase"] == 60
+    assert three["kraken"] == 1
+    fifteen = get_interval("15m")
+    assert fifteen["seconds"] == 900
+    assert fifteen["coinbase"] == 900
+    assert get_interval("1h")["seconds"] == 3600
+    assert get_interval("4h")["seconds"] == 14_400
+    assert span_days(three, 92) == span_days(get_interval("1m"), 0)
+    assert span_days(three, 92) < 92
 
 
 def test_resample_builds_thirty_minute_bars():
@@ -109,6 +120,47 @@ def test_resample_builds_thirty_minute_bars():
     assert bundled[0].low == 99
     assert bundled[1].time == start + 1_800
     assert bundled[1].open == 106
+
+
+def test_resample_builds_three_minute_bars():
+    start = 1_700_010_180
+    candles = [
+        Candle(time=start + index * 60, open=100 + index, high=110, low=90, close=101 + index, volume=1)
+        for index in range(4)
+    ]
+    bundled = resample(candles, 180, 60)
+    assert len(bundled) == 2
+    assert bundled[0].time == start
+    assert bundled[0].open == 100
+    assert bundled[0].close == 103
+    assert bundled[0].volume == 3
+    assert bundled[1].open == 103
+
+
+def test_three_minute_kraken_fallback_is_bundled(monkeypatch):
+    def boom(*_args, **_kwargs):
+        raise DataUnavailable("down")
+
+    now = int(time.time())
+    start = now - (now % 180) - 180
+
+    def kraken(pair, interval):
+        assert pair == "XBTUSD"
+        assert interval == 1
+        return [
+            Candle(time=start + index * 60, open=100 + index, high=110, low=90, close=101 + index, volume=1)
+            for index in range(3)
+        ]
+
+    monkeypatch.setattr("app.data._coinbase_rows", boom)
+    monkeypatch.setattr("app.data._kraken_candles", kraken)
+    candles, source = _fetch(get_symbol("BTC-USD"), "3m", get_interval("3m"), 1)
+    assert source == "kraken"
+    assert len(candles) == 1
+    assert candles[0].time == start
+    assert candles[0].open == 100
+    assert candles[0].close == 103
+    assert candles[0].volume == 3
 
 
 def test_load_tail_returns_bars_from_since(monkeypatch):

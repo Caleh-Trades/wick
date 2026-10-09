@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
-import { PriceChart, type OverlaySeries } from "@/components/charts"
+import { type OverlaySeries } from "@/components/charts"
+import { MarketPane } from "@/components/market-pane"
 import { Controls } from "@/components/controls"
 import { DeskBar } from "@/components/desk-bar"
 import { ResearchChart } from "@/components/research"
@@ -496,7 +497,13 @@ export default function App() {
               {selectedOutcome && !selectedOutcome.ok ? (
                 <p className="font-heading text-3xl">{selectedOutcome.error}</p>
               ) : null}
-              <PriceChart candles={activeTape.candles} trades={EMPTY_TRADES} interval={activeTape.interval} onEnlarge={enlarge} />
+              <MarketPane
+                symbol={selected?.symbol ?? activeTape.symbol}
+                candles={activeTape.candles}
+                trades={EMPTY_TRADES}
+                interval={activeTape.interval}
+                onEnlarge={enlarge}
+              />
             </div>
           ) : null}
 
@@ -507,6 +514,7 @@ export default function App() {
               selected={selected}
               result={result}
               candles={visibleCandles}
+              interval={desk.timeframe}
               overlays={overlays}
               sortKey={sortKey}
               sortDir={sortDir}

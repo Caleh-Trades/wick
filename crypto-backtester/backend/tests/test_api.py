@@ -85,7 +85,7 @@ def test_candles_route_serves_a_tape_and_a_live_tail(monkeypatch):
     assert live.status_code == 200
     assert len(live.json()["candles"]) == 2
 
-    missing = client.get("/api/candles", params={"symbol": "BTC-USD", "interval": "15m"})
+    missing = client.get("/api/candles", params={"symbol": "BTC-USD", "interval": "2m"})
     assert missing.status_code == 400
     assert "Interval" in missing.json()["detail"]
 
@@ -102,6 +102,18 @@ def test_candles_days_query_reaches_the_loader(monkeypatch):
     response = client.get("/api/candles", params={"symbol": "BTC-USD", "interval": "5m", "days": 31})
     assert response.status_code == 200
     assert response.json()["candles"][0]["volume"] == 10
+
+
+def test_added_timeframes_keep_their_own_bar_size(monkeypatch):
+    monkeypatch.setattr("app.main.load_series", lambda symbol, interval, days=None: (_candles(), "coinbase"))
+    client = TestClient(app)
+    expected = {"3m": 180, "15m": 900, "1h": 3600, "4h": 14_400, "1m": 60, "1d": 86_400}
+    for interval, seconds in expected.items():
+        response = client.get("/api/candles", params={"symbol": "BTC-USD", "interval": interval, "days": 1})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["interval"] == interval
+        assert body["seconds"] == seconds
 
 
 def test_unknown_markets_are_rejected():

@@ -3,7 +3,7 @@ import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { formatClock, formatDay, formatPrice, sourceLabel } from "@/lib/format"
-import { MARKETS, RANGES, TIMEFRAMES, marketById, phraseFor, rangeDays } from "@/lib/runs"
+import { MARKETS, RANGES, TIMEFRAMES, marketById, phraseFor, windowNote } from "@/lib/runs"
 import type { MarketId, RangeId, Tape, Timeframe } from "@/lib/types"
 
 type DeskBarProps = {
@@ -33,11 +33,11 @@ export function DeskBar({
   onRange,
   onPause,
 }: DeskBarProps) {
-  const phrase = phraseFor(tape?.interval ?? timeframe)
+  const phrase = phraseFor(timeframe)
   const market = symbol ? marketById(symbol) : undefined
   const last = tape?.candles.at(-1)
   const first = tape?.candles[0]
-  const limited = tape ? historyLimited(range, tape) : false
+  const limited = tape ? windowNote(range, tape) : null
 
   return (
     <header className="bezel sticky top-0 z-30">
@@ -65,7 +65,7 @@ export function DeskBar({
           </Select>
         ) : null}
 
-        <div className="flex gap-1" role="group" aria-label="Timeframe">
+        <div className="flex shrink-0 gap-1 overflow-x-auto" role="group" aria-label="Timeframe">
           {TIMEFRAMES.map((item) => (
             <Button
               key={item.id}
@@ -110,7 +110,7 @@ export function DeskBar({
                 {formatDay(first.time)} – {formatDay(last.time)}
               </span>
               <span className="text-foreground tabular-nums">{formatPrice(last.close)}</span>
-              {limited ? <span>History limit</span> : null}
+              {limited ? <span>{limited}</span> : null}
             </>
           ) : (
             <span>Loading {phrase} bars</span>
@@ -130,13 +130,6 @@ export function DeskBar({
       ) : null}
     </header>
   )
-}
-
-function historyLimited(range: RangeId, tape: Tape): boolean {
-  const days = rangeDays(range)
-  if (days <= 5 || tape.candles.length < 2) return false
-  const span = tape.candles[tape.candles.length - 1]!.t - tape.candles[0]!.t
-  return span < (days - 2) * 86_400
 }
 
 function LiveClock({ paused }: { paused: boolean }) {

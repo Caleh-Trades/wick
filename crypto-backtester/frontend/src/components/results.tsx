@@ -12,7 +12,8 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { EquityChart, PriceChart, type OverlaySeries } from "@/components/charts"
+import { EquityChart, type OverlaySeries } from "@/components/charts"
+import { MarketPane } from "@/components/market-pane"
 import {
   formatFactor,
   formatMoney,
@@ -33,6 +34,7 @@ type ResultsProps = {
   selected: Run
   result: BacktestResult
   candles: TapeCandle[]
+  interval: string
   overlays: OverlaySeries[]
   sortKey: SortKey | null
   sortDir: "asc" | "desc"
@@ -50,6 +52,7 @@ export const Results = memo(function Results({
   selected,
   result,
   candles,
+  interval,
   overlays,
   sortKey,
   sortDir,
@@ -82,7 +85,13 @@ export const Results = memo(function Results({
 
       <div ref={split.ref} className="flex h-[min(72vh,52rem)] min-h-[28rem] flex-col">
         <div className="min-h-[9rem]" style={{ flex: `${split.share} 1 0%` }}>
-          <PriceChart candles={candles} trades={result.trades} interval={result.interval} onEnlarge={onEnlarge} />
+          <MarketPane
+            symbol={selected.symbol}
+            candles={candles}
+            trades={result.trades}
+            interval={interval}
+            onEnlarge={onEnlarge}
+          />
         </div>
         <div
           role="separator"

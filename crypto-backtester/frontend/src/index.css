@@ -223,7 +223,8 @@
 button:hover,
 [data-slot="button"]:hover,
 [data-slot="table-row"]:hover,
-.bezel li:hover {
+.bezel li:hover,
+.book-row:hover {
   border-color: #39e7ff;
 }
 

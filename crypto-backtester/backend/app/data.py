@@ -59,30 +59,48 @@ SYMBOLS: tuple[Symbol, ...] = (
     Symbol("ADA-USD", "ADA", "USD", "Cardano", "ADAUSD"),
 )
 
-# 30m is bundled from 5-minute Coinbase candles. 4h is bundled from hourly candles.
-# Kraken already speaks those sizes, so the fallback is not resampled.
+# Coinbase speaks 60, 300, 900, 3600, 21600, and 86400 seconds.
+# 3m is bundled from 1-minute bars, 30m from 5-minute bars, and 4h from hourly bars.
 INTERVALS: dict[str, dict] = {
     "1m": {
         "label": "1 minute",
-        "detail": "About one day",
+        "detail": "About one month",
         "seconds": 60,
         "coinbase": 60,
         "kraken": 1,
         "lookback_days": 1,
         "periods_per_year": 365 * 24 * 60,
     },
+    "3m": {
+        "label": "3 minute",
+        "detail": "About one month",
+        "seconds": 180,
+        "coinbase": 60,
+        "kraken": 1,
+        "lookback_days": 14,
+        "periods_per_year": 365 * 24 * 20,
+    },
     "5m": {
         "label": "5 minute",
-        "detail": "About five days",
+        "detail": "About five months",
         "seconds": 300,
         "coinbase": 300,
         "kraken": 5,
         "lookback_days": 5,
         "periods_per_year": 365 * 24 * 12,
     },
+    "15m": {
+        "label": "15 minute",
+        "detail": "About fifteen months",
+        "seconds": 900,
+        "coinbase": 900,
+        "kraken": 15,
+        "lookback_days": 30,
+        "periods_per_year": 365 * 24 * 4,
+    },
     "30m": {
         "label": "30 minute",
-        "detail": "About ten days",
+        "detail": "About five months",
         "seconds": 1_800,
         "coinbase": 300,
         "kraken": 30,
@@ -91,7 +109,7 @@ INTERVALS: dict[str, dict] = {
     },
     "1h": {
         "label": "1 hour",
-        "detail": "About sixty days",
+        "detail": "Several years",
         "seconds": 3600,
         "coinbase": 3600,
         "kraken": 60,
@@ -100,7 +118,7 @@ INTERVALS: dict[str, dict] = {
     },
     "4h": {
         "label": "4 hour",
-        "detail": "About six months",
+        "detail": "Several years",
         "seconds": 14_400,
         "coinbase": 3600,
         "kraken": 240,
@@ -214,7 +232,7 @@ def load_tail(symbol_id: str, interval: str, since: int | None = None) -> tuple[
         source = "coinbase"
     except (httpx.HTTPError, DataUnavailable) as exc:
         logger.warning("Live tail failed on Coinbase for %s %s (%s). Trying Kraken.", symbol.id, interval, exc)
-        candles = _kraken_candles(symbol.kraken, int(spec["kraken"]))
+        candles = _kraken_series(symbol, spec)
         source = "kraken"
     candles = _dedupe(candles)
     if since is not None:
@@ -269,7 +287,7 @@ def _fetch(symbol: Symbol, interval: str, spec: dict, days: int | None = None) -
         source = "coinbase"
     except (httpx.HTTPError, DataUnavailable) as exc:
         logger.warning("Coinbase failed for %s %s (%s). Trying Kraken.", symbol.id, interval, exc)
-        candles = _kraken_candles(symbol.kraken, int(spec["kraken"]))
+        candles = _kraken_series(symbol, spec)
         source = "kraken"
 
     candles = [candle for candle in _dedupe(candles) if candle.time >= start]
@@ -339,6 +357,16 @@ def _coinbase_candles(rows: list[list]) -> list[Candle]:
         )
         if candle is not None:
             candles.append(candle)
+    return candles
+
+
+def _kraken_series(symbol: Symbol, spec: dict) -> list[Candle]:
+    """Kraken bars, bundled when Kraken has no native size for this timeframe."""
+    source_seconds = int(spec["kraken"]) * 60
+    candles = _kraken_candles(symbol.kraken, int(spec["kraken"]))
+    target = int(spec["seconds"])
+    if source_seconds != target:
+        return resample(candles, target, source_seconds)
     return candles
 
 

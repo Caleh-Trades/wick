@@ -199,8 +199,12 @@ export const RULES: RuleSpec[] = [
 
 export const TIMEFRAMES: { id: Timeframe; label: string; phrase: string }[] = [
   { id: "1m", label: "1m", phrase: "1-minute" },
+  { id: "3m", label: "3m", phrase: "3-minute" },
   { id: "5m", label: "5m", phrase: "5-minute" },
+  { id: "15m", label: "15m", phrase: "15-minute" },
   { id: "30m", label: "30m", phrase: "30-minute" },
+  { id: "1h", label: "1h", phrase: "1-hour" },
+  { id: "4h", label: "4h", phrase: "4-hour" },
   { id: "1d", label: "1D", phrase: "daily" },
 ]
 
@@ -355,6 +359,19 @@ export function phraseFor(interval: string): string {
   return TIMEFRAMES.find((item) => item.id === interval)?.phrase ?? interval
 }
 
+export function windowNote(range: RangeId, tape: { interval: string; candles: { t: number }[] }): string | null {
+  const candles = tape.candles
+  if (candles.length < 2) return null
+  const span = candles[candles.length - 1]!.t - candles[0]!.t
+  const loadedDays = Math.max(1, Math.round(span / 86_400))
+  const requested = rangeDays(range)
+  const phrase = phraseFor(tape.interval)
+  const shortOfRange = requested > 5 && span < (requested - 2) * 86_400
+  const shortAll = requested === 0 && tape.interval !== "1d" && span < 365 * 3 * 86_400
+  if (!shortOfRange && !shortAll) return null
+  return `Deepest window · ${loadedDays}d of ${phrase}`
+}
+
 export function defaultDesk(): DeskState {
   const run = createRun({ name: "SMA 20/50" })
   return { runs: [run], selectedId: run.id, timeframe: "1d", range: "All", enlarged: false, paused: false }
@@ -398,7 +415,7 @@ export function mergeCandles(existing: TapeCandle[], incoming: TapeCandle[]): Ta
 }
 
 export function pollIntervalMs(timeframe: Timeframe): number {
-  return timeframe === "30m" || timeframe === "1d" ? 60_000 : 30_000
+  return timeframe === "1m" || timeframe === "3m" || timeframe === "5m" || timeframe === "15m" ? 30_000 : 60_000
 }
 
 export function fingerprint(run: Run): string {
@@ -453,7 +470,7 @@ function clampNum(value: unknown, min: number, max: number, fallback: number): n
 }
 
 function isTimeframe(value: unknown): value is Timeframe {
-  return value === "1m" || value === "5m" || value === "30m" || value === "1d"
+  return TIMEFRAMES.some((item) => item.id === value)
 }
 
 function isRange(value: unknown): value is RangeId {

@@ -186,7 +186,7 @@ def load_series(symbol_id: str, interval: str, days: int | None = None) -> tuple
             raise DataUnavailable(
                 f"Couldn't pull {symbol.base} prices from Coinbase or Kraken. Try again in a minute."
             ) from exc
-        if len(candles) < 3:
+        if len(candles) < _minimum_bars(days):
             if cached:
                 return cached["candles"], cached["source"]
             raise DataUnavailable(f"Not enough {symbol.base} {spec['label'].lower()} bars came back.")
@@ -258,12 +258,13 @@ def resample(candles: list[Candle], target_seconds: int, source_seconds: int) ->
 def _fetch(symbol: Symbol, interval: str, spec: dict, days: int | None = None) -> tuple[list[Candle], str]:
     end = int(time.time())
     start = end - span_days(spec, days) * 86_400
+    minimum = _minimum_bars(days)
     try:
         rows = _coinbase_rows(symbol.id, int(spec["coinbase"]), start, end)
         candles = _coinbase_candles(rows)
         if int(spec["coinbase"]) != int(spec["seconds"]):
             candles = resample(candles, int(spec["seconds"]), int(spec["coinbase"]))
-        if len(candles) < 3:
+        if len(candles) < minimum:
             raise DataUnavailable("Coinbase returned too few bars.")
         source = "coinbase"
     except (httpx.HTTPError, DataUnavailable) as exc:
@@ -272,9 +273,14 @@ def _fetch(symbol: Symbol, interval: str, spec: dict, days: int | None = None) -
         source = "kraken"
 
     candles = [candle for candle in _dedupe(candles) if candle.time >= start]
-    if len(candles) < 3:
+    if len(candles) < minimum:
         raise DataUnavailable(f"{symbol.base} didn't return a usable {interval} history.")
     return candles, source
+
+
+def _minimum_bars(days: int | None) -> int:
+    """A chosen range can be shorter than a full lookback. One bar is still a tape."""
+    return 1 if days is not None else 3
 
 
 def _coinbase_rows(product: str, granularity: int, start: int, end: int) -> list[list]:

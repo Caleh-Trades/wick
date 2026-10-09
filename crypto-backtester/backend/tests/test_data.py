@@ -1,4 +1,6 @@
-from app.data import get_interval, load_series, load_tail, resample, span_days
+import time
+
+from app.data import _fetch, get_interval, get_symbol, load_series, load_tail, resample, span_days
 from app.engine import Candle
 
 
@@ -40,6 +42,19 @@ def test_span_follows_the_requested_range_and_caps_minute_bars():
     assert span_days(get_interval("1d"), 0) >= 365 * 4
 
 
+def test_one_day_keeps_the_single_coinbase_bar(monkeypatch):
+    candle = Candle(time=int(time.time()) - 3_600, open=100, high=110, low=90, close=105, volume=4)
+
+    def rows(product, granularity, start, end):
+        return [[candle.time, candle.low, candle.high, candle.open, candle.close, candle.volume]]
+
+    monkeypatch.setattr("app.data._coinbase_rows", rows)
+    candles, source = _fetch(get_symbol("BTC-USD"), "1d", get_interval("1d"), 1)
+    assert source == "coinbase"
+    assert len(candles) == 1
+    assert candles[0].close == 105
+
+
 def test_load_series_forwards_the_requested_span(monkeypatch):
     captured: dict[str, int | None] = {}
 
@@ -52,6 +67,8 @@ def test_load_series_forwards_the_requested_span(monkeypatch):
         ]
         return candles, "coinbase"
 
+    monkeypatch.setattr("app.data._read_cache", lambda key: None)
+    monkeypatch.setattr("app.data._write_cache", lambda key, candles, source: None)
     monkeypatch.setattr("app.data._fetch", fetch)
     candles, source = load_series("BTC-USD", "1m", 5)
     assert source == "coinbase"

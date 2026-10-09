@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
-import type { OverlaySeries } from "@/components/charts"
+import { PriceChart, type OverlaySeries } from "@/components/charts"
 import { Controls } from "@/components/controls"
 import { DeskBar } from "@/components/desk-bar"
 import { ResearchChart } from "@/components/research"
@@ -442,8 +442,22 @@ export default function App() {
             </div>
           ) : null}
 
-          {loading && !result ? (
+          {loading && !tapeReady ? (
             <LoadingCopy label={`Pulling the ${phrase} tape. The first look at a pair can take a few seconds.`} />
+          ) : null}
+
+          {!result && tapeReady && activeTape ? (
+            <div className="flex h-[42vh] min-h-[16rem] flex-col gap-4">
+              {selectedOutcome && !selectedOutcome.ok ? (
+                <p className="font-heading text-3xl">{selectedOutcome.error}</p>
+              ) : null}
+              <PriceChart
+                candles={activeTape.candles}
+                trades={[]}
+                interval={activeTape.interval}
+                onEnlarge={() => setDesk((current) => ({ ...current, enlarged: true }))}
+              />
+            </div>
           ) : null}
 
           {result && selected ? (
@@ -461,10 +475,6 @@ export default function App() {
               onToggleHidden={toggleHidden}
               onSort={onSort}
             />
-          ) : null}
-
-          {!loading && !result && selectedOutcome && !selectedOutcome.ok ? (
-            <p className="font-heading text-3xl">{selectedOutcome.error}</p>
           ) : null}
 
           {running && result ? (

@@ -214,8 +214,11 @@ export function uniqueName(base: string, runs: Run[]): string {
 }
 
 export function createRun(partial?: Partial<Run>, existing: Run[] = []): Run {
-  const params = { ...defaultParams(), ...partial?.params }
   const rule = partial?.rule ?? "sma_cross"
+  const params = { ...defaultParams(), ...partial?.params }
+  for (const param of ruleById(rule)?.params ?? []) {
+    if (partial?.params?.[param.key] == null) params[param.key] = param.default
+  }
   return {
     id: crypto.randomUUID(),
     name: partial?.name ?? uniqueName(suggestedName(rule, params), existing),

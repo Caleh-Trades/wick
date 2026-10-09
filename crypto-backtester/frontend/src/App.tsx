@@ -19,7 +19,7 @@ import { Watchlist } from "@/components/watchlist"
 import { WorkspaceBar } from "@/components/workspace-bar"
 import { fetchCandles, mergeFunding } from "@/lib/api"
 import { ackBotEdits, fetchBotInbox } from "@/lib/bot-api"
-import { applyBotEdits } from "@/lib/bot-edits"
+import { applyBotEdits, editConcerns } from "@/lib/bot-edits"
 import { computeBacktest } from "@/lib/compute"
 import { CHART_MAX, CHART_MIN, clampChart, loadPanes, savePanes, type PaneSizes } from "@/lib/panes"
 import {
@@ -217,7 +217,7 @@ export default function App() {
     const poll = async () => {
       if (stop) return
       try {
-        const edits = await fetchBotInbox()
+        const edits = (await fetchBotInbox()).filter((edit) => editConcerns(workspaceRef.current, edit.ops ?? []))
         if (stop || edits.length === 0) return
         const current = workspaceRef.current
         const ops = edits.flatMap((edit) => (Array.isArray(edit.ops) ? edit.ops : []))

@@ -16,6 +16,19 @@ import type { Slot, Workspace } from "./workspace.ts"
 
 export type BotOp = { op: string } & Record<string, unknown>
 
+export function editConcerns(workspace: Workspace, ops: BotOp[]): boolean {
+  return ops.some((op) => {
+    if (op.op === "unpin") return true
+    if (op.op === "focus" || op.op === "pin") {
+      const symbol = text(op.symbol)
+      return symbol != null && findSlot(workspace, symbol) != null
+    }
+    const named = text(op.slot)
+    if (!named || named.toLowerCase() === "active") return true
+    return findSlot(workspace, named) != null
+  })
+}
+
 export function applyBotEdits(workspace: Workspace, ops: BotOp[]): Workspace {
   let next = workspace
   for (const op of ops) {
@@ -146,7 +159,7 @@ function replaceSlot(workspace: Workspace, slot: Slot): Workspace {
 function targetSlot(workspace: Workspace, op: BotOp): Slot | undefined {
   const named = text(op.slot)
   if (!named || named.toLowerCase() === "active") return activeSlot(workspace)
-  return findSlot(workspace, named) ?? activeSlot(workspace)
+  return findSlot(workspace, named)
 }
 
 function activeSlot(workspace: Workspace): Slot | undefined {

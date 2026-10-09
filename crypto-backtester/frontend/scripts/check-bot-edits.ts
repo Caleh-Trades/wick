@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 
-import { applyBotEdits } from "../src/lib/bot-edits.ts"
+import { applyBotEdits, editConcerns } from "../src/lib/bot-edits.ts"
 import { createSlot } from "../src/lib/workspace.ts"
 
 const slot = createSlot("BTCUSDT", "spot", "1d", "1Y")
@@ -20,5 +20,9 @@ assert.equal(patched.runs.length, 2)
 assert.equal(patched.runs[1]?.rule, "buy_hold")
 assert.equal(workspace.slots[0]?.runs[0]?.riskPct, 100)
 assert.equal(applyBotEdits(workspace, [{ op: "rewrite-app" }]), workspace)
+const missed = applyBotEdits(workspace, [{ op: "patch-run", slot: "ETHUSDT", riskPct: 5 }])
+assert.equal(missed, workspace)
+assert.equal(editConcerns(workspace, [{ op: "patch-run", slot: "ETHUSDT", riskPct: 5 }]), false)
+assert.equal(editConcerns(workspace, [{ op: "patch-run", riskPct: 5 }]), true)
 
 console.log("bot edits ok")

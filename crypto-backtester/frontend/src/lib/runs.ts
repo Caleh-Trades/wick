@@ -1,4 +1,4 @@
-import type { MarketId, Run, RunParams, RuleId, TapeCandle, Timeframe } from "@/lib/types"
+import type { MarketId, RangeId, Run, RunParams, RuleId, TapeCandle, Timeframe } from "@/lib/types"
 
 export const STORAGE_KEY = "wick-runs"
 export const MAX_RUNS = 5
@@ -105,12 +105,23 @@ export const TIMEFRAMES: { id: Timeframe; label: string; phrase: string }[] = [
   { id: "1d", label: "1D", phrase: "daily" },
 ]
 
+export const RANGES: { id: RangeId; label: string; days: number }[] = [
+  { id: "1D", label: "1D", days: 1 },
+  { id: "5D", label: "5D", days: 5 },
+  { id: "1M", label: "1M", days: 31 },
+  { id: "3M", label: "3M", days: 92 },
+  { id: "1Y", label: "1Y", days: 366 },
+  { id: "All", label: "All", days: 0 },
+]
+
 export const RUN_COLORS = ["#e4b15a", "#7dcea0", "#d07a6a", "#8eb4d4", "#c9a0dc"] as const
 
 export type DeskState = {
   runs: Run[]
   selectedId: string
   timeframe: Timeframe
+  range: RangeId
+  enlarged: boolean
   paused: boolean
 }
 
@@ -216,9 +227,17 @@ export function createRun(partial?: Partial<Run>, existing: Run[] = []): Run {
   }
 }
 
+export function rangeDays(range: RangeId): number {
+  return RANGES.find((item) => item.id === range)?.days ?? 0
+}
+
+export function phraseFor(interval: string): string {
+  return TIMEFRAMES.find((item) => item.id === interval)?.phrase ?? interval
+}
+
 export function defaultDesk(): DeskState {
   const run = createRun({ name: "SMA 20/50" })
-  return { runs: [run], selectedId: run.id, timeframe: "1d", paused: false }
+  return { runs: [run], selectedId: run.id, timeframe: "1d", range: "All", enlarged: false, paused: false }
 }
 
 export function loadDesk(): DeskState {
@@ -231,7 +250,15 @@ export function loadDesk(): DeskState {
     const trimmed = runs.slice(0, MAX_RUNS)
     const selectedId = trimmed.some((run) => run.id === parsed.selectedId) ? String(parsed.selectedId) : trimmed[0]!.id
     const timeframe = isTimeframe(parsed.timeframe) ? parsed.timeframe : "1d"
-    return { runs: trimmed, selectedId, timeframe, paused: Boolean(parsed.paused) }
+    const range = isRange(parsed.range) ? parsed.range : "All"
+    return {
+      runs: trimmed,
+      selectedId,
+      timeframe,
+      range,
+      enlarged: Boolean(parsed.enlarged),
+      paused: Boolean(parsed.paused),
+    }
   } catch {
     return defaultDesk()
   }
@@ -307,6 +334,10 @@ function clampNum(value: unknown, min: number, max: number, fallback: number): n
 
 function isTimeframe(value: unknown): value is Timeframe {
   return value === "1m" || value === "5m" || value === "30m" || value === "1d"
+}
+
+function isRange(value: unknown): value is RangeId {
+  return value === "1D" || value === "5D" || value === "1M" || value === "3M" || value === "1Y" || value === "All"
 }
 
 function browserStorage(): Storage | null {

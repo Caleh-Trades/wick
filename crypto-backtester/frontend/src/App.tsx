@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
-import { Controls } from "@/components/controls"
-import { Results } from "@/components/results"
 import type { OverlaySeries } from "@/components/charts"
+import { Controls } from "@/components/controls"
+import { DeskBar } from "@/components/desk-bar"
+import { ResearchChart } from "@/components/research"
+import { Results } from "@/components/results"
 import { Button } from "@/components/ui/button"
 import {
   Sheet,
@@ -16,19 +18,20 @@ import { fetchCandles } from "@/lib/api"
 import { backtest } from "@/lib/backtest"
 import {
   MAX_RUNS,
-  TIMEFRAMES,
   createRun,
   fingerprint,
   loadDesk,
   mergeCandles,
+  phraseFor,
   pollIntervalMs,
+  rangeDays,
   runColor,
   saveDesk,
   suggestedName,
   uniqueName,
   type DeskState,
 } from "@/lib/runs"
-import type { MarketId, Outcome, Run, SortKey, Tape, Timeframe } from "@/lib/types"
+import type { MarketId, Outcome, RangeId, Run, SortKey, Tape, Timeframe } from "@/lib/types"
 
 export default function App() {
   const [desk, setDesk] = useState<DeskState>(() => loadDesk())
@@ -38,6 +41,7 @@ export default function App() {
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [stale, setStale] = useState(false)
+  const [lastFetchAt, setLastFetchAt] = useState<Date | null>(null)
   const [setupOpen, setSetupOpen] = useState(false)
   const [editing, setEditing] = useState(false)
   const [sortKey, setSortKey] = useState<SortKey | null>(null)
@@ -79,10 +83,20 @@ export default function App() {
   const tapesFor = useCallback(
     async (symbols: MarketId[]) => {
       const timeframe = deskRef.current.timeframe
+      const range = deskRef.current.range
+      const gen = generation.current
       const map = { ...tapesRef.current }
-      const missing = symbols.filter((symbol) => map[symbol]?.interval !== timeframe)
+      const missing = symbols.filter((symbol) => {
+        const tape = map[symbol]
+        return tape?.interval !== timeframe || tape.range !== range
+      })
       if (missing.length === 0) return map
-      const loaded = await Promise.all(missing.map((symbol) => fetchCandles(symbol, timeframe)))
+      const loaded = await Promise.all(
+        missing.map((symbol) => fetchCandles(symbol, timeframe, { days: rangeDays(range), range })),
+      )
+      if (gen !== generation.current || deskRef.current.timeframe !== timeframe || deskRef.current.range !== range) {
+        return tapesRef.current
+      }
       for (const tape of loaded) map[tape.symbol] = tape
       tapesRef.current = map
       setTapes(map)
@@ -95,18 +109,22 @@ export default function App() {
   useEffect(() => {
     const gen = ++generation.current
     const timeframe = desk.timeframe
+    const range = desk.range
     const symbols = [...new Set(deskRef.current.runs.map((run) => run.symbol))]
     setLoading(true)
     setError(null)
     void (async () => {
       try {
-        const loaded = await Promise.all(symbols.map((symbol) => fetchCandles(symbol, timeframe)))
+        const loaded = await Promise.all(
+          symbols.map((symbol) => fetchCandles(symbol, timeframe, { days: rangeDays(range), range })),
+        )
         if (gen !== generation.current) return
         const map: Partial<Record<MarketId, Tape>> = {}
         for (const tape of loaded) map[tape.symbol] = tape
         tapesRef.current = map
         setTapes(map)
         setStale(false)
+        setLastFetchAt(new Date())
         const current = deskRef.current
         const targets = current.runs.filter((run) => !run.hidden || run.id === current.selectedId)
         const next: Record<string, Outcome> = {}
@@ -123,25 +141,26 @@ export default function App() {
         if (gen === generation.current) setLoading(false)
       }
     })()
-  }, [desk.timeframe, remember])
+  }, [desk.timeframe, desk.range, remember])
 
   const refreshTail = useCallback(async () => {
     const current = deskRef.current
     const run = current.runs.find((item) => item.id === current.selectedId)
     if (!run) return
     const existing = tapesRef.current[run.symbol]
-    if (!existing || existing.interval !== current.timeframe) return
+    if (!existing || existing.interval !== current.timeframe || existing.range !== current.range) return
     const since = existing.candles[existing.candles.length - 1]?.t
     const gen = generation.current
     try {
-      const tail = await fetchCandles(run.symbol, current.timeframe, since)
-      if (gen !== generation.current || deskRef.current.timeframe !== current.timeframe) return
+      const tail = await fetchCandles(run.symbol, current.timeframe, { since })
+      if (gen !== generation.current || deskRef.current.timeframe !== current.timeframe || deskRef.current.range !== current.range) return
       const base = tapesRef.current[run.symbol]
-      if (!base) return
+      if (!base || base.range !== current.range) return
       const merged = mergeCandles(base.candles, tail.candles)
       const tape: Tape = { ...base, candles: merged, source: tail.source }
       applyTape(tape)
       setStale(false)
+      setLastFetchAt(new Date())
       const latest = deskRef.current
       const targets = latest.runs.filter(
         (item) => item.symbol === run.symbol && (!item.hidden || item.id === latest.selectedId),
@@ -165,10 +184,38 @@ export default function App() {
   }, [desk.paused, desk.timeframe, desk.selectedId, setupOpen, editing, loading, refreshTail])
 
   function updateRun(next: Run) {
-    setDesk((current) => ({
-      ...current,
-      runs: current.runs.map((run) => (run.id === next.id ? next : run)),
-    }))
+    const prev = deskRef.current.runs.find((run) => run.id === next.id)
+    const updated = {
+      ...deskRef.current,
+      runs: deskRef.current.runs.map((run) => (run.id === next.id ? next : run)),
+    }
+    deskRef.current = updated
+    setDesk(updated)
+    if (!prev || prev.symbol === next.symbol) return
+    setOutcomes((current) => {
+      if (!(next.id in current)) return current
+      const copy = { ...current }
+      delete copy[next.id]
+      return copy
+    })
+    void tapesFor([next.symbol])
+      .then((map) => {
+        const tape = map[next.symbol]
+        if (!tape) return
+        setLastFetchAt(new Date())
+        const latest = deskRef.current
+        const targets = latest.runs.filter(
+          (item) => item.symbol === next.symbol && (!item.hidden || item.id === latest.selectedId),
+        )
+        setOutcomes((current) => {
+          const patch: Record<string, Outcome> = {}
+          for (const item of targets) patch[item.id] = remember(item, tape)
+          return { ...current, ...patch }
+        })
+      })
+      .catch((reason: unknown) => {
+        setError(reason instanceof Error ? reason.message : "The tape didn't load.")
+      })
   }
 
   function selectRun(id: string) {
@@ -176,7 +223,7 @@ export default function App() {
     setDesk((current) => ({ ...current, selectedId: id }))
     if (!run) return
     const tape = tapesRef.current[run.symbol]
-    if (!tape || tape.interval !== desk.timeframe) {
+    if (!tape || tape.interval !== desk.timeframe || tape.range !== desk.range) {
       void tapesFor([run.symbol])
         .then((map) => {
           const loaded = map[run.symbol]
@@ -206,7 +253,7 @@ export default function App() {
 
   function stageRun(run: Run) {
     const tape = tapesRef.current[run.symbol]
-    if (!tape || tape.interval !== deskRef.current.timeframe) return
+    if (!tape || tape.interval !== deskRef.current.timeframe || tape.range !== deskRef.current.range) return
     setOutcomes((prev) => ({ ...prev, [run.id]: remember(run, tape) }))
   }
 
@@ -237,13 +284,23 @@ export default function App() {
 
   function changeTimeframe(timeframe: Timeframe) {
     if (timeframe === desk.timeframe) return
+    retape({ timeframe })
+  }
+
+  function changeRange(range: RangeId) {
+    if (range === desk.range) return
+    retape({ range })
+  }
+
+  function retape(patch: Partial<DeskState>) {
     generation.current += 1
     tapesRef.current = {}
     setTapes({})
     setOutcomes({})
     setStale(false)
     setLoading(true)
-    setDesk((current) => ({ ...current, timeframe }))
+    setLastFetchAt(null)
+    setDesk((current) => ({ ...current, ...patch }))
   }
 
   async function runSelected() {
@@ -270,13 +327,18 @@ export default function App() {
     try {
       const runs = deskRef.current.runs
       const symbols = [...new Set(runs.map((run) => run.symbol))]
-      const loaded = await Promise.all(symbols.map((symbol) => fetchCandles(symbol, deskRef.current.timeframe)))
+      const timeframe = deskRef.current.timeframe
+      const range = deskRef.current.range
+      const loaded = await Promise.all(
+        symbols.map((symbol) => fetchCandles(symbol, timeframe, { days: rangeDays(range), range })),
+      )
       if (gen !== generation.current) return
       const map: Partial<Record<MarketId, Tape>> = {}
       for (const tape of loaded) map[tape.symbol] = tape
       tapesRef.current = map
       setTapes(map)
       setStale(false)
+      setLastFetchAt(new Date())
       const next: Record<string, Outcome> = {}
       for (const run of runs) {
         const tape = map[run.symbol]
@@ -317,28 +379,41 @@ export default function App() {
       },
     ]
   })
-  const phrase = TIMEFRAMES.find((item) => item.id === desk.timeframe)?.phrase ?? desk.timeframe
+  const phrase = phraseFor(desk.timeframe)
+  const activeTape = selected ? tapes[selected.symbol] : undefined
+  const tapeReady = Boolean(activeTape && activeTape.interval === desk.timeframe && activeTape.range === desk.range)
+
+  useEffect(() => {
+    if (!desk.enlarged) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setDesk((current) => ({ ...current, enlarged: false }))
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [desk.enlarged])
 
   return (
-    <div className="min-h-svh pb-24 lg:pb-12">
-      <header className="border-b border-border">
-        <div className="mx-auto flex max-w-6xl flex-col gap-4 px-5 py-6 sm:flex-row sm:items-end sm:justify-between">
-          <div className="flex items-center gap-3">
-            <CandleMark />
-            <div>
-              <p className="font-mono text-[10px] tracking-[0.22em] text-muted-foreground uppercase">Strategy desk</p>
-              <h1 className="font-heading text-5xl leading-none">Wick</h1>
-            </div>
-          </div>
-          <p className="max-w-sm text-sm leading-relaxed text-muted-foreground sm:text-right">
-            Replay a crypto rule against the spot tape and see if it beat just holding the coin.
-          </p>
-        </div>
-      </header>
+    <div className="min-h-svh pb-24 lg:pb-8">
+      <DeskBar
+        symbol={selected?.symbol ?? null}
+        timeframe={desk.timeframe}
+        range={desk.range}
+        tape={tapeReady && activeTape ? activeTape : null}
+        paused={desk.paused}
+        stale={stale}
+        lastFetchAt={lastFetchAt}
+        onSymbol={(symbol) => {
+          if (!selected || selected.symbol === symbol) return
+          updateRun({ ...selected, symbol })
+        }}
+        onTimeframe={changeTimeframe}
+        onRange={changeRange}
+        onPause={() => setDesk((current) => ({ ...current, paused: !current.paused }))}
+      />
 
-      <main className="mx-auto grid max-w-6xl gap-10 px-5 py-8 lg:grid-cols-[320px_minmax(0,1fr)]">
+      <main className="mx-auto grid max-w-[1440px] gap-6 px-4 py-4 lg:grid-cols-[320px_minmax(0,1fr)]">
         <aside className="hidden min-w-0 lg:block">
-          <div className="sticky top-6 max-h-[calc(100svh-3rem)] overflow-x-hidden overflow-y-auto pr-2">
+          <div className="sticky top-24 max-h-[calc(100svh-7rem)] overflow-x-hidden overflow-y-auto pr-2">
             {selected ? (
               <Controls
                 idPrefix="desk"
@@ -368,10 +443,7 @@ export default function App() {
           ) : null}
 
           {loading && !result ? (
-            <div className="flex flex-col gap-4">
-              <TimeframeSwitch timeframe={desk.timeframe} onTimeframe={changeTimeframe} />
-              <LoadingCopy label={`Pulling the ${phrase} tape. The first look at a pair can take a few seconds.`} />
-            </div>
+            <LoadingCopy label={`Pulling the ${phrase} tape. The first look at a pair can take a few seconds.`} />
           ) : null}
 
           {result && selected ? (
@@ -380,14 +452,11 @@ export default function App() {
               outcomes={outcomes}
               selected={selected}
               result={result}
+              candles={tapeReady && activeTape ? activeTape.candles : []}
               overlays={overlays}
-              timeframe={desk.timeframe}
-              stale={stale}
-              paused={desk.paused}
               sortKey={sortKey}
               sortDir={sortDir}
-              onTimeframe={changeTimeframe}
-              onPause={() => setDesk((current) => ({ ...current, paused: !current.paused }))}
+              onEnlarge={() => setDesk((current) => ({ ...current, enlarged: true }))}
               onSelect={selectRun}
               onToggleHidden={toggleHidden}
               onSort={onSort}
@@ -395,10 +464,7 @@ export default function App() {
           ) : null}
 
           {!loading && !result && selectedOutcome && !selectedOutcome.ok ? (
-            <div className="flex flex-col gap-4">
-              <TimeframeSwitch timeframe={desk.timeframe} onTimeframe={changeTimeframe} />
-              <p className="font-heading text-3xl">{selectedOutcome.error}</p>
-            </div>
+            <p className="font-heading text-3xl">{selectedOutcome.error}</p>
           ) : null}
 
           {running && result ? (
@@ -444,32 +510,17 @@ export default function App() {
           </SheetContent>
         </Sheet>
       </div>
-    </div>
-  )
-}
 
-function TimeframeSwitch({
-  timeframe,
-  onTimeframe,
-}: {
-  timeframe: Timeframe
-  onTimeframe: (timeframe: Timeframe) => void
-}) {
-  return (
-    <div className="flex gap-1" role="group" aria-label="Timeframe">
-      {TIMEFRAMES.map((item) => (
-        <Button
-          key={item.id}
-          type="button"
-          size="xs"
-          variant={item.id === timeframe ? "default" : "outline"}
-          className="normal-case tracking-normal"
-          aria-pressed={item.id === timeframe}
-          onClick={() => onTimeframe(item.id)}
-        >
-          {item.label}
-        </Button>
-      ))}
+      {desk.enlarged ? (
+        <ResearchChart
+          candles={tapeReady && activeTape ? activeTape.candles : []}
+          trades={result?.trades ?? []}
+          interval={activeTape?.interval ?? desk.timeframe}
+          metrics={result?.metrics ?? null}
+          runName={selected?.name ?? "Run"}
+          onClose={() => setDesk((current) => ({ ...current, enlarged: false }))}
+        />
+      ) : null}
     </div>
   )
 }
@@ -485,14 +536,5 @@ function LoadingCopy({ label }: { label: string }) {
         ))}
       </div>
     </div>
-  )
-}
-
-function CandleMark() {
-  return (
-    <svg viewBox="0 0 32 32" className="size-10 text-foreground" aria-hidden="true">
-      <line x1="16" y1="3" x2="16" y2="29" stroke="currentColor" strokeWidth="1.4" />
-      <rect x="11" y="9" width="10" height="14" fill="#c9852a" />
-    </svg>
   )
 }

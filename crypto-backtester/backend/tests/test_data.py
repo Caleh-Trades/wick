@@ -1,4 +1,4 @@
-from app.data import get_interval, load_tail, resample
+from app.data import get_interval, load_series, load_tail, resample, span_days
 from app.engine import Candle
 
 
@@ -29,6 +29,34 @@ def test_resample_builds_four_hour_bars_and_skips_gaps():
     assert bundled[0].low == 98
     assert bundled[0].volume == 10
     assert bundled[1].close == 201
+
+
+def test_span_follows_the_requested_range_and_caps_minute_bars():
+    minute = get_interval("1m")
+    assert span_days(minute, 1) == 1
+    assert span_days(minute, 5) == 5
+    assert span_days(minute, 366) < 366
+    assert span_days(minute, 0) == span_days(minute, 10_000)
+    assert span_days(get_interval("1d"), 0) >= 365 * 4
+
+
+def test_load_series_forwards_the_requested_span(monkeypatch):
+    captured: dict[str, int | None] = {}
+
+    def fetch(symbol, interval, spec, days=None):
+        captured["days"] = days
+        start = 1_700_000_000
+        candles = [
+            Candle(time=start + index * 60, open=100, high=101, low=99, close=100 + index, volume=1)
+            for index in range(4)
+        ]
+        return candles, "coinbase"
+
+    monkeypatch.setattr("app.data._fetch", fetch)
+    candles, source = load_series("BTC-USD", "1m", 5)
+    assert source == "coinbase"
+    assert captured["days"] == 5
+    assert len(candles) == 4
 
 
 def test_intraday_intervals_include_minute_bars():

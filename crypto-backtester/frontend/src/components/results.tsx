@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useRef, useState, type KeyboardEvent, type PointerEvent } from "react"
 import { Eye, EyeOff } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -14,8 +14,6 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { EquityChart, PriceChart, type OverlaySeries } from "@/components/charts"
 import {
-  formatClock,
-  formatDay,
   formatFactor,
   formatMoney,
   formatPct,
@@ -23,11 +21,10 @@ import {
   formatPrice,
   formatStamp,
   formatStat,
-  sourceLabel,
   tone,
 } from "@/lib/format"
-import { MARKETS, TIMEFRAMES, fingerprint, marketById, runColor } from "@/lib/runs"
-import type { BacktestResult, Outcome, Run, SortKey, Timeframe } from "@/lib/types"
+import { MARKETS, fingerprint, marketById, runColor } from "@/lib/runs"
+import type { BacktestResult, Outcome, Run, SortKey, TapeCandle } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 type ResultsProps = {
@@ -35,14 +32,11 @@ type ResultsProps = {
   outcomes: Record<string, Outcome>
   selected: Run
   result: BacktestResult
+  candles: TapeCandle[]
   overlays: OverlaySeries[]
-  timeframe: Timeframe
-  stale: boolean
-  paused: boolean
   sortKey: SortKey | null
   sortDir: "asc" | "desc"
-  onTimeframe: (timeframe: Timeframe) => void
-  onPause: () => void
+  onEnlarge: () => void
   onSelect: (id: string) => void
   onToggleHidden: (id: string) => void
   onSort: (key: SortKey) => void
@@ -53,21 +47,18 @@ export function Results({
   outcomes,
   selected,
   result,
+  candles,
   overlays,
-  timeframe,
-  stale,
-  paused,
   sortKey,
   sortDir,
-  onTimeframe,
-  onPause,
+  onEnlarge,
   onSelect,
   onToggleHidden,
   onSort,
 }: ResultsProps) {
   const market = MARKETS.find((symbol) => symbol.id === result.symbol)
-  const phrase = TIMEFRAMES.find((item) => item.id === timeframe)?.phrase ?? timeframe
   const metrics = result.metrics
+  const split = useSplit()
   const closed = result.trades.filter((trade) => trade.status === "closed").length
   const open = result.trades.length - closed
   const rows = sortedRows(runs, outcomes, sortKey, sortDir)
@@ -77,49 +68,36 @@ export function Results({
   return (
     <div className="flex flex-col gap-8">
       <div>
-        <h2 className="max-w-3xl font-heading text-3xl leading-tight text-balance sm:text-4xl">
+        <h2 className="max-w-3xl font-heading text-2xl leading-tight text-balance sm:text-3xl">
           {headline(result, market?.name ?? result.symbol)}
         </h2>
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-          <div className="flex gap-1" role="group" aria-label="Timeframe">
-            {TIMEFRAMES.map((item) => (
-              <Button
-                key={item.id}
-                type="button"
-                size="xs"
-                variant={item.id === timeframe ? "default" : "outline"}
-                className="normal-case tracking-normal"
-                aria-pressed={item.id === timeframe}
-                onClick={() => onTimeframe(item.id)}
-              >
-                {item.label}
-              </Button>
-            ))}
-          </div>
-          <p className="font-mono text-xs tracking-wide text-muted-foreground uppercase">
-            {result.window.bars.toLocaleString("en-US")} {phrase} bars
-            {" · "}
-            {formatDay(result.window.start)} – {formatDay(result.window.end)}
-            {" · "}
-            {sourceLabel(result.source)}
-            {" · "}
-            <LiveClock paused={paused} />
-          </p>
-          <Button type="button" size="xs" variant="outline" onClick={onPause} aria-pressed={paused}>
-            {paused ? "Resume" : "Pause"}
-          </Button>
-        </div>
-        {stale ? (
-          <p className="mt-2 text-sm text-down" role="status">
-            Tape is stale. The last good {phrase} bars are still on the desk.
-          </p>
-        ) : null}
         {setupChanged ? (
           <p className="mt-2 text-sm text-muted-foreground">This setup is newer than the last pass. Run it again to refresh.</p>
         ) : null}
       </div>
 
-      <EquityChart result={result} overlays={overlays} selectedId={selected.id} />
+      <div ref={split.ref} className="flex h-[min(72vh,52rem)] min-h-[28rem] flex-col">
+        <div className="min-h-[9rem]" style={{ flex: `${split.share} 1 0%` }}>
+          <PriceChart candles={candles} trades={result.trades} interval={result.interval} onEnlarge={onEnlarge} />
+        </div>
+        <div
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize price and equity charts"
+          aria-valuemin={22}
+          aria-valuemax={75}
+          aria-valuenow={Math.round(split.share * 100)}
+          tabIndex={0}
+          className="relative z-10 flex h-3 shrink-0 cursor-row-resize items-center before:absolute before:inset-x-0 before:top-1/2 before:h-px before:bg-border"
+          onPointerDown={split.onPointerDown}
+          onPointerMove={split.onPointerMove}
+          onPointerUp={split.onPointerUp}
+          onKeyDown={split.onKeyDown}
+        />
+        <div className="min-h-[11rem]" style={{ flex: `${1 - split.share} 1 0%` }}>
+          <EquityChart result={result} overlays={overlays} selectedId={selected.id} />
+        </div>
+      </div>
 
       <div className="grid grid-cols-2 gap-x-6 gap-y-5 md:grid-cols-4">
         <Metric label="Total return" value={formatPct(metrics.total_return_pct)} tone={tone(metrics.total_return_pct)} />
@@ -173,8 +151,6 @@ export function Results({
         {metrics.trades} closed {metrics.trades === 1 ? "trade" : "trades"}
         {open ? ` · ${open} still open` : ""}
       </p>
-
-      <PriceChart result={result} />
 
       <div>
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
@@ -241,15 +217,39 @@ export function Results({
   )
 }
 
-function LiveClock({ paused }: { paused: boolean }) {
-  const [now, setNow] = useState(() => new Date())
-  useEffect(() => {
-    if (paused) return
-    const timer = window.setInterval(() => setNow(new Date()), 1000)
-    return () => window.clearInterval(timer)
-  }, [paused])
-  if (paused) return <>Paused</>
-  return <>Live {formatClock(now)} UTC</>
+function useSplit(initial = 0.42) {
+  const [share, setShare] = useState(initial)
+  const ref = useRef<HTMLDivElement>(null)
+  const dragging = useRef(false)
+
+  function move(clientY: number) {
+    const stack = ref.current
+    if (!stack) return
+    const rect = stack.getBoundingClientRect()
+    if (rect.height <= 0) return
+    setShare(Math.min(0.75, Math.max(0.22, (clientY - rect.top) / rect.height)))
+  }
+
+  return {
+    share,
+    ref,
+    onPointerDown(event: PointerEvent<HTMLDivElement>) {
+      dragging.current = true
+      event.currentTarget.setPointerCapture(event.pointerId)
+      move(event.clientY)
+    },
+    onPointerMove(event: PointerEvent<HTMLDivElement>) {
+      if (!dragging.current) return
+      move(event.clientY)
+    },
+    onPointerUp() {
+      dragging.current = false
+    },
+    onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+      if (event.key === "ArrowUp") setShare((value) => Math.max(0.22, value - 0.04))
+      if (event.key === "ArrowDown") setShare((value) => Math.min(0.75, value + 0.04))
+    },
+  }
 }
 
 function Comparison({
@@ -283,9 +283,11 @@ function Comparison({
               <TableHead className="text-right">Return</TableHead>
               <TableHead className="text-right">Excess</TableHead>
               <TableHead className="text-right">Max DD</TableHead>
+              <SortHead label="CAGR" sortKey="cagr_pct" active={sortKey} dir={sortDir} onSort={onSort} />
               <SortHead label="Sharpe" sortKey="sharpe" active={sortKey} dir={sortDir} onSort={onSort} />
               <SortHead label="Win rate" sortKey="win_rate_pct" active={sortKey} dir={sortDir} onSort={onSort} />
               <SortHead label="Profit factor" sortKey="profit_factor" active={sortKey} dir={sortDir} onSort={onSort} />
+              <SortHead label="Trades" sortKey="trades" active={sortKey} dir={sortDir} onSort={onSort} />
               <TableHead className="w-10">
                 <span className="sr-only">Chart</span>
               </TableHead>
@@ -323,6 +325,9 @@ function Comparison({
                       {formatPct(row.outcome.result.metrics.max_drawdown_pct)}
                     </TableCell>
                     <TableCell className="text-right font-mono text-xs tabular-nums">
+                      {formatPct(row.outcome.result.metrics.cagr_pct)}
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-xs tabular-nums">
                       {formatStat(row.outcome.result.metrics.sharpe)}
                     </TableCell>
                     <TableCell className="text-right font-mono text-xs tabular-nums">
@@ -335,9 +340,12 @@ function Comparison({
                         row.outcome.result.metrics.win_rate_pct,
                       )}
                     </TableCell>
+                    <TableCell className="text-right font-mono text-xs tabular-nums">
+                      {row.outcome.result.metrics.trades}
+                    </TableCell>
                   </>
                 ) : (
-                  <TableCell colSpan={6} className="text-sm text-muted-foreground">
+                  <TableCell colSpan={8} className="text-sm text-muted-foreground">
                     {row.outcome?.ok === false ? row.outcome.error : "Not run yet."}
                   </TableCell>
                 )}
@@ -413,7 +421,10 @@ function sortValue(row: ComparisonRow, key: SortKey): number | null {
     if (metrics.trades > 0 && metrics.win_rate_pct != null && metrics.win_rate_pct >= 99.5) return Number.POSITIVE_INFINITY
     return null
   }
-  return key === "sharpe" ? metrics.sharpe : metrics.win_rate_pct
+  if (key === "sharpe") return metrics.sharpe
+  if (key === "win_rate_pct") return metrics.win_rate_pct
+  if (key === "cagr_pct") return metrics.cagr_pct
+  return metrics.trades
 }
 
 function headline(result: BacktestResult, asset: string): string {

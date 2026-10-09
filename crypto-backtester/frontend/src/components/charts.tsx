@@ -10,8 +10,10 @@ import {
   YAxis,
 } from "recharts"
 
+import { Button } from "@/components/ui/button"
 import { formatAxis, formatCompactMoney, formatMoney, formatPct, formatPrice, formatStamp } from "@/lib/format"
-import type { BacktestResult } from "@/lib/types"
+import { plotCandles, priceDomain, thinRows } from "@/lib/plot"
+import type { BacktestResult, TapeCandle, Trade } from "@/lib/types"
 
 export type OverlaySeries = {
   id: string
@@ -31,14 +33,15 @@ export function EquityChart({
   overlays: OverlaySeries[]
   selectedId: string
 }) {
-  const rows = overlayRows(result, overlays)
+  const rows = thinRows(overlayRows(result, overlays), 900)
+  const drawdown = thinRows(result.equity, 900)
   const selectedSeries = overlays.find((series) => series.id === selectedId)
   const fill = selectedSeries?.color ?? "#e4b15a"
   const headline = selectedSeries
     ? (rows.at(-1)?.[selectedId] as number | null | undefined)
     : result.metrics.final_equity
   return (
-    <div className="bg-desk px-4 py-5 text-desk-ink sm:px-6 sm:py-6">
+    <div className="flex h-full min-h-0 flex-col bg-desk px-4 py-4 text-desk-ink sm:px-6 sm:py-5">
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-[0.65rem] font-semibold tracking-[0.18em] text-bench uppercase">Equity</p>
@@ -55,7 +58,7 @@ export function EquityChart({
           <span className="text-bench">Buy and hold</span>
         </div>
       </div>
-      <div className="h-72">
+      <div className="min-h-0 flex-1">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <defs>
@@ -135,9 +138,9 @@ export function EquityChart({
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      <div className="mt-2 h-20">
+      <div className="mt-2 h-16 shrink-0">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={result.equity} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <ComposedChart data={drawdown} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <XAxis dataKey="time" hide />
             <YAxis
               orientation="right"
@@ -173,25 +176,39 @@ export function EquityChart({
   )
 }
 
-export function PriceChart({ result }: { result: BacktestResult }) {
-  const rows = priceRows(result)
+export function PriceChart({
+  candles,
+  trades,
+  interval,
+  onEnlarge,
+}: {
+  candles: TapeCandle[]
+  trades: Trade[]
+  interval: string
+  onEnlarge: () => void
+}) {
+  const rows = plotCandles(candles, trades, 700)
+  const domain = priceDomain(candles)
   return (
-    <div>
-      <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="mb-2 flex shrink-0 flex-wrap items-end justify-between gap-3">
         <h3 className="font-heading text-2xl">Price</h3>
-        <div className="flex gap-4 font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
+        <div className="flex items-center gap-4 font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
           <span>Close</span>
           <span className="text-up">Entry</span>
           <span className="text-down">Exit</span>
+          <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={onEnlarge}>
+            Enlarge
+          </Button>
         </div>
       </div>
-      <div className="h-56">
+      <div className="min-h-0 flex-1">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid vertical={false} stroke="rgba(28,25,22,0.08)" />
             <XAxis
               dataKey="time"
-              tickFormatter={(value) => formatAxis(String(value), result.interval)}
+              tickFormatter={(value) => formatAxis(String(value), interval)}
               minTickGap={36}
               tick={{ ...axisTick, fill: "#6e675d" }}
               axisLine={false}
@@ -199,7 +216,8 @@ export function PriceChart({ result }: { result: BacktestResult }) {
             />
             <YAxis
               orientation="right"
-              domain={["auto", "auto"]}
+              domain={domain}
+              allowDataOverflow
               tickFormatter={(value) => formatPrice(Number(value))}
               tick={{ ...axisTick, fill: "#6e675d" }}
               axisLine={false}
@@ -208,7 +226,7 @@ export function PriceChart({ result }: { result: BacktestResult }) {
             />
             <Tooltip
               content={({ active, payload, label }) => (
-                <ChartTip active={active} label={label} interval={result.interval} light>
+                <ChartTip active={active} label={label} interval={interval} light>
                   <TipRow label="Close" value={priceOrDash(numberFrom(payload, "close"))} />
                 </ChartTip>
               )}
@@ -269,23 +287,6 @@ function moneyOrDash(value: number | null): string {
 
 function priceOrDash(value: number | null): string {
   return value == null ? "—" : formatPrice(value)
-}
-
-function priceRows(result: BacktestResult) {
-  const entries = new Map<string, number>()
-  const exits = new Map<string, number>()
-  for (const trade of result.trades) {
-    entries.set(trade.entry_time, trade.entry_price)
-    if (trade.exit_time && trade.status === "closed" && trade.exit_price != null) {
-      exits.set(trade.exit_time, trade.exit_price)
-    }
-  }
-  return result.candles.map((candle) => ({
-    time: candle.time,
-    close: candle.close,
-    entry: entries.get(candle.time) ?? null,
-    exit: exits.get(candle.time) ?? null,
-  }))
 }
 
 function numberFrom(

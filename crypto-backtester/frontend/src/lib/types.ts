@@ -103,7 +103,9 @@ export type Candle = {
   close: number
 }
 
-export type TapeCandle = Candle & { t: number }
+export type TapeCandle = Candle & { t: number; volume?: number }
+
+export type RangeId = "1D" | "5D" | "1M" | "3M" | "1Y" | "All"
 
 export type Timeframe = "1m" | "5m" | "30m" | "1d"
 
@@ -142,13 +144,14 @@ export type Run = {
 export type Tape = {
   symbol: MarketId
   interval: Timeframe
+  range: RangeId
   source: string
   seconds: number
   periodsPerYear: number
   candles: TapeCandle[]
 }
 
-export type SortKey = "sharpe" | "win_rate_pct" | "profit_factor"
+export type SortKey = "sharpe" | "win_rate_pct" | "profit_factor" | "cagr_pct" | "trades"
 
 export type Outcome =
   | { ok: true; result: BacktestResult; fingerprint: string }

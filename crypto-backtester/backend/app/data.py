@@ -150,17 +150,35 @@ def get_interval(interval: str) -> dict:
         raise UnknownInterval(f"Interval has to be one of {known}.") from exc
 
 
-def load_series(symbol_id: str, interval: str) -> tuple[list[Candle], str]:
+# About 160 Coinbase pages. That is a month of 1-minute bars, or roughly five months of 5-minute bars.
+MAX_PAGES = 160
+
+
+def span_days(spec: dict, days: int | None) -> int:
+    """How many days of history to request. Zero means the longest tape this bar size can carry."""
+    source = int(spec["coinbase"])
+    cap = max(1, (MAX_PAGES * (BARS_PER_REQUEST - 1) * source) // 86_400)
+    if int(spec["seconds"]) >= 86_400:
+        cap = 365 * 12
+    if days is None:
+        return min(int(spec["lookback_days"]), cap)
+    if days <= 0:
+        return cap
+    return max(1, min(int(days), cap))
+
+
+def load_series(symbol_id: str, interval: str, days: int | None = None) -> tuple[list[Candle], str]:
     symbol = get_symbol(symbol_id)
     spec = get_interval(interval)
-    key = f"{symbol.id}_{interval}"
+    span = span_days(spec, days)
+    key = f"{symbol.id}_{interval}_{span}"
     with _lock(key):
         cached = _read_cache(key)
         fresh = cached is not None and time.time() - cached["fetched_at"] < CACHE_TTL_SECONDS
         if fresh:
             return cached["candles"], cached["source"]
         try:
-            candles, source = _fetch(symbol, interval, spec)
+            candles, source = _fetch(symbol, interval, spec, days)
         except (httpx.HTTPError, DataUnavailable) as exc:
             if cached:
                 logger.warning("Using stale %s cache after fetch failed: %s", key, exc)
@@ -237,9 +255,9 @@ def resample(candles: list[Candle], target_seconds: int, source_seconds: int) ->
     return bundled
 
 
-def _fetch(symbol: Symbol, interval: str, spec: dict) -> tuple[list[Candle], str]:
+def _fetch(symbol: Symbol, interval: str, spec: dict, days: int | None = None) -> tuple[list[Candle], str]:
     end = int(time.time())
-    start = end - int(spec["lookback_days"]) * 86_400
+    start = end - span_days(spec, days) * 86_400
     try:
         rows = _coinbase_rows(symbol.id, int(spec["coinbase"]), start, end)
         candles = _coinbase_candles(rows)
@@ -260,27 +278,43 @@ def _fetch(symbol: Symbol, interval: str, spec: dict) -> tuple[list[Candle], str
 
 
 def _coinbase_rows(product: str, granularity: int, start: int, end: int) -> list[list]:
-    rows: list[list] = []
     span = (BARS_PER_REQUEST - 1) * granularity
+    windows: list[tuple[int, int]] = []
     cursor = start
+    while cursor < end:
+        chunk_end = min(end, cursor + span)
+        windows.append((cursor, chunk_end))
+        next_cursor = chunk_end + granularity
+        if next_cursor <= cursor:
+            break
+        cursor = next_cursor
+    if not windows:
+        return []
     headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
-    with httpx.Client(timeout=20.0, headers=headers) as client:
-        while cursor < end:
-            chunk_end = min(end, cursor + span)
+
+    def fetch_window(window: tuple[int, int]) -> list[list]:
+        start_at, end_at = window
+        with httpx.Client(timeout=20.0, headers=headers) as client:
             response = _get_with_retry(
                 client,
                 COINBASE_URL.format(product=product),
-                {"granularity": granularity, "start": _iso(cursor), "end": _iso(chunk_end)},
+                {"granularity": granularity, "start": _iso(start_at), "end": _iso(end_at)},
             )
-            payload = response.json()
-            if isinstance(payload, dict):
-                message = payload.get("message", "Coinbase refused the candle request.")
-                raise DataUnavailable(str(message))
+        payload = response.json()
+        if isinstance(payload, dict):
+            message = payload.get("message", "Coinbase refused the candle request.")
+            raise DataUnavailable(str(message))
+        return payload
+
+    if len(windows) == 1:
+        return fetch_window(windows[0])
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    rows: list[list] = []
+    with ThreadPoolExecutor(max_workers=min(6, len(windows))) as pool:
+        for payload in pool.map(fetch_window, windows):
             rows.extend(payload)
-            next_cursor = chunk_end + granularity
-            if next_cursor <= cursor:
-                break
-            cursor = next_cursor
     return rows
 
 

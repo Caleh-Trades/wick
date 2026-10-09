@@ -1,4 +1,4 @@
-import type { BacktestResult, Draft, MarketId, Meta, Tape, TapeCandle, Timeframe } from "@/lib/types"
+import type { BacktestResult, Draft, MarketId, Meta, RangeId, Tape, TapeCandle, Timeframe } from "@/lib/types"
 
 const base = (import.meta.env.VITE_API_URL as string | undefined) ?? ""
 
@@ -6,13 +6,19 @@ export async function fetchMeta(): Promise<Meta> {
   return request<Meta>("/api/meta")
 }
 
-export async function fetchCandles(symbol: MarketId, interval: Timeframe, since?: number): Promise<Tape> {
+export async function fetchCandles(
+  symbol: MarketId,
+  interval: Timeframe,
+  options?: { since?: number; days?: number; range?: RangeId },
+): Promise<Tape> {
   const params = new URLSearchParams({ symbol, interval })
-  if (since != null) params.set("since", String(since))
+  if (options?.since != null) params.set("since", String(options.since))
+  else if (options?.days != null) params.set("days", String(options.days))
   const body = await request<TapePayload>(`/api/candles?${params.toString()}`)
   return {
     symbol,
     interval,
+    range: options?.range ?? "All",
     source: body.source,
     seconds: body.seconds,
     periodsPerYear: body.periods_per_year,
@@ -54,6 +60,7 @@ function normalizeCandle(candle: TapeCandle & { t?: number }): TapeCandle {
     high: candle.high,
     low: candle.low,
     close: candle.close,
+    volume: typeof candle.volume === "number" ? candle.volume : undefined,
   }
 }
 

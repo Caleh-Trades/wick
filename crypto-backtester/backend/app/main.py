@@ -65,11 +65,15 @@ def candles(
     symbol: str = "BTC-USD",
     interval: str = "1d",
     since: int | None = Query(default=None, ge=0),
+    days: int | None = Query(default=None, ge=0, le=20_000),
 ) -> dict:
     try:
         spec = get_interval(interval)
         if since is None:
-            series, source = load_series(symbol, interval)
+            if days is None:
+                series, source = load_series(symbol, interval)
+            else:
+                series, source = load_series(symbol, interval, days)
         else:
             series, source = load_tail(symbol, interval, since)
     except UnknownSymbol as exc:
@@ -252,6 +256,7 @@ def _candle_payload(candle) -> dict:
         "high": candle.high,
         "low": candle.low,
         "close": candle.close,
+        "volume": candle.volume,
     }
 
 

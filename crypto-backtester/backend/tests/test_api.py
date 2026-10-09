@@ -90,6 +90,20 @@ def test_candles_route_serves_a_tape_and_a_live_tail(monkeypatch):
     assert "Interval" in missing.json()["detail"]
 
 
+def test_candles_days_query_reaches_the_loader(monkeypatch):
+    def load(symbol, interval, days=None):
+        assert symbol == "BTC-USD"
+        assert interval == "5m"
+        assert days == 31
+        return (_candles(), "coinbase")
+
+    monkeypatch.setattr("app.main.load_series", load)
+    client = TestClient(app)
+    response = client.get("/api/candles", params={"symbol": "BTC-USD", "interval": "5m", "days": 31})
+    assert response.status_code == 200
+    assert response.json()["candles"][0]["volume"] == 10
+
+
 def test_unknown_markets_are_rejected():
     client = TestClient(app)
     missing = client.post("/api/backtest", json={"symbol": "NOPE-USD", "strategy": "buy_hold"})

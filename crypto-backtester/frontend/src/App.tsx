@@ -386,14 +386,14 @@ export default function App() {
     return tape
   }
 
-  async function runSelected() {
-    if (!active || !selected) return
+  async function runSelected(run: Run) {
+    if (!active) return
     setRunning(true)
     setErrors((current) => ({ ...current, [active.id]: null }))
     try {
       const tape = await ensureTape(active)
-      const outcome = await computeBacktest(alignRun(selected, active), tape)
-      setOutcomes((prev) => ({ ...prev, [selected.id]: outcome }))
+      const outcome = await computeBacktest(alignRun(run, active), tape)
+      setOutcomes((prev) => ({ ...prev, [run.id]: outcome }))
       setDrawToken((token) => token + 1)
       setSetupOpen(false)
       if (!outcome.ok) setErrors((current) => ({ ...current, [active.id]: outcome.error }))
@@ -407,14 +407,14 @@ export default function App() {
     }
   }
 
-  async function runAll() {
+  async function runAll(edited: Run) {
     if (!active) return
     setRunning(true)
     setErrors((current) => ({ ...current, [active.id]: null }))
     const slot = active
     try {
       const tape = await ensureTape(slot)
-      const runs = slot.runs.map((run) => alignRun(run, slot))
+      const runs = slot.runs.map((run) => alignRun(run.id === edited.id ? edited : run, slot))
       const computed = await Promise.all(runs.map((run) => computeBacktest(run, tape)))
       setOutcomes((prev) => {
         const patch = { ...prev }
@@ -600,8 +600,8 @@ export default function App() {
                 onRemove={removeRun}
                 onAdd={addRun}
                 onDuplicate={duplicateRun}
-                onRun={() => void runSelected()}
-                onRunAll={() => void runAll()}
+                onRun={(run) => void runSelected(run)}
+                onRunAll={(run) => void runAll(run)}
                 onEditing={setEditing}
               />
             ) : (
@@ -641,8 +641,8 @@ export default function App() {
                   onRemove={removeRun}
                   onAdd={addRun}
                   onDuplicate={duplicateRun}
-                  onRun={() => void runSelected()}
-                  onRunAll={() => void runAll()}
+                  onRun={(run) => void runSelected(run)}
+                  onRunAll={(run) => void runAll(run)}
                   onEditing={setEditing}
                 />
               ) : null}

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react"
+import { useRef, useState, type ReactNode } from "react"
 import { Eye, EyeOff, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -30,8 +30,8 @@ type ControlsProps = {
   onRemove: (id: string) => void
   onAdd: () => void
   onDuplicate: () => void
-  onRun: () => void
-  onRunAll: () => void
+  onRun: (run: Run) => void
+  onRunAll: (run: Run) => void
   onEditing: (editing: boolean) => void
 }
 
@@ -54,17 +54,22 @@ export function Controls({
   const full = runs.length >= MAX_RUNS
   const rule = RULES.find((item) => item.id === selected.rule)
   const problem = runProblem(selected)
+  const selectedRef = useRef(selected)
+  selectedRef.current = selected
 
   function patch(next: Partial<Run>) {
-    onChange({ ...selected, ...next })
+    const run = { ...selectedRef.current, ...next }
+    selectedRef.current = run
+    onChange(run)
   }
 
   return (
     <form
       className="bezel flex flex-col gap-6 p-4"
+      noValidate
       onSubmit={(event) => {
         event.preventDefault()
-        onRun()
+        onRun(selectedRef.current)
       }}
       onFocus={(event) => {
         if (isField(event.target)) onEditing(true)
@@ -189,25 +194,16 @@ export function Controls({
                 />
               </div>
             ) : (
-              <Field key={param.key} label={param.label} htmlFor={`${idPrefix}-${param.key}`}>
-                <Input
-                  id={`${idPrefix}-${param.key}`}
-                  type="number"
-                  inputMode="decimal"
-                  min={param.min}
-                  max={param.max}
-                  step={param.step}
-                  value={selected.params[param.key] ?? param.default}
-                  onChange={(event) =>
-                    patch({
-                      params: {
-                        ...selected.params,
-                        [param.key]: numberOr(event.target.value, selected.params[param.key] ?? param.default),
-                      },
-                    })
-                  }
-                />
-              </Field>
+              <DecimalField
+                key={param.key}
+                id={`${idPrefix}-${param.key}`}
+                label={param.label}
+                value={selected.params[param.key] ?? param.default}
+                min={param.min}
+                max={param.max}
+                integer={param.integer}
+                onValue={(value) => patch({ params: { ...selectedRef.current.params, [param.key]: value } })}
+              />
             ),
           )}
         </div>
@@ -215,69 +211,44 @@ export function Controls({
 
       {problem ? <p className="text-sm text-down">{problem}</p> : null}
 
-      <Field label="Base balance" htmlFor={`${idPrefix}-capital`}>
-        <Input
-          id={`${idPrefix}-capital`}
-          type="number"
-          inputMode="decimal"
-          min={1}
-          max={1_000_000_000}
-          step={100}
-          value={selected.capital}
-          onChange={(event) => {
-            const value = numberOr(event.target.value, selected.capital)
-            patch({ capital: Math.min(1_000_000_000, Math.max(1, value)) })
-          }}
-        />
-      </Field>
+      <DecimalField
+        id={`${idPrefix}-capital`}
+        label="Base balance"
+        value={selected.capital}
+        min={1}
+        max={1_000_000_000}
+        onValue={(capital) => patch({ capital })}
+      />
 
-      <Field label="Risk per trade (%)" htmlFor={`${idPrefix}-risk`}>
-        <Input
-          id={`${idPrefix}-risk`}
-          type="number"
-          inputMode="decimal"
-          min={0.1}
-          max={100}
-          step={0.1}
-          value={clampRisk(selected.riskPct)}
-          onChange={(event) => {
-            const value = numberOr(event.target.value, clampRisk(selected.riskPct))
-            patch({ riskPct: clampRisk(value) })
-          }}
-        />
-        <p className="text-xs leading-relaxed text-muted-foreground">{riskCopy(selected.capital, clampRisk(selected.riskPct), venue)}</p>
-      </Field>
+      <DecimalField
+        id={`${idPrefix}-risk`}
+        label="Risk per trade (%)"
+        value={clampRisk(selected.riskPct)}
+        min={0.1}
+        max={100}
+        onValue={(riskPct) => patch({ riskPct })}
+        hint={<p className="text-xs leading-relaxed text-muted-foreground">{riskCopy(selected.capital, clampRisk(selected.riskPct), venue)}</p>}
+      />
 
       {venue === "perp" ? (
-        <Field label="Leverage" htmlFor={`${idPrefix}-leverage`}>
-          <Input
-            id={`${idPrefix}-leverage`}
-            type="number"
-            inputMode="decimal"
-            min={1}
-            max={20}
-            step={1}
-            value={selected.leverage}
-            onChange={(event) => {
-              const value = numberOr(event.target.value, selected.leverage)
-              patch({ leverage: Math.min(20, Math.max(1, value)) })
-            }}
-          />
-        </Field>
+        <DecimalField
+          id={`${idPrefix}-leverage`}
+          label="Leverage"
+          value={selected.leverage}
+          min={1}
+          max={20}
+          onValue={(leverage) => patch({ leverage })}
+        />
       ) : null}
 
-      <Field label="Fee (bps)" htmlFor={`${idPrefix}-fee`}>
-        <Input
-          id={`${idPrefix}-fee`}
-          type="number"
-          inputMode="decimal"
-          min={0}
-          max={1000}
-          step={1}
-          value={selected.feeBps}
-          onChange={(event) => patch({ feeBps: numberOr(event.target.value, selected.feeBps) })}
-        />
-      </Field>
+      <DecimalField
+        id={`${idPrefix}-fee`}
+        label="Fee (bps)"
+        value={selected.feeBps}
+        min={0}
+        max={1000}
+        onValue={(feeBps) => patch({ feeBps })}
+      />
 
       {venue === "perp" ? (
         <Button
@@ -295,7 +266,7 @@ export function Controls({
         <Button type="submit" disabled={running || problem != null}>
           {running ? "Running" : "Run"}
         </Button>
-        <Button type="button" variant="outline" disabled={running} onClick={onRunAll}>
+        <Button type="button" variant="outline" disabled={running} onClick={() => onRunAll(selectedRef.current)}>
           Run all
         </Button>
       </div>
@@ -307,6 +278,62 @@ export function Controls({
           : " Spot stays long or flat."}
       </p>
     </form>
+  )
+}
+
+function DecimalField({
+  id,
+  label,
+  value,
+  min,
+  max,
+  integer = false,
+  onValue,
+  hint,
+}: {
+  id: string
+  label: string
+  value: number
+  min: number
+  max: number
+  integer?: boolean
+  onValue: (value: number) => void
+  hint?: ReactNode
+}) {
+  const [text, setText] = useState<string | null>(null)
+
+  function commit(raw: string) {
+    const trimmed = raw.trim()
+    const parsed = trimmed === "" || trimmed === "." || trimmed === "-" ? Number.NaN : Number(trimmed)
+    const next = Number.isFinite(parsed) ? Math.min(max, Math.max(min, integer ? Math.round(parsed) : parsed)) : value
+    setText(null)
+    if (next !== value) onValue(next)
+  }
+
+  return (
+    <Field label={label} htmlFor={id}>
+      <Input
+        id={id}
+        type="text"
+        inputMode="decimal"
+        autoComplete="off"
+        spellCheck={false}
+        value={text ?? String(value)}
+        onFocus={() => setText((current) => current ?? String(value))}
+        onChange={(event) => {
+          const raw = event.target.value
+          setText(raw)
+          const trimmed = raw.trim()
+          if (trimmed === "" || trimmed === "." || trimmed === "-" || trimmed.endsWith(".")) return
+          const parsed = Number(trimmed)
+          if (!Number.isFinite(parsed) || parsed < min || parsed > max) return
+          const next = integer ? Math.round(parsed) : parsed
+          if (next !== value) onValue(next)
+        }}
+        onBlur={(event) => commit(event.currentTarget.value)}
+      />
+      {hint}
+    </Field>
   )
 }
 
@@ -336,8 +363,3 @@ function riskCopy(capital: number, riskPct: number, venue: Venue): string {
     : `If price goes to zero, this trade loses ${money}. The rest stays in cash.`
 }
 
-function numberOr(raw: string, fallback: number): number {
-  if (raw.trim() === "") return fallback
-  const value = Number(raw)
-  return Number.isFinite(value) ? value : fallback
-}

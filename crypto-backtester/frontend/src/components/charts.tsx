@@ -107,7 +107,7 @@ export const EquityChart = memo(function EquityChart({
           <span className="text-bench">Buy and hold</span>
         </div>
       </div>
-      <div ref={plotRef} className="plot-solid min-h-0 flex-1">
+      <div ref={plotRef} className="equity-plot plot-solid min-h-0 flex-1">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid vertical={false} stroke={plotGrid} />

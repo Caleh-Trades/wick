@@ -70,7 +70,7 @@ export const Results = memo(function Results({
   const [view, setView] = useState<ResultsView>("equity")
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3">
+    <div className="results-stack flex h-full min-h-0 flex-col gap-3">
       <div className="flex shrink-0 gap-1 overflow-x-auto xl:hidden" role="tablist" aria-label="Results">
         {VIEWS.map((item) => (
           <Button
@@ -91,14 +91,14 @@ export const Results = memo(function Results({
         <p className="shrink-0 text-sm text-muted-foreground">This setup is newer than the last pass. Run it again to refresh.</p>
       ) : null}
 
-      <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)_minmax(0,1fr)]">
-        <div className={cn("h-full min-h-0 min-w-0", view === "equity" ? "flex flex-col" : "hidden xl:flex xl:flex-col")}>
-          <div className="min-h-0 flex-1">
+      <div className="results-grid grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)_minmax(0,1fr)]">
+        <div className={cn("results-equity h-full min-h-0 min-w-0", view === "equity" ? "flex flex-col" : "hidden xl:flex xl:flex-col")}>
+          <div className="equity-frame min-h-0 flex-1">
             <EquityChart result={result} overlays={overlays} selectedId={selected.id} drawToken={drawToken} />
           </div>
         </div>
 
-        <div className={cn("h-full min-h-0 min-w-0", view === "comparison" ? "block" : "hidden xl:block")}>
+        <div className={cn("results-comparison h-full min-h-0 min-w-0", view === "comparison" ? "block" : "hidden xl:block")}>
           <Comparison
             rows={rows}
             venue={venue}
@@ -112,7 +112,7 @@ export const Results = memo(function Results({
           />
         </div>
 
-        <div className={cn("bezel h-full min-h-0 min-w-0 flex-col overflow-hidden p-3", view === "trades" ? "flex" : "hidden xl:flex")}>
+        <div className={cn("results-trades bezel h-full min-h-0 min-w-0 flex-col overflow-hidden p-3", view === "trades" ? "flex" : "hidden xl:flex")}>
         <p className="mb-3 shrink-0 font-mono text-xs text-muted-foreground uppercase">
           {venue === "perp" ? "Binance perp" : "Binance spot"}
           {" · "}

@@ -301,8 +301,43 @@ button:hover,
 }
 
 @media (max-width: 1279px) {
+  .desk-column {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
   .price-split {
-    flex-grow: 0.34 !important;
+    flex: none !important;
+    height: 46vh;
+    min-height: 240px;
+    max-height: 440px;
+  }
+
+  .price-plot {
+    min-height: 180px;
+  }
+
+  .results-pane,
+  .results-body,
+  .results-stack,
+  .results-grid,
+  .results-equity,
+  .equity-frame {
+    flex: none !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .equity-plot {
+    flex: none !important;
+    height: 200px !important;
+    min-height: 200px !important;
+  }
+
+  .results-comparison,
+  .results-trades {
+    height: 320px !important;
+    min-height: 320px !important;
   }
 }
 

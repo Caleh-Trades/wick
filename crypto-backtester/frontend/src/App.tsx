@@ -490,7 +490,7 @@ export default function App() {
       />
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <Watchlist slots={workspace.slots} activeId={workspace.activeId} onFocus={focusSlot} onOpen={openSymbol} />
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="desk-column flex min-h-0 min-w-0 flex-1 flex-col">
           {error ? (
             <div role="alert" className="bezel mx-3 mt-3 shrink-0 px-4 py-3 text-sm text-down">
               {error}
@@ -528,20 +528,20 @@ export default function App() {
             aria-valuemax={Math.round(CHART_MAX * 100)}
             aria-valuenow={Math.round(panes.chart * 100)}
             tabIndex={0}
-            className="relative z-10 flex h-3 shrink-0 cursor-row-resize items-center before:absolute before:inset-x-0 before:top-1/2 before:h-px before:bg-border"
+            className="relative z-10 hidden h-3 shrink-0 cursor-row-resize items-center before:absolute before:inset-x-0 before:top-1/2 before:h-px before:bg-border xl:flex"
             onPointerDown={(event) => dragChart(event, (chart) => setPanes((current) => ({ ...current, chart })))}
             onKeyDown={(event) => {
               if (event.key === "ArrowUp") setPanes((current) => ({ ...current, chart: clampChart(current.chart - 0.03) }))
               if (event.key === "ArrowDown") setPanes((current) => ({ ...current, chart: clampChart(current.chart + 0.03) }))
             }}
           />
-          <div className="flex min-h-0 flex-col overflow-hidden px-3 pb-24 lg:pb-3" style={{ flex: `${Math.max(0.01, 1 - panes.chart)} 1 0%` }}>
+          <div className="results-pane flex min-h-0 flex-col overflow-hidden px-3 pb-24 lg:pb-3" style={{ flex: `${Math.max(0.01, 1 - panes.chart)} 1 0%` }}>
             {loadingKey === activeKey && !activeTape ? (
               <p className="py-4 text-sm text-muted-foreground">Pulling the {phrase} tape. The first look at a pair can take a few seconds.</p>
             ) : null}
             {selectedOutcome && !selectedOutcome.ok ? <p className="py-2 font-heading text-2xl">{selectedOutcome.error}</p> : null}
             {result && active && selected ? (
-              <div className="min-h-0 flex-1">
+              <div className="results-body min-h-0 flex-1">
               <Results
                 runs={active.runs}
                 outcomes={outcomes}

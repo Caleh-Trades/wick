@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { Eye, EyeOff } from "lucide-react"
+import { Eye, EyeOff, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -23,6 +23,7 @@ type ControlsProps = {
   onSelect: (id: string) => void
   onChange: (run: Run) => void
   onToggleHidden: (id: string) => void
+  onRemove: (id: string) => void
   onAdd: () => void
   onDuplicate: () => void
   onRun: () => void
@@ -38,6 +39,7 @@ export function Controls({
   onSelect,
   onChange,
   onToggleHidden,
+  onRemove,
   onAdd,
   onDuplicate,
   onRun,
@@ -97,6 +99,15 @@ export function Controls({
                   onClick={() => onToggleHidden(run.id)}
                 >
                   {run.hidden ? <EyeOff /> : <Eye />}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label={`Remove ${run.name}`}
+                  onClick={() => onRemove(run.id)}
+                >
+                  <Trash2 />
                 </Button>
               </li>
             )

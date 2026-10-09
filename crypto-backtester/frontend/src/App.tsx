@@ -242,6 +242,24 @@ export default function App() {
     })
   }
 
+  function removeRun(id: string) {
+    const current = deskRef.current
+    const index = current.runs.findIndex((run) => run.id === id)
+    if (index < 0) return
+    const runs = current.runs.filter((run) => run.id !== id)
+    const neighbor = runs[index] ?? runs[index - 1]
+    const selectedId = current.selectedId === id ? (neighbor?.id ?? "") : current.selectedId
+    const updated = { ...current, runs, selectedId }
+    deskRef.current = updated
+    setDesk(updated)
+    setOutcomes((prev) => {
+      if (!(id in prev)) return prev
+      const copy = { ...prev }
+      delete copy[id]
+      return copy
+    })
+  }
+
   function toggleHidden(id: string) {
     const run = desk.runs.find((item) => item.id === id)
     setDesk((current) => ({
@@ -383,15 +401,6 @@ export default function App() {
   const activeTape = selected ? tapes[selected.symbol] : undefined
   const tapeReady = Boolean(activeTape && activeTape.interval === desk.timeframe && activeTape.range === desk.range)
 
-  useEffect(() => {
-    if (!desk.enlarged) return
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setDesk((current) => ({ ...current, enlarged: false }))
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [desk.enlarged])
-
   return (
     <div className="min-h-svh pb-24 lg:pb-8">
       <DeskBar
@@ -423,6 +432,7 @@ export default function App() {
                 onSelect={selectRun}
                 onChange={updateRun}
                 onToggleHidden={toggleHidden}
+                onRemove={removeRun}
                 onAdd={addRun}
                 onDuplicate={duplicateRun}
                 onRun={() => void runSelected()}
@@ -430,7 +440,7 @@ export default function App() {
                 onEditing={setEditing}
               />
             ) : (
-              <p className="text-sm text-muted-foreground">Loading markets…</p>
+              <EmptyRuns onAdd={addRun} />
             )}
           </div>
         </aside>
@@ -473,6 +483,7 @@ export default function App() {
               onEnlarge={() => setDesk((current) => ({ ...current, enlarged: true }))}
               onSelect={selectRun}
               onToggleHidden={toggleHidden}
+              onRemove={removeRun}
               onSort={onSort}
             />
           ) : null}
@@ -509,13 +520,16 @@ export default function App() {
                   onSelect={selectRun}
                   onChange={updateRun}
                   onToggleHidden={toggleHidden}
+                  onRemove={removeRun}
                   onAdd={addRun}
                   onDuplicate={duplicateRun}
                   onRun={() => void runSelected()}
                   onRunAll={() => void runAll()}
                   onEditing={setEditing}
                 />
-              ) : null}
+              ) : (
+                <EmptyRuns onAdd={addRun} />
+              )}
             </div>
           </SheetContent>
         </Sheet>
@@ -531,6 +545,17 @@ export default function App() {
           onClose={() => setDesk((current) => ({ ...current, enlarged: false }))}
         />
       ) : null}
+    </div>
+  )
+}
+
+function EmptyRuns({ onAdd }: { onAdd: () => void }) {
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-sm text-muted-foreground">No runs on the desk.</p>
+      <Button type="button" variant="outline" onClick={onAdd}>
+        Add run
+      </Button>
     </div>
   )
 }

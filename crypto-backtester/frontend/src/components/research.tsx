@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type TransitionEvent } from "react"
 import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 import { X } from "lucide-react"
 
@@ -32,9 +32,16 @@ export function ResearchChart({
   onClose: () => void
 }) {
   const closeRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
   const frameRef = useRef<HTMLDivElement>(null)
   const shellRef = useRef<HTMLDivElement>(null)
   const plotRef = useRef<PlotBox | null>(null)
+  const summaryRef = useRef<DOMRect | null>(readSummaryRect())
+  const targetRef = useRef(targetBox())
+  const closingRef = useRef(false)
+  const closeTimer = useRef(0)
+  const reduceMotion = useRef(window.matchMedia("(prefers-reduced-motion: reduce)").matches)
+  const [grown, setGrown] = useState(reduceMotion.current)
   const viewRef = useRef<View>({ start: 0, end: Math.max(0, candles.length - 1) })
   const followRef = useRef(true)
   const countRef = useRef(candles.length)
@@ -43,9 +50,52 @@ export function ResearchChart({
   const [plot, setPlot] = useState<PlotBox | null>(null)
   const [drag, setDrag] = useState<Drag | null>(null)
 
+  useEffect(() => () => window.clearTimeout(closeTimer.current), [])
+
   useEffect(() => {
-    closeRef.current?.focus()
+    if (reduceMotion.current) return
+    let inner = 0
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => setGrown(true))
+    })
+    return () => {
+      cancelAnimationFrame(outer)
+      cancelAnimationFrame(inner)
+    }
   }, [])
+
+  useEffect(() => {
+    if (grown) closeRef.current?.focus()
+  }, [grown])
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") beginClose()
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [onClose])
+
+  function beginClose() {
+    if (closingRef.current) return
+    closingRef.current = true
+    if (reduceMotion.current) {
+      onClose()
+      return
+    }
+    const source = readSummaryRect()
+    if (source) summaryRef.current = source
+    setGrown(false)
+    window.clearTimeout(closeTimer.current)
+    closeTimer.current = window.setTimeout(() => onClose(), 520)
+  }
+
+  function onPanelTransitionEnd(event: TransitionEvent<HTMLDivElement>) {
+    if (event.target !== panelRef.current || event.propertyName !== "transform") return
+    if (!closingRef.current) return
+    window.clearTimeout(closeTimer.current)
+    onClose()
+  }
 
   function commit(next: View, follow = next.end >= candles.length - 1) {
     viewRef.current = next
@@ -236,9 +286,29 @@ export function ResearchChart({
     return { left: plot.left + rawLeft, width: Math.abs(drag.x - drag.x0), top: plot.top, height: plot.height }
   })()
 
+  const target = targetRef.current
+  const panelStyle = {
+    top: target.top,
+    left: target.left,
+    width: target.width,
+    height: target.height,
+    transform: placedTransform(summaryRef.current, target, grown),
+    transition: "transform 500ms cubic-bezier(0.22, 1, 0.36, 1)",
+    pointerEvents: grown ? ("auto" as const) : ("none" as const),
+  }
+
   return (
-    <div className="fixed inset-0 z-50 bg-foreground/45 p-[5vh]" role="dialog" aria-modal="true" aria-label="Enlarged price">
-      <div className="mx-auto flex h-full max-h-[90vh] w-full max-w-[1600px] flex-col bg-desk px-4 py-4 text-desk-ink sm:px-6">
+    <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Enlarged price">
+      <div
+        className="absolute inset-0 bg-foreground/45 transition-opacity duration-500 ease-out"
+        style={{ opacity: grown ? 1 : 0 }}
+      />
+      <div
+        ref={panelRef}
+        onTransitionEnd={onPanelTransitionEnd}
+        className="fixed flex origin-center flex-col overflow-hidden bg-desk px-4 py-4 text-desk-ink will-change-transform sm:px-6"
+        style={panelStyle}
+      >
         <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-[0.65rem] font-semibold tracking-[0.18em] text-bench uppercase">Price · {runName}</p>
@@ -264,7 +334,7 @@ export function ResearchChart({
               variant="outline"
               className="border-desk-ink/30 text-desk-ink hover:bg-desk-ink/10 hover:text-desk-ink"
               aria-label="Close enlarged chart"
-              onClick={onClose}
+              onClick={beginClose}
             >
               <X />
             </Button>
@@ -441,4 +511,29 @@ function formatVolume(value: number): string {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
+}
+
+type Frame = { top: number; left: number; width: number; height: number }
+
+function readSummaryRect(): DOMRect | null {
+  const node = document.querySelector("[data-price-summary]")
+  if (!node) return null
+  const rect = node.getBoundingClientRect()
+  return rect.width > 8 && rect.height > 8 ? rect : null
+}
+
+function targetBox(): Frame {
+  const marginX = 16
+  const top = window.innerHeight * 0.05
+  const width = Math.min(1600, Math.max(280, window.innerWidth - marginX * 2))
+  return { top, left: (window.innerWidth - width) / 2, width, height: window.innerHeight * 0.9 }
+}
+
+function placedTransform(origin: DOMRect | null, target: Frame, grown: boolean): string {
+  if (grown || !origin) return "translate(0px, 0px) scale(1, 1)"
+  const sx = origin.width / target.width
+  const sy = origin.height / target.height
+  const tx = origin.left + origin.width / 2 - (target.left + target.width / 2)
+  const ty = origin.top + origin.height / 2 - (target.top + target.height / 2)
+  return `translate(${tx}px, ${ty}px) scale(${sx}, ${sy})`
 }

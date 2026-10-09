@@ -190,7 +190,7 @@ export function PriceChart({
   const rows = plotCandles(candles, trades, 700)
   const domain = priceDomain(candles)
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div data-price-summary="" className="flex h-full min-h-0 flex-col">
       <div className="mb-2 flex shrink-0 flex-wrap items-end justify-between gap-3">
         <h3 className="font-heading text-2xl">Price</h3>
         <div className="flex items-center gap-4 font-mono text-[11px] tracking-wide text-muted-foreground uppercase">

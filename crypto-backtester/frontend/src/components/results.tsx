@@ -1,5 +1,5 @@
 import { useRef, useState, type KeyboardEvent, type PointerEvent } from "react"
-import { Eye, EyeOff } from "lucide-react"
+import { Eye, EyeOff, Trash2 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -39,6 +39,7 @@ type ResultsProps = {
   onEnlarge: () => void
   onSelect: (id: string) => void
   onToggleHidden: (id: string) => void
+  onRemove: (id: string) => void
   onSort: (key: SortKey) => void
 }
 
@@ -54,6 +55,7 @@ export function Results({
   onEnlarge,
   onSelect,
   onToggleHidden,
+  onRemove,
   onSort,
 }: ResultsProps) {
   const market = MARKETS.find((symbol) => symbol.id === result.symbol)
@@ -138,6 +140,7 @@ export function Results({
         sortDir={sortDir}
         onSelect={onSelect}
         onToggleHidden={onToggleHidden}
+        onRemove={onRemove}
         onSort={onSort}
       />
 
@@ -259,6 +262,7 @@ function Comparison({
   sortDir,
   onSelect,
   onToggleHidden,
+  onRemove,
   onSort,
 }: {
   rows: ComparisonRow[]
@@ -267,6 +271,7 @@ function Comparison({
   sortDir: "asc" | "desc"
   onSelect: (id: string) => void
   onToggleHidden: (id: string) => void
+  onRemove: (id: string) => void
   onSort: (key: SortKey) => void
 }) {
   return (
@@ -350,18 +355,32 @@ function Comparison({
                   </TableCell>
                 )}
                 <TableCell>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-xs"
-                    aria-label={row.run.hidden ? `Show ${row.run.name}` : `Hide ${row.run.name}`}
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      onToggleHidden(row.run.id)
-                    }}
-                  >
-                    {row.run.hidden ? <EyeOff /> : <Eye />}
-                  </Button>
+                  <div className="flex items-center justify-end gap-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label={row.run.hidden ? `Show ${row.run.name}` : `Hide ${row.run.name}`}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onToggleHidden(row.run.id)
+                      }}
+                    >
+                      {row.run.hidden ? <EyeOff /> : <Eye />}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label={`Remove ${row.run.name}`}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onRemove(row.run.id)
+                      }}
+                    >
+                      <Trash2 />
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             ))}

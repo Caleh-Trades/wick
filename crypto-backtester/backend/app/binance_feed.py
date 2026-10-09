@@ -171,6 +171,72 @@ def load_binance_tail(
     return candles, _source(venue)
 
 
+def load_premium(symbol: str) -> tuple[dict, bool]:
+    """Latest USDT-M funding rate and the next funding time. A failure never invents a rate."""
+    symbol = _require_symbol(symbol, "perp")
+    key = f"premium_{symbol}"
+    cached = _read_premium_cache(key)
+    try:
+        quote = _fetch_premium(symbol)
+    except DataUnavailable:
+        if cached is not None:
+            logger.warning("Using stale premium cache for %s after Binance failed", symbol)
+            return cached[0], True
+        raise
+    except httpx.HTTPError as exc:
+        if cached is not None:
+            logger.warning("Using stale premium cache for %s after Binance failed: %s", symbol, exc)
+            return cached[0], True
+        raise DataUnavailable(f"Couldn't pull {symbol} funding. The desk will not invent a rate.") from exc
+    _write_premium_cache(key, quote)
+    return quote, False
+
+
+def _fetch_premium(symbol: str) -> dict:
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+    with httpx.Client(timeout=20.0, headers=headers) as client:
+        response = client.get(f"{PERP_REST}/fapi/v1/premiumIndex", params={"symbol": symbol})
+    if response.status_code == 400:
+        raise UnknownSymbol(f"Binance has no perpetual {symbol}.")
+    _raise_unless_ok(response, f"Couldn't pull {symbol} funding.")
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise DataUnavailable("Binance did not return a funding rate.")
+    try:
+        rate = float(payload["lastFundingRate"])
+        next_ms = int(payload["nextFundingTime"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise DataUnavailable("Binance did not return a funding rate.") from exc
+    if rate != rate:
+        raise DataUnavailable("Binance did not return a funding rate.")
+    return {"symbol": symbol, "rate": rate, "nextFundingTime": next_ms}
+
+
+def _read_premium_cache(key: str) -> tuple[dict, float] | None:
+    path = CACHE_DIR / f"{key}.json"
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text())
+        quote = payload["quote"]
+        rate = float(quote["rate"])
+        next_ms = int(quote["nextFundingTime"])
+    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+        logger.warning("Ignoring unreadable premium cache %s", path)
+        return None
+    if rate != rate:
+        return None
+    return {"symbol": str(quote.get("symbol") or ""), "rate": rate, "nextFundingTime": next_ms}, float(payload.get("fetched_at", 0))
+
+
+def _write_premium_cache(key: str, quote: dict) -> None:
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path = CACHE_DIR / f"{key}.json"
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps({"fetched_at": time.time(), "quote": quote}))
+    temporary.replace(path)
+
+
 def load_funding(symbol: str, start: int, end: int) -> tuple[list[dict], bool]:
     """Public USDT-M funding history. A failed request never invents a zero rate."""
     symbol = _require_symbol(symbol, "perp")

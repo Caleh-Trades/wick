@@ -504,6 +504,11 @@ export default function App() {
       leverage: active.venue === "perp" ? selected.leverage : 1,
       riskPct: selected.riskPct,
       allowShort: active.venue === "perp" && selected.allowShort,
+      note: "",
+      fundingPaid: active.venue === "perp" ? selectedOutcome.result.trades.reduce((sum, trade) => sum + trade.funding_paid, 0) : 0,
+      inSample: selectedOutcome.result.in_sample ?? null,
+      holdout: selectedOutcome.result.holdout ?? null,
+      trades: selectedOutcome.result.trades,
       metrics: {
         total_return_pct: metrics.total_return_pct,
         cagr_pct: metrics.cagr_pct,
@@ -619,6 +624,8 @@ export default function App() {
                   bookWidth={panes.book}
                   candleClock={clocks[slot.id] ?? null}
                   showCaption={shown.length > 1}
+                  alert={slot.alert}
+                  onAlert={(alert) => patchSlot(slot.id, { alert })}
                   onBookWidth={(book) => setPanes((current) => ({ ...current, book }))}
                   onEnlarge={() => {
                     if (slot.id !== workspace.activeId) focusSlot(slot.id)

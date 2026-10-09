@@ -1,6 +1,6 @@
 import { clampRisk, normalizeCombo, normalizeRule, resolveRunParams, strategyLabel } from "./runs.ts"
 import { buildSignals } from "./signals.ts"
-import type { BacktestResult, EquityPoint, FundingRate, Run, TapeCandle, Trade, Venue } from "./types"
+import type { BacktestResult, EquityPoint, FundingRate, Run, SampleSlice, TapeCandle, Trade, Venue } from "./types"
 
 export const INITIAL_CAPITAL = 10_000
 export const SLIPPAGE_BPS = 5
@@ -57,6 +57,7 @@ export function backtest(
   const account = new Account(capital, fee)
   const equity: EquityPoint[] = []
   const trades: Trade[] = []
+  const exits: number[] = []
   let peak = capital
   let exposed = 0
   let open: OpenTrade | null = null
@@ -69,7 +70,7 @@ export function backtest(
     if (!bar) continue
     if (sign(account.qty) !== target) {
       if (account.qty !== 0 && open) {
-        pushClose(trades, open, account, closeFill(bar.open, account.qty, slip), bar.time, index, "closed")
+        pushClose(trades, exits, open, account, closeFill(bar.open, account.qty, slip), bar.time, index, "closed")
         open = null
       }
       if (target !== 0 && account.cash > 1) {
@@ -101,7 +102,7 @@ export function backtest(
       const liq = liquidationPrice(open.entryPrice, open.side, leverage)
       const hit = open.side === "long" ? bar.low <= liq : bar.high >= liq
       if (venue === "perp" && hit) {
-        pushClose(trades, open, account, liq, bar.time, index, "liquidated")
+        pushClose(trades, exits, open, account, liq, bar.time, index, "liquidated")
         open = null
       }
     }
@@ -136,12 +137,18 @@ export function backtest(
         return_pct: notional ? (unrealized / notional) * 100 : 0,
         bars_held: hi - open.entryIndex,
         status: "open",
+        funding_paid: open.fundingPaid,
       })
+      exits.push(hi)
     }
   }
 
   const window = candles.slice(simStart, hi + 1)
   const metrics = measure(equity, trades, capital, exposed, periodsPerYear)
+  const split = Math.floor(equity.length * 0.7)
+  const boundary = equity[split - 1]?.equity ?? capital
+  const inSampleTrades = trades.filter((_, index) => (exits[index] ?? simStart) - simStart < split)
+  const holdoutTrades = trades.filter((_, index) => (exits[index] ?? simStart) - simStart >= split)
   const first = window[0]
   const last = window[window.length - 1]
   return {
@@ -168,6 +175,8 @@ export function backtest(
       funding_stale: venue === "perp" && options?.fundingStale === true,
     },
     metrics,
+    in_sample: measureSlice(equity.slice(0, split), inSampleTrades, capital, periodsPerYear),
+    holdout: measureSlice(equity.slice(split), holdoutTrades, boundary, periodsPerYear),
     equity,
     trades,
     candles: window.map((bar) => ({
@@ -192,6 +201,7 @@ type OpenTrade = {
 
 function pushClose(
   trades: Trade[],
+  exits: number[],
   open: OpenTrade,
   account: Account,
   fill: number,
@@ -212,7 +222,9 @@ function pushClose(
     return_pct: notional ? (pnl / notional) * 100 : 0,
     bars_held: index - open.entryIndex,
     status,
+    funding_paid: open.fundingPaid,
   })
+  exits.push(index)
 }
 
 function barEnd(candles: TapeCandle[], index: number): number {
@@ -320,6 +332,31 @@ function benchmark(
     marks[index] = cash + qty * (bar.close - fill)
   }
   return marks
+}
+
+function measureSlice(points: EquityPoint[], trades: Trade[], startEquity: number, periodsPerYear: number): SampleSlice {
+  if (points.length === 0) {
+    return { total_return_pct: 0, max_drawdown_pct: 0, sharpe: null, trades: 0 }
+  }
+  let peak = startEquity
+  let previous = startEquity
+  const drawdowns: number[] = []
+  const barReturns: number[] = []
+  for (const point of points) {
+    peak = Math.max(peak, point.equity)
+    drawdowns.push(peak ? ((point.equity - peak) / peak) * 100 : 0)
+    if (previous > 0) barReturns.push(point.equity / previous - 1)
+    previous = point.equity
+  }
+  const finalEquity = points[points.length - 1]?.equity ?? startEquity
+  const closed = trades.filter((trade) => trade.status === "closed" || trade.status === "liquidated")
+  const liquidations = trades.filter((trade) => trade.status === "liquidated").length
+  return {
+    total_return_pct: pct(finalEquity, startEquity),
+    max_drawdown_pct: drawdowns.length ? Math.min(...drawdowns) : 0,
+    sharpe: sharpe(barReturns, periodsPerYear),
+    trades: closed.length - liquidations,
+  }
 }
 
 function measure(

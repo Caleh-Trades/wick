@@ -94,6 +94,16 @@ export type Trade = {
   return_pct: number
   bars_held: number
   status: "open" | "closed" | "liquidated"
+  /** Funding charged while this position was open. Zero on spot. */
+  funding_paid: number
+}
+
+/** One window of a single pass. Parameters are not fit again on the holdout. */
+export type SampleSlice = {
+  total_return_pct: number
+  max_drawdown_pct: number
+  sharpe: number | null
+  trades: number
 }
 
 export type Candle = {
@@ -203,6 +213,10 @@ export type BacktestResult = {
     funding_stale: boolean
   }
   metrics: Metrics
+  /** First 70% of simulated bars, measured from the starting balance. */
+  in_sample: SampleSlice
+  /** Last 30% of simulated bars, measured from equity at the split. */
+  holdout: SampleSlice
   equity: EquityPoint[]
   trades: Trade[]
   candles: Candle[]

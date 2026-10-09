@@ -4,6 +4,13 @@ import type { MarketId, RangeId, Run, Timeframe, Venue } from "./types.ts"
 export const MAX_SLOTS = 4
 const WORKSPACE_KEY = "wick-runs"
 
+export type AlertKind = "above" | "below" | "delta"
+
+export type SlotAlert = {
+  kind: AlertKind
+  value: number
+}
+
 export type Slot = {
   id: string
   symbol: MarketId
@@ -12,6 +19,8 @@ export type Slot = {
   range: RangeId
   runs: Run[]
   selectedId: string
+  /** Live threshold. A hit appends a journal row and does not send an order. */
+  alert: SlotAlert | null
 }
 
 export type Workspace = {
@@ -35,6 +44,7 @@ export function createSlot(symbol: MarketId, venue: Venue, timeframe: Timeframe,
     range,
     runs: [run],
     selectedId: run.id,
+    alert: null,
   }
 }
 
@@ -87,6 +97,7 @@ export function fromDesk(desk: DeskState): Workspace {
     range: desk.range,
     runs,
     selectedId: runs.some((run) => run.id === desk.selectedId) ? desk.selectedId : runs[0]!.id,
+    alert: null,
   }))
   if (slots.length === 0) return defaultWorkspace()
   const active = slots.find((slot) => slot.runs.some((run) => run.id === desk.selectedId)) ?? slots[0]!
@@ -124,5 +135,14 @@ function sanitizeSlot(value: unknown): Slot | null {
     }))
   if (cleaned.length === 0) return createSlot(symbol, venue, timeframe, range)
   const selectedId = cleaned.some((run) => run.id === raw.selectedId) ? String(raw.selectedId) : cleaned[0]!.id
-  return { id: raw.id, symbol, venue, timeframe, range, runs: cleaned, selectedId }
+  return { id: raw.id, symbol, venue, timeframe, range, runs: cleaned, selectedId, alert: asAlert(raw.alert) }
+}
+
+function asAlert(value: unknown): SlotAlert | null {
+  if (!value || typeof value !== "object") return null
+  const raw = value as Partial<SlotAlert>
+  const kind = raw.kind === "above" || raw.kind === "below" || raw.kind === "delta" ? raw.kind : null
+  const number = Number(raw.value)
+  if (!kind || !(number > 0)) return null
+  return { kind, value: number }
 }

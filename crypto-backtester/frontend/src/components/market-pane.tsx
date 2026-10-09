@@ -2,8 +2,10 @@ import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as R
 
 import { PriceChart } from "@/components/price-chart"
 import { OrderBook } from "@/components/order-book"
+import { AlertControl, AlertWatch, FundingQuote } from "@/components/slot-tools"
 import { formatClock } from "@/lib/format"
 import type { TapeCandle, Trade, Venue } from "@/lib/types"
+import type { SlotAlert } from "@/lib/workspace"
 
 export function MarketPane({
   symbol,
@@ -14,6 +16,8 @@ export function MarketPane({
   bookWidth,
   candleClock,
   showCaption,
+  alert,
+  onAlert,
   onBookWidth,
   onEnlarge,
 }: {
@@ -25,6 +29,8 @@ export function MarketPane({
   bookWidth: number
   candleClock: Date | null
   showCaption: boolean
+  alert: SlotAlert | null
+  onAlert: (alert: SlotAlert | null) => void
   onBookWidth: (width: number) => void
   onEnlarge: () => void
 }) {
@@ -43,13 +49,18 @@ export function MarketPane({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {showCaption ? (
-        <p className="mb-1 px-1 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
-          {venue === "perp" ? "Binance perp" : "Binance spot"}
-          {" · "}
-          Candles {candleClock ? `${formatClock(candleClock)} UTC` : "—"}
-        </p>
-      ) : null}
+      <div className="mb-1 flex flex-col gap-1 px-1">
+        {showCaption ? (
+          <p className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
+            {venue === "perp" ? "Binance perp" : "Binance spot"}
+            {" · "}
+            Candles {candleClock ? `${formatClock(candleClock)} UTC` : "—"}
+          </p>
+        ) : null}
+        {venue === "perp" && symbol ? <FundingQuote symbol={symbol} /> : null}
+        <AlertControl alert={alert} onChange={onAlert} />
+        {symbol ? <AlertWatch symbol={symbol} venue={venue} alert={alert} /> : null}
+      </div>
       <div ref={rowRef} className="flex min-h-0 flex-1 flex-row">
         <div className="min-h-0 min-w-0 flex-1">
           <PriceChart candles={candles} trades={trades} interval={interval} symbol={symbol} venue={venue} onEnlarge={onEnlarge} />

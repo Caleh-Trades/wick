@@ -16,6 +16,7 @@ from app.binance_feed import (
     load_binance_series,
     load_binance_tail,
     load_funding,
+    load_premium,
     normalize_venue,
 )
 from app.kraken_perp import (
@@ -145,6 +146,17 @@ def markets(venue: str = Query(default="spot", pattern="^(spot|perp)$")) -> dict
     except UnknownSymbol as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {"markets": listed, "venue": venue}
+
+
+@app.get("/api/premium")
+def premium(symbol: str) -> dict:
+    try:
+        quote, stale = load_premium(symbol)
+    except UnknownSymbol as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except DataUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {**quote, "stale": stale}
 
 
 @app.get("/api/funding")

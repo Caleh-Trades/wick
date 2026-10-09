@@ -1,7 +1,8 @@
 import type { BotOp } from "./bot-edits.ts"
 import { normalizeSymbol } from "./markets.ts"
 import { isRange, isTimeframe, isVenue, normalizeRule, ruleName } from "./runs.ts"
-import type { RunParams, Venue } from "./types.ts"
+import type { AlertKind } from "./workspace.ts"
+import type { RunParams, SampleSlice, Trade, Venue } from "./types.ts"
 
 const KEY = "wick-journal"
 const KEPT_KEY = "wick-kept"
@@ -16,12 +17,15 @@ export type JournalEntry = {
   time: string
   symbol: string
   venue: Venue
+  kind: "trade" | "alert"
   side: JournalSide
   price: number
   size: number
   strategy: string
   exitPrice: number | null
   note: string
+  /** Set when kind is alert. The value that crossed the threshold. */
+  alertKind: AlertKind | null
 }
 
 export type KeptMetrics = {
@@ -52,6 +56,11 @@ export type KeptRun = {
   riskPct: number
   allowShort: boolean
   metrics: KeptMetrics
+  note: string
+  fundingPaid: number
+  inSample: SampleSlice | null
+  holdout: SampleSlice | null
+  trades: Trade[]
 }
 
 export type StrategyStat = {
@@ -99,8 +108,9 @@ export function journalStats(rows: JournalEntry[]): JournalStats {
   let wins = 0
   let grossWin = 0
   let grossLoss = 0
+  const trades = rows.filter((entry) => entry.kind !== "alert")
   const byStrategy = new Map<string, StrategyStat>()
-  for (const entry of rows) {
+  for (const entry of trades) {
     const trade = tradePnl(entry)
     if (trade == null) continue
     closed += 1
@@ -120,7 +130,7 @@ export function journalStats(rows: JournalEntry[]): JournalStats {
     pnl,
     winRate: closed ? (wins / closed) * 100 : null,
     closed,
-    open: rows.length - closed,
+    open: trades.length - closed,
     profitFactor: grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? Number.POSITIVE_INFINITY : null,
     average: closed ? pnl / closed : null,
     strategies: [...byStrategy.values()].sort((left, right) => right.pnl - left.pnl || right.trades - left.trades),
@@ -196,6 +206,7 @@ function load(): JournalEntry[] {
 function sanitize(value: unknown): JournalEntry | null {
   if (!value || typeof value !== "object") return null
   const raw = value as Partial<JournalEntry>
+  if (raw.kind === "alert") return alertFromStored(raw)
   return entryFromFields({
     symbol: typeof raw.symbol === "string" ? raw.symbol : "",
     side: typeof raw.side === "string" ? raw.side : "",
@@ -237,7 +248,53 @@ function entryFromFields(input: {
     strategy: asStrategy(input.strategy),
     exitPrice: asExit(input.exitPrice),
     note: (input.note ?? "").trim().slice(0, 280),
+    kind: "trade",
+    alertKind: null,
   }
+}
+
+export function logAlert(input: {
+  symbol: string
+  venue?: string
+  alertKind: AlertKind
+  value: number
+  threshold: number
+  time?: string
+}): JournalEntry | null {
+  const symbol = asSymbol(input.symbol)
+  if (!symbol || !Number.isFinite(input.value) || !(input.threshold > 0)) return null
+  const time = input.time && !Number.isNaN(Date.parse(input.time)) ? new Date(input.time).toISOString() : new Date().toISOString()
+  const entry: JournalEntry = {
+    id: crypto.randomUUID(),
+    time,
+    symbol,
+    venue: asVenue(input.venue),
+    kind: "alert",
+    side: "buy",
+    price: input.value,
+    size: 0,
+    strategy: "",
+    exitPrice: null,
+    note: alertNote(input.alertKind, input.value, input.threshold),
+    alertKind: input.alertKind,
+  }
+  commit([entry, ...journalEntries()])
+  return entry
+}
+
+function alertNote(kind: AlertKind, value: number, threshold: number): string {
+  const hit = formatAlertValue(value)
+  const line = formatAlertValue(threshold)
+  if (kind === "above") return `Price ${hit} crossed above ${line}`
+  if (kind === "below") return `Price ${hit} crossed below ${line}`
+  return `60s delta ${hit} crossed ${line}`
+}
+
+function formatAlertValue(value: number): string {
+  if (!Number.isFinite(value)) return "—"
+  const abs = Math.abs(value)
+  const digits = abs >= 1000 ? 2 : abs >= 1 ? 4 : 6
+  return value.toLocaleString("en-US", { maximumFractionDigits: digits })
 }
 
 function asSymbol(value: string): string | null {
@@ -267,6 +324,28 @@ function asExit(value: number | null | undefined): number | null {
   if (value == null) return null
   const number = Number(value)
   return number > 0 ? number : null
+}
+
+function alertFromStored(raw: Partial<JournalEntry>): JournalEntry | null {
+  const symbol = asSymbol(typeof raw.symbol === "string" ? raw.symbol : "")
+  const alertKind = raw.alertKind === "above" || raw.alertKind === "below" || raw.alertKind === "delta" ? raw.alertKind : null
+  const price = Number(raw.price)
+  if (!symbol || !alertKind || !Number.isFinite(price)) return null
+  const time = typeof raw.time === "string" && !Number.isNaN(Date.parse(raw.time)) ? new Date(raw.time).toISOString() : new Date().toISOString()
+  return {
+    id: typeof raw.id === "string" && raw.id.trim() ? raw.id : crypto.randomUUID(),
+    time,
+    symbol,
+    venue: asVenue(typeof raw.venue === "string" ? raw.venue : "spot"),
+    kind: "alert",
+    side: "buy",
+    price,
+    size: 0,
+    strategy: "",
+    exitPrice: null,
+    note: typeof raw.note === "string" ? raw.note.trim().slice(0, 280) : "",
+    alertKind,
+  }
 }
 
 function asVenue(value: string | undefined): Venue {
@@ -349,7 +428,99 @@ function sanitizeKept(value: unknown): KeptRun | null {
     riskPct: clampKept(raw.riskPct, 0.1, 100, 100),
     allowShort: venue === "perp" && raw.allowShort !== false,
     metrics,
+    note: typeof raw.note === "string" ? raw.note.trim().slice(0, 280) : "",
+    fundingPaid: Number.isFinite(Number(raw.fundingPaid)) ? Number(raw.fundingPaid) : 0,
+    inSample: asSlice(raw.inSample),
+    holdout: asSlice(raw.holdout),
+    trades: asTrades(raw.trades),
   }
+}
+
+export function setKeptNote(id: string, note: string): void {
+  const next = keptRuns().map((row) => (row.id === id ? { ...row, note: note.slice(0, 280) } : row))
+  commitKept(next)
+}
+
+export type KeptExport = {
+  symbol: string
+  market: Venue
+  rule: string
+  params: RunParams
+  metrics: KeptMetrics
+  in_sample: SampleSlice | null
+  holdout: SampleSlice | null
+  trades: Trade[]
+  note: string
+  funding_paid: number
+}
+
+export function keptExport(row: KeptRun): KeptExport {
+  return {
+    symbol: row.symbol,
+    market: row.venue,
+    rule: row.rule,
+    params: row.params,
+    metrics: row.metrics,
+    in_sample: row.inSample,
+    holdout: row.holdout,
+    trades: row.trades,
+    note: row.note,
+    funding_paid: row.fundingPaid,
+  }
+}
+
+export function downloadKept(row: KeptRun): void {
+  const blob = new Blob([JSON.stringify(keptExport(row), null, 2)], { type: "application/json" })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement("a")
+  anchor.href = url
+  anchor.download = `wick-${row.symbol}-${row.venue}.json`
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
+
+function asSlice(value: unknown): SampleSlice | null {
+  if (!value || typeof value !== "object") return null
+  const raw = value as Partial<SampleSlice>
+  const total = Number(raw.total_return_pct)
+  const drawdown = Number(raw.max_drawdown_pct)
+  const trades = Number(raw.trades)
+  if (!Number.isFinite(total) || !Number.isFinite(drawdown) || !Number.isFinite(trades)) return null
+  return {
+    total_return_pct: total,
+    max_drawdown_pct: drawdown,
+    sharpe: finiteOrNull(raw.sharpe),
+    trades,
+  }
+}
+
+function asTrades(value: unknown): Trade[] {
+  if (!Array.isArray(value)) return []
+  const trades: Trade[] = []
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue
+    const raw = item as Partial<Trade>
+    const side = raw.side === "short" ? "short" : raw.side === "long" ? "long" : null
+    const status = raw.status === "open" || raw.status === "closed" || raw.status === "liquidated" ? raw.status : null
+    const entry = Number(raw.entry_price)
+    const quantity = Number(raw.quantity)
+    if (!side || !status || !Number.isFinite(entry) || !Number.isFinite(quantity)) continue
+    trades.push({
+      entry_time: typeof raw.entry_time === "string" ? raw.entry_time : "",
+      exit_time: typeof raw.exit_time === "string" ? raw.exit_time : null,
+      side,
+      entry_price: entry,
+      exit_price: raw.exit_price == null ? null : finiteOrNull(raw.exit_price),
+      quantity,
+      pnl: Number.isFinite(Number(raw.pnl)) ? Number(raw.pnl) : 0,
+      return_pct: Number.isFinite(Number(raw.return_pct)) ? Number(raw.return_pct) : 0,
+      bars_held: Number.isFinite(Number(raw.bars_held)) ? Number(raw.bars_held) : 0,
+      status,
+      funding_paid: Number.isFinite(Number(raw.funding_paid)) ? Number(raw.funding_paid) : 0,
+    })
+    if (trades.length >= 500) break
+  }
+  return trades
 }
 
 function asMetrics(value: unknown): KeptMetrics | null {
@@ -373,6 +544,7 @@ function asMetrics(value: unknown): KeptMetrics | null {
 }
 
 function finiteOrNull(value: unknown): number | null {
+  if (value == null) return null
   const number = Number(value)
   return Number.isFinite(number) ? number : null
 }

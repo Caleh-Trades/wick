@@ -9,6 +9,7 @@ from app.binance_feed import (
     list_usdt_markets,
     load_binance_series,
     load_funding,
+    load_premium,
 )
 from app.data import DataUnavailable, get_interval, span_days
 from app.engine import Candle
@@ -172,6 +173,43 @@ def test_funding_history_is_kept_and_a_failure_does_not_invent_zero(monkeypatch)
     cached, stale_cache = load_funding("ETHUSDT", 1_700_000_000, 1_700_086_400)
     assert stale_cache is True
     assert cached == [{"t": 1_700_000_000, "rate": -0.0002}]
+
+
+def test_premium_keeps_the_rate_and_a_failure_does_not_invent_zero(monkeypatch):
+    def fetch(symbol):
+        assert symbol == "BTCUSDT"
+        return {"symbol": symbol, "rate": 0.0001, "nextFundingTime": 1_700_000_000_000}
+
+    monkeypatch.setattr("app.binance_feed._read_premium_cache", lambda key: None)
+    monkeypatch.setattr("app.binance_feed._write_premium_cache", lambda key, quote: None)
+    monkeypatch.setattr("app.binance_feed._fetch_premium", fetch)
+    quote, stale = load_premium("BTCUSDT")
+    assert stale is False
+    assert quote == {"symbol": "BTCUSDT", "rate": 0.0001, "nextFundingTime": 1_700_000_000_000}
+
+    def down(symbol):
+        raise DataUnavailable("Service unavailable from a restricted location.")
+
+    monkeypatch.setattr("app.binance_feed._fetch_premium", down)
+    try:
+        load_premium("ETHUSDT")
+    except DataUnavailable as exc:
+        assert "restricted location" in str(exc)
+    else:
+        raise AssertionError("a missing premium must not come back as a zero rate")
+
+    monkeypatch.setattr(
+        "app.binance_feed._read_premium_cache",
+        lambda key: ({"symbol": "ETHUSDT", "rate": -0.0003, "nextFundingTime": 1_700_008_000_000}, time.time() - 120),
+    )
+    cached, stale_cache = load_premium("ETHUSDT")
+    assert stale_cache is True
+    assert cached["rate"] == -0.0003
+
+    response = TestClient(app).get("/api/premium", params={"symbol": "ETHUSDT"})
+    assert response.status_code == 200
+    assert response.json()["stale"] is True
+    assert response.json()["rate"] == -0.0003
 
 
 def test_candles_route_loads_perp_funding_without_inventing_it(monkeypatch):

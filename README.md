@@ -42,6 +42,13 @@ pytest
 - Drawdown, CAGR, Sharpe, and Sortino (365-day crypto year)
 - Win rate and profit factor on closed round trips
 - The trades themselves, including a position that is still open at the end of the window
+- The same pass split into the first 70% of bars and the last 30%. Return, max drawdown, Sharpe, and trade count sit side by side. Parameters are not fit again on the holdout. The comparison table can show the full run, the in-sample window, or the holdout.
+
+A perpetual slot shows the latest Binance USDT-M funding rate and the next funding time. If that request fails and there is no earlier rate, the line says funding is unavailable. The funding a kept perpetual run paid sits next to its fee. Spot slots hide both.
+
+A slot can arm a price above, a price below, or a 60-second delta. When the live book crosses it, the journal gains a row with the time, the symbol, and the value. That row does not place an order and does not notify anywhere else.
+
+A kept run has a note. Export downloads that run as JSON: symbol, market, rule, parameters, metrics, in-sample, holdout, and trades.
 
 Settings, beside the Wick name, mints a bot key. A Grok bot sends that key to change the open desk: market, bar size, range, rule, combined strategies, and risk. Desk and Journal in that same header switch the whole page. Pin puts a second slot beside the active one, each with its own book and backtest. The journal keeps a run you save — symbol, spot or perp, timeframe, rule, fee, and metrics — and reopening it restores that slot. It also lists round trips: entry, optional exit, size, side, and the strategy used. Closed trades show P&L, and the page totals P&L, win rate, profit factor, average trade, and a split by strategy. A blank exit stays open and is left out of the win rate. The same key can log one with log-trade: symbol, side, price, size, and an optional exit, strategy, and note. The key does not rewrite the app, and Wick stores only a hash. The example request is in that settings sheet.
 

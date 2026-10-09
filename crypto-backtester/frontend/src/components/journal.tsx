@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { formatMoney, formatPct, formatPlainPct, formatPrice, formatSize, formatStamp, formatStat } from "@/lib/format"
-import { journalEntries, journalStats, keptRuns, logTrade, removeJournalEntry, removeKeptRun, tradePnl, watchJournal, watchKept, type JournalEntry, type JournalSide, type KeptRun } from "@/lib/journal"
+import { downloadKept, journalEntries, journalStats, keptRuns, logTrade, removeJournalEntry, removeKeptRun, setKeptNote, tradePnl, watchJournal, watchKept, type JournalEntry, type JournalSide, type KeptRun } from "@/lib/journal"
 import { RULES, ruleName } from "@/lib/runs"
 import type { Venue } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -81,7 +81,7 @@ export function JournalPage({ symbol, venue, onRestore }: { symbol: string; venu
         <section aria-label="Kept runs">
           <p className="font-mono text-[11px] tracking-wide text-muted-foreground uppercase">Kept runs</p>
           {kept.length === 0 ? (
-            <p className="mt-2 text-sm text-muted-foreground">Keep a run from the desk. Reopening it restores that symbol, spot or perp, timeframe, rule, fee, and the saved metrics.</p>
+            <p className="mt-2 text-sm text-muted-foreground">Keep a run from the desk. A note stays on that run, and Export downloads it. Reopening restores the slot.</p>
           ) : (
             <ul className="mt-2 flex flex-col gap-2">
               {kept.map((row) => (
@@ -198,6 +198,7 @@ export function JournalPage({ symbol, venue, onRestore }: { symbol: string; venu
 }
 
 function TradeRow({ entry }: { entry: JournalEntry }) {
+  if (entry.kind === "alert") return <AlertRow entry={entry} />
   const pnl = tradePnl(entry)
   const notional = entry.price * entry.size
   const returned = pnl != null && notional > 0 ? (pnl / notional) * 100 : null
@@ -233,6 +234,33 @@ function TradeRow({ entry }: { entry: JournalEntry }) {
   )
 }
 
+function AlertRow({ entry }: { entry: JournalEntry }) {
+  const base = entry.symbol.replace(/USDT$/, "")
+  const label = entry.alertKind === "delta" ? "60s delta" : entry.alertKind === "below" ? "Price below" : "Price above"
+  return (
+    <li className="bezel flex items-start justify-between gap-3 px-3 py-2">
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <Badge variant="secondary">Alert</Badge>
+          <span className="text-sm">{base}</span>
+          <span className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">{entry.venue === "perp" ? "Perp" : "Spot"}</span>
+          <span className="font-mono text-xs tabular-nums">{label} {formatAlertHit(entry)}</span>
+        </div>
+        <p className="mt-1 font-mono text-[11px] text-muted-foreground">{formatStamp(entry.time, "1m")}</p>
+        {entry.note ? <p className="mt-1 text-sm break-words">{entry.note}</p> : null}
+      </div>
+      <Button type="button" variant="ghost" size="icon-xs" aria-label={`Remove ${base} alert`} onClick={() => removeJournalEntry(entry.id)}>
+        <Trash2 />
+      </Button>
+    </li>
+  )
+}
+
+function formatAlertHit(entry: JournalEntry): string {
+  if (entry.alertKind === "delta") return formatSize(entry.price)
+  return formatPrice(entry.price)
+}
+
 function KeptRow({ row, onRestore }: { row: KeptRun; onRestore: (kept: KeptRun) => void }) {
   const base = row.symbol.replace(/USDT$/, "")
   return (
@@ -247,7 +275,16 @@ function KeptRow({ row, onRestore }: { row: KeptRun; onRestore: (kept: KeptRun) 
         <p className="mt-1 text-sm text-muted-foreground">
           {ruleName(row.rule)}
           {row.combo.length > 0 ? ` + ${row.combo.map((item) => ruleName(item.rule)).join(" + ")}` : ""} · {row.feeBps} bps
+          {row.venue === "perp" ? ` · funding paid ${signedMoney(row.fundingPaid)}` : ""}
         </p>
+        <Input
+          aria-label={`Note for ${row.name}`}
+          value={row.note}
+          maxLength={280}
+          placeholder="Note on this run"
+          className="mt-2 h-8"
+          onChange={(event) => setKeptNote(row.id, event.target.value)}
+        />
         <p className="mt-1 flex flex-wrap gap-x-3 font-mono text-[11px] tabular-nums text-muted-foreground">
           <span className={cn(moneyTone(row.metrics.total_return_pct) === "up" && "text-up", moneyTone(row.metrics.total_return_pct) === "down" && "text-down")}>
             {formatPct(row.metrics.total_return_pct)}
@@ -259,6 +296,9 @@ function KeptRow({ row, onRestore }: { row: KeptRun; onRestore: (kept: KeptRun) 
         </p>
       </div>
       <div className="flex shrink-0 gap-1">
+        <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={() => downloadKept(row)}>
+          Export
+        </Button>
         <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={() => onRestore(row)}>
           Reopen
         </Button>

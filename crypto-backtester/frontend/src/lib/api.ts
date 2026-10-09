@@ -3,6 +3,26 @@ import type { BacktestResult, Draft, FundingRate, MarketId, Meta, RangeId, Tape,
 
 const base = (import.meta.env.VITE_API_URL as string | undefined) ?? ""
 
+export type PremiumQuote = {
+  symbol: string
+  rate: number
+  nextFundingTime: number
+  stale: boolean
+}
+
+export async function fetchPremium(symbol: string): Promise<PremiumQuote> {
+  const body = await request<PremiumQuote>(`/api/premium?symbol=${encodeURIComponent(symbol)}`)
+  if (!Number.isFinite(body.rate) || !Number.isFinite(body.nextFundingTime)) {
+    throw new Error("Binance did not return a funding rate.")
+  }
+  return {
+    symbol: body.symbol,
+    rate: body.rate,
+    nextFundingTime: body.nextFundingTime,
+    stale: body.stale === true,
+  }
+}
+
 export async function fetchMarkets(venue: Venue = "spot"): Promise<SpotMarket[]> {
   const body = await request<{ markets: SpotMarket[] }>(`/api/markets?venue=${venue}`)
   return Array.isArray(body.markets) ? body.markets : []

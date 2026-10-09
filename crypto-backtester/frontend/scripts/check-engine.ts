@@ -40,6 +40,13 @@ assert.equal(closed.length, 1)
 assert.ok(Math.abs((closed[0]?.entry_price ?? 0) - 5.0025) < 1e-9)
 assert.ok(Math.abs((closed[0]?.exit_price ?? 0) - 0.9995) < 1e-9)
 assert.ok(Math.abs(crossed.metrics.final_equity - 1997.0014992503761) < 1e-6)
+const split = Math.floor(crossed.equity.length * 0.7)
+assert.ok(split > 0 && split < crossed.equity.length)
+const mid = crossed.equity[split - 1]!.equity
+const end = crossed.equity[crossed.equity.length - 1]!.equity
+assert.ok(Math.abs(crossed.in_sample.total_return_pct - (mid / 10_000 - 1) * 100) < 1e-6)
+assert.ok(Math.abs(crossed.holdout.total_return_pct - (end / mid - 1) * 100) < 1e-6)
+assert.equal(crossed.in_sample.trades + crossed.holdout.trades, crossed.metrics.trades)
 assert.equal(crossed.trades.some((trade) => trade.side === "short"), true)
 
 const costly = createRun({ rule: "buy_hold", feeBps: 100, name: "Costly" })
@@ -48,6 +55,7 @@ assert.ok(Math.abs(dragged.metrics.final_equity - 12864.85470136219) < 1e-6)
 
 const dipped = backtest(bars([100, 100, 150, 75, 90]), hold, 365)
 assert.ok(Math.abs(dipped.metrics.max_drawdown_pct - -50) < 1e-9)
+assert.ok(dipped.holdout.max_drawdown_pct < dipped.in_sample.max_drawdown_pct)
 
 assert.throws(() => backtest(bars([1, 2, 3, 4, 5]), { ...cross, params: { fast: 50, slow: 20, rsi: 14 } }, 365), /fast period/)
 
@@ -93,6 +101,9 @@ const paid = backtest(bars([100, 100, 110, 120, 130]), { ...hold, leverage: 3 },
 assert.equal(paid.assumptions.leverage, 3)
 assert.equal(paid.assumptions.venue, "perp")
 assert.ok(paid.metrics.final_equity < calm.metrics.final_equity)
+assert.ok((paid.trades[0]?.funding_paid ?? 0) > 0)
+assert.equal(calm.trades[0]?.funding_paid ?? 0, 0)
+assert.equal(held.trades[0]?.funding_paid ?? 0, 0)
 assert.equal(paid.trades[0]?.side, "long")
 assert.ok(paid.metrics.exposure_pct > 0)
 

@@ -16,7 +16,7 @@ import {
   tone,
 } from "@/lib/format"
 import { clampRisk, fingerprint, marketById, runColor, strategyLabel } from "@/lib/runs"
-import type { BacktestResult, Outcome, Run, SortKey, Venue } from "@/lib/types"
+import type { BacktestResult, Outcome, Run, SampleSlice, SortKey, Venue } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const VIEWS = [
@@ -26,6 +26,13 @@ const VIEWS = [
 ] as const
 
 type ResultsView = (typeof VIEWS)[number]["id"]
+type SampleLens = "full" | "in_sample" | "holdout"
+
+const LENSES: { id: SampleLens; label: string }[] = [
+  { id: "full", label: "Full" },
+  { id: "in_sample", label: "In-sample" },
+  { id: "holdout", label: "Holdout" },
+]
 
 type ResultsProps = {
   runs: Run[]
@@ -70,6 +77,7 @@ export const Results = memo(function Results({
   const selectedOutcome = outcomes[selected.id]
   const setupChanged = Boolean(selectedOutcome?.ok && selectedOutcome.fingerprint !== fingerprint(selected))
   const [view, setView] = useState<ResultsView>("equity")
+  const [lens, setLens] = useState<SampleLens>("full")
 
   return (
     <div className="results-stack flex h-full min-h-0 flex-col gap-3">
@@ -111,6 +119,8 @@ export const Results = memo(function Results({
             onToggleHidden={onToggleHidden}
             onRemove={onRemove}
             onSort={onSort}
+            lens={lens}
+            onLens={setLens}
           />
         </div>
 
@@ -200,6 +210,7 @@ export const Results = memo(function Results({
           Risk {riskLabel(result.assumptions.risk_pct)}
           {result.assumptions.funding_stale ? " · Funding stale" : ""}
         </p>
+        <SamplePair result={result} />
         <Button type="button" size="xs" variant="outline" className="mt-2 w-fit normal-case tracking-normal" onClick={onKeep}>
           Keep this run
         </Button>
@@ -218,6 +229,8 @@ function Comparison({
   onToggleHidden,
   onRemove,
   onSort,
+  lens,
+  onLens,
 }: {
   rows: ComparisonRow[]
   venue: Venue
@@ -228,10 +241,30 @@ function Comparison({
   onToggleHidden: (id: string) => void
   onRemove: (id: string) => void
   onSort: (key: SortKey) => void
+  lens: SampleLens
+  onLens: (lens: SampleLens) => void
 }) {
+  const sliced = lens !== "full"
   return (
     <div className="bezel flex h-full min-h-0 min-w-0 flex-col overflow-hidden p-3">
-      <p className="mb-2 shrink-0 font-mono text-xs text-muted-foreground uppercase">Same tape, each rule</p>
+      <div className="mb-2 flex shrink-0 flex-wrap items-center justify-between gap-2">
+        <p className="font-mono text-xs text-muted-foreground uppercase">Same tape, each rule</p>
+        <div className="flex gap-1" role="group" aria-label="Sample window">
+          {LENSES.map((item) => (
+            <Button
+              key={item.id}
+              type="button"
+              size="xs"
+              variant={lens === item.id ? "default" : "outline"}
+              className="normal-case tracking-normal"
+              aria-pressed={lens === item.id}
+              onClick={() => onLens(item.id)}
+            >
+              {item.label}
+            </Button>
+          ))}
+        </div>
+      </div>
       <div className="mb-2 flex shrink-0 flex-wrap gap-x-2 gap-y-1">
         <SortText label="CAGR" sortKey="cagr_pct" active={sortKey} dir={sortDir} onSort={onSort} />
         <SortText label="Sharpe" sortKey="sharpe" active={sortKey} dir={sortDir} onSort={onSort} />
@@ -246,15 +279,21 @@ function Comparison({
             <tr className="border-b border-border">
               <th className="w-[34%] py-1 pr-2 font-medium">Run</th>
               <th className="py-1 pr-2 text-right font-medium">Return</th>
+              {sliced ? <th className="py-1 pr-2 text-right font-medium">DD</th> : null}
               <th className="py-1 pr-2 text-right font-medium">Sharpe</th>
-              <th className="py-1 pr-2 text-right font-medium">Win</th>
+              {sliced ? null : <th className="py-1 pr-2 text-right font-medium">Win</th>}
               <th className="w-12 py-1 text-right font-medium">Trades</th>
               <th className="w-14 py-1 font-medium"><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => {
-              const metrics = row.outcome?.ok && row.outcome.result.assumptions.venue === venue ? row.outcome.result.metrics : null
+              const fitted = row.outcome?.ok && row.outcome.result.assumptions.venue === venue ? row.outcome.result : null
+              const metrics = fitted?.metrics ?? null
+              const slice = fitted ? sliceOf(fitted, lens) : null
+              const returned = sliced ? slice?.total_return_pct : metrics?.total_return_pct
+              const sharpe = sliced ? slice?.sharpe : metrics?.sharpe
+              const trades = sliced ? slice?.trades : metrics?.trades
               const base = marketById(row.run.symbol, venue)?.base ?? row.run.symbol
               return (
                 <tr key={row.run.id} className={cn("border-b border-border align-top", row.run.hidden && "opacity-60")}>
@@ -270,12 +309,19 @@ function Comparison({
                       </span>
                     </button>
                   </td>
-                  <td className={cn("py-2 pr-2 text-right font-mono text-[11px] tabular-nums", metrics ? toneClass(metrics.total_return_pct) : "text-muted-foreground")}>
-                    {metrics ? formatPct(metrics.total_return_pct) : "—"}
+                  <td className={cn("py-2 pr-2 text-right font-mono text-[11px] tabular-nums", returned == null ? "text-muted-foreground" : toneClass(returned))}>
+                    {returned == null ? "—" : formatPct(returned)}
                   </td>
-                  <td className="py-2 pr-2 text-right font-mono text-[11px] tabular-nums">{metrics ? formatStat(metrics.sharpe) : "—"}</td>
-                  <td className="py-2 pr-2 text-right font-mono text-[11px] tabular-nums">{metrics ? formatPlainPct(metrics.win_rate_pct, 0) : "—"}</td>
-                  <td className="py-2 text-right font-mono text-[11px] tabular-nums">{metrics ? metrics.trades : "—"}</td>
+                  {sliced ? (
+                    <td className={cn("py-2 pr-2 text-right font-mono text-[11px] tabular-nums", slice ? toneClass(slice.max_drawdown_pct) : "text-muted-foreground")}>
+                      {slice ? formatPct(slice.max_drawdown_pct) : "—"}
+                    </td>
+                  ) : null}
+                  <td className="py-2 pr-2 text-right font-mono text-[11px] tabular-nums">{fitted ? formatStat(sharpe) : "—"}</td>
+                  {sliced ? null : (
+                    <td className="py-2 pr-2 text-right font-mono text-[11px] tabular-nums">{metrics ? formatPlainPct(metrics.win_rate_pct, 0) : "—"}</td>
+                  )}
+                  <td className="py-2 text-right font-mono text-[11px] tabular-nums">{trades == null ? "—" : trades}</td>
                   <td className="py-1 text-right">
                     <div className="flex justify-end">
                       <Button
@@ -300,6 +346,44 @@ function Comparison({
       </div>
     </div>
   )
+}
+
+function SamplePair({ result }: { result: BacktestResult }) {
+  return (
+    <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2" aria-label="Out of sample">
+      <SampleCard title="In-sample" detail="First 70% of bars" slice={result.in_sample} />
+      <SampleCard title="Holdout" detail="Last 30%. Same parameters." slice={result.holdout} />
+    </div>
+  )
+}
+
+function SampleCard({ title, detail, slice }: { title: string; detail: string; slice: SampleSlice | undefined }) {
+  return (
+    <div className="border border-border px-3 py-2">
+      <p className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">{title}</p>
+      <p className="text-[11px] text-muted-foreground">{detail}</p>
+      <dl className="mt-2 grid grid-cols-4 gap-2">
+        <SampleStat label="Return" value={slice ? formatPct(slice.total_return_pct) : "—"} toneName={slice ? tone(slice.total_return_pct) : "ink"} />
+        <SampleStat label="Max DD" value={slice ? formatPct(slice.max_drawdown_pct) : "—"} toneName={slice ? tone(slice.max_drawdown_pct) : "ink"} />
+        <SampleStat label="Sharpe" value={slice ? formatStat(slice.sharpe) : "—"} />
+        <SampleStat label="Trades" value={slice ? String(slice.trades) : "—"} />
+      </dl>
+    </div>
+  )
+}
+
+function SampleStat({ label, value, toneName = "ink" }: { label: string; value: string; toneName?: "up" | "down" | "ink" }) {
+  return (
+    <div>
+      <dt className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">{label}</dt>
+      <dd className={cn("font-mono text-xs tabular-nums", toneName === "up" && "text-up", toneName === "down" && "text-down")}>{value}</dd>
+    </div>
+  )
+}
+
+function sliceOf(result: BacktestResult, lens: SampleLens): SampleSlice | null {
+  if (lens === "full") return null
+  return (lens === "in_sample" ? result.in_sample : result.holdout) ?? null
 }
 
 function SortText({

@@ -14,7 +14,7 @@ from pathlib import Path
 MAX_KEYS = 8
 MAX_OPS = 20
 MAX_QUEUE = 40
-KNOWN_OPS = {"focus", "pin", "unpin", "set-slot", "patch-run", "select-run", "add-run", "remove-run"}
+KNOWN_OPS = {"focus", "pin", "unpin", "set-slot", "patch-run", "select-run", "add-run", "remove-run", "log-trade"}
 
 _LOCK = threading.Lock()
 
@@ -125,6 +125,8 @@ def check_ops(ops: object) -> list[dict]:
         op = item["op"]
         if op not in KNOWN_OPS:
             raise ValueError(f"Unknown edit: {op}.")
+        if op == "log-trade":
+            _require_log(item)
         cleaned.append({key: value for key, value in item.items() if _allowed_value(value)})
     return cleaned
 
@@ -155,6 +157,22 @@ def acknowledge(ids: list[str]) -> None:
         store = _load()
         store["edits"] = [item for item in store["edits"] if not (isinstance(item, dict) and item.get("id") in dropping)]
         _save(store)
+
+
+def _require_log(item: dict) -> None:
+    side = str(item.get("side", "")).lower()
+    if side not in {"buy", "sell", "long", "short"}:
+        raise ValueError("log-trade side is buy or sell.")
+    symbol = item.get("symbol")
+    if not isinstance(symbol, str) or not symbol.strip():
+        raise ValueError("log-trade needs a symbol.")
+    for key in ("price", "size"):
+        try:
+            number = float(item[key])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"log-trade needs a {key}.") from exc
+        if not number > 0:
+            raise ValueError(f"log-trade {key} has to be above zero.")
 
 
 def _public(record: dict) -> dict:

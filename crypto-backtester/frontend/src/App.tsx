@@ -20,6 +20,8 @@ import { WorkspaceBar } from "@/components/workspace-bar"
 import { fetchCandles, mergeFunding } from "@/lib/api"
 import { ackBotEdits, fetchBotInbox } from "@/lib/bot-api"
 import { applyBotEdits, editConcerns } from "@/lib/bot-edits"
+import { JournalToggle } from "@/components/journal"
+import { logTradeOp } from "@/lib/journal"
 import { computeBacktest } from "@/lib/compute"
 import { CHART_MAX, CHART_MIN, clampChart, loadPanes, savePanes, type PaneSizes } from "@/lib/panes"
 import {
@@ -221,7 +223,13 @@ export default function App() {
         if (stop || edits.length === 0) return
         const current = workspaceRef.current
         const ops = edits.flatMap((edit) => (Array.isArray(edit.ops) ? edit.ops : []))
-        const next = applyBotEdits(current, ops)
+        for (const op of ops) {
+          if (op.op === "log-trade") logTradeOp(op)
+        }
+        const next = applyBotEdits(
+          current,
+          ops.filter((op) => op.op !== "log-trade"),
+        )
         if (next !== current) {
           workspaceRef.current = next
           setWorkspace(next)
@@ -577,6 +585,7 @@ export default function App() {
               <p className="py-4 text-sm text-muted-foreground">Pulling the {phrase} tape. The first look at a pair can take a few seconds.</p>
             ) : null}
             {selectedOutcome && !selectedOutcome.ok ? <p className="py-2 font-heading text-2xl">{selectedOutcome.error}</p> : null}
+            <JournalToggle symbol={active?.symbol ?? "BTCUSDT"}>
             {result && active && selected ? (
               <div className="results-body min-h-0 flex-1">
               <Results
@@ -611,6 +620,7 @@ export default function App() {
               />
               </div>
             ) : null}
+            </JournalToggle>
             {running ? (
               <p className="mt-3 font-mono text-xs tracking-wide text-muted-foreground uppercase">Running the next pass…</p>
             ) : null}

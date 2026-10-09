@@ -43,3 +43,22 @@ def test_bot_key_edits_the_desk(monkeypatch, tmp_path):
         json={"ops": [{"op": "unpin"}]},
     )
     assert revoked.status_code == 401
+
+
+def test_log_trade_needs_a_fill(monkeypatch, tmp_path):
+    monkeypatch.setenv("WICK_BOT_STORE", str(tmp_path / "bot.json"))
+    client = TestClient(app)
+    secret = client.post("/api/bot/keys", json={"name": "Journal"}).json()["secret"]
+    missing = client.post(
+        "/api/bot/edit",
+        headers={"Authorization": f"Bearer {secret}"},
+        json={"ops": [{"op": "log-trade", "symbol": "BTC"}]},
+    )
+    assert missing.status_code == 400
+    logged = client.post(
+        "/api/bot/edit",
+        headers={"Authorization": f"Bearer {secret}"},
+        json={"ops": [{"op": "log-trade", "symbol": "BTC", "side": "buy", "price": 82680, "size": 0.01, "note": "breakout"}]},
+    )
+    assert logged.status_code == 200
+    assert client.get("/api/bot/inbox").json()["edits"][0]["ops"][0]["note"] == "breakout"

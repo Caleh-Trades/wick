@@ -224,6 +224,14 @@ export const PriceChart = memo(function PriceChart({
   const shown = useFormingCandles(candles, interval, symbol)
   const rows = plotCandles(shown, trades, 360)
   const domain = priceDomain(shown)
+  if (shown.length === 0) {
+    return (
+      <div data-price-summary="" className="bezel flex h-full min-h-0 flex-col p-4">
+        <h3 className="font-heading text-2xl">Price</h3>
+        <p className="mt-6 text-sm text-muted-foreground">Waiting for bars.</p>
+      </div>
+    )
+  }
   return (
     <div data-price-summary="" className="bezel flex h-full min-h-0 flex-col p-4">
       <div className="mb-2 flex shrink-0 flex-wrap items-end justify-between gap-3">

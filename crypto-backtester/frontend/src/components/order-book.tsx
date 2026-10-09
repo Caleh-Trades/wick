@@ -15,8 +15,8 @@ export function OrderBook({ symbol }: { symbol: string | null }) {
   const showLadder = book.status === "connected" && book.asks.length > 0 && book.bids.length > 0
 
   return (
-    <section className="bezel flex h-full min-h-0 flex-col overflow-hidden p-3" aria-label="Order book">
-      <header className="mb-2 flex shrink-0 items-center justify-between gap-2">
+    <section className="bezel grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)_auto_minmax(0,1fr)_5.5rem] gap-1 overflow-hidden p-3" aria-label="Order book">
+      <header className="mb-2 flex items-center justify-between gap-2">
         <h3 className="font-heading text-lg">Book</h3>
         <p className="inline-flex items-center gap-1.5 font-mono text-[10px] tracking-wide text-muted-foreground uppercase" role="status">
           <span
@@ -27,32 +27,34 @@ export function OrderBook({ symbol }: { symbol: string | null }) {
         </p>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {showLadder ? (
-          <>
-            <LevelHead />
-            {book.asks.map((level) => (
+      {showLadder ? (
+        <>
+          <LevelHead />
+          <div className="flex min-h-0 flex-col-reverse overflow-y-auto">
+            {[...book.asks].reverse().map((level) => (
               <LevelRow key={`ask-${level.priceKey}`} level={level} scale={scale} tone="ask" tick={tick} step={step} best={level === book.asks.at(-1)} />
             ))}
-            <MidRow book={book} tick={tick} />
+          </div>
+          <MidRow book={book} tick={tick} />
+          <div className="min-h-0 overflow-y-auto">
             {book.bids.map((level) => (
               <LevelRow key={`bid-${level.priceKey}`} level={level} scale={scale} tone="bid" tick={tick} step={step} best={level === book.bids[0]} />
             ))}
-          </>
-        ) : (
-          <p className="px-1 py-6 text-sm text-muted-foreground">
-            {book.status === "stale"
-              ? book.asOf
-                ? `Book stale ${formatClock(new Date(book.asOf))} UTC.`
-                : "Book stale. No ladder yet."
-              : "Waiting for the book."}
-          </p>
-        )}
-      </div>
+          </div>
+        </>
+      ) : (
+        <p className="row-span-4 px-1 py-6 text-sm text-muted-foreground">
+          {book.status === "stale"
+            ? book.asOf
+              ? `Book stale ${formatClock(new Date(book.asOf))} UTC.`
+              : "Book stale. No ladder yet."
+            : "Waiting for the book."}
+        </p>
+      )}
 
-      <div className="mt-3 shrink-0 border-t border-border pt-2">
+      <div className="flex min-h-0 flex-col overflow-hidden border-t border-border pt-1">
         <DeltaRow delta={book.delta} buy={book.buy} sell={book.sell} step={step} />
-        <div className="mt-2 max-h-36 overflow-y-auto" aria-label="Trade tape">
+        <div className="mt-1 min-h-0 flex-1 overflow-y-auto" aria-label="Trade tape">
           <div className="mb-1 grid grid-cols-[3.6rem_4rem_minmax(0,1fr)_auto] gap-2 px-1 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
             <span>Time</span>
             <span>Side</span>

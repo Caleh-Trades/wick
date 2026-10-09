@@ -231,7 +231,7 @@ export const Results = memo(function Results({
   )
 })
 
-function useSplit(initial = 0.42) {
+function useSplit(initial = 0.5) {
   const [share, setShare] = useState(initial)
   const ref = useRef<HTMLDivElement>(null)
   const dragging = useRef(false)

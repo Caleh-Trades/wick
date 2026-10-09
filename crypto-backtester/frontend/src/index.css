@@ -220,6 +220,13 @@
   animation: none;
 }
 
+button:hover,
+[data-slot="button"]:hover,
+[data-slot="table-row"]:hover,
+.bezel li:hover {
+  border-color: #39e7ff;
+}
+
 @keyframes wick-drift {
   from { transform: translate3d(0, 0, 0); }
   to { transform: translate3d(56px, 56px, 0); }

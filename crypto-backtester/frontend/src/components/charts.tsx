@@ -1,4 +1,4 @@
-import { memo, useLayoutEffect, useRef, type ReactNode } from "react"
+import { memo, useEffect, useRef, type ReactNode } from "react"
 import {
   Area,
   CartesianGrid,
@@ -44,37 +44,49 @@ export const EquityChart = memo(function EquityChart({
     ? (rows.at(-1)?.[selectedId] as number | null | undefined)
     : result.metrics.final_equity
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     const root = plotRef.current
     if (!root || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
-    let frame = 0
     let path: SVGPathElement | null = null
     let animation: Animation | null = null
-    const start = () => {
+    let timer = 0
+    let stopped = false
+    const clearStyle = (node: SVGPathElement | null) => {
+      node?.style.removeProperty("stroke-dasharray")
+      node?.style.removeProperty("stroke-dashoffset")
+    }
+    const play = () => {
+      if (stopped) return
       const found = root.querySelector(".equity-selected .recharts-line-curve")
-      if (!(found instanceof SVGPathElement)) return false
+      if (!(found instanceof SVGPathElement)) return
       const length = found.getTotalLength()
-      if (!Number.isFinite(length) || length < 2) return false
+      if (!Number.isFinite(length) || length < 2) return
+      if (found === path) return
+      clearStyle(path)
+      animation?.cancel()
       path = found
       path.style.strokeDasharray = `${length}`
       path.style.strokeDashoffset = `${length}`
-      animation = path.animate([{ strokeDashoffset: length }, { strokeDashoffset: 0 }], {
+      animation = path.animate([{ strokeDashoffset: `${length}px` }, { strokeDashoffset: "0px" }], {
         duration: 600,
         easing: "cubic-bezier(0.22, 1, 0.36, 1)",
         fill: "forwards",
       })
-      animation.onfinish = () => {
-        path?.style.removeProperty("stroke-dasharray")
-        path?.style.removeProperty("stroke-dashoffset")
-      }
-      return true
+      animation.onfinish = () => clearStyle(path)
     }
-    if (!start()) frame = requestAnimationFrame(start)
+    const kick = () => {
+      window.clearTimeout(timer)
+      timer = window.setTimeout(play, 50)
+    }
+    const observer = new MutationObserver(kick)
+    observer.observe(root, { childList: true, subtree: true })
+    kick()
     return () => {
-      cancelAnimationFrame(frame)
+      stopped = true
+      observer.disconnect()
+      window.clearTimeout(timer)
       animation?.cancel()
-      path?.style.removeProperty("stroke-dasharray")
-      path?.style.removeProperty("stroke-dashoffset")
+      clearStyle(path)
     }
   }, [drawToken])
 

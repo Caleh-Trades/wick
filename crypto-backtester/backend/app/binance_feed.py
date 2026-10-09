@@ -28,6 +28,18 @@ REST = "https://data-api.binance.vision"
 USER_AGENT = "WickBacktester/1.0"
 KLINE_LIMIT = 1000
 PINNED = ("BTC", "ETH", "SOL", "XRP", "DOGE")
+NAMES = {
+    "BTC": "Bitcoin",
+    "ETH": "Ethereum",
+    "SOL": "Solana",
+    "XRP": "XRP",
+    "DOGE": "Dogecoin",
+    "BNB": "BNB",
+    "ADA": "Cardano",
+    "AVAX": "Avalanche",
+    "LINK": "Chainlink",
+    "LTC": "Litecoin",
+}
 _SYMBOL = re.compile(r"^[A-Z0-9]{2,20}$")
 
 _info_guard = threading.Lock()
@@ -57,15 +69,21 @@ def list_usdt_markets() -> list[dict[str, str]]:
                 tick = str(rule["tickSize"])
             if rule.get("filterType") == "LOT_SIZE" and rule.get("stepSize"):
                 step = str(rule["stepSize"])
-        markets.append(
-            {
-                "id": symbol,
-                "base": str(item.get("baseAsset") or symbol.removesuffix("USDT")),
-                "quote": "USDT",
-                "tickSize": tick,
-                "stepSize": step,
-            }
-        )
+        base = str(item.get("baseAsset") or symbol.removesuffix("USDT"))
+        row = {
+            "id": symbol,
+            "base": base,
+            "quote": "USDT",
+            "tickSize": tick,
+            "stepSize": step,
+        }
+        name = NAMES.get(base) or item.get("baseAssetName")
+        if name and str(name) != base:
+            row["name"] = str(name)
+        price = item.get("lastPrice") or item.get("price")
+        if price:
+            row["lastPrice"] = str(price)
+        markets.append(row)
     rank = {base: index for index, base in enumerate(PINNED)}
     markets.sort(key=lambda market: (rank.get(market["base"], len(PINNED)), market["base"]))
     return markets

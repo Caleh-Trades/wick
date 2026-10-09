@@ -140,6 +140,17 @@
   html {
     @apply font-sans;
     }
+  @media (prefers-reduced-motion: no-preference) {
+    html,
+    body,
+    #root,
+    * {
+      scroll-behavior: smooth;
+    }
+  }
+  [class*="overflow-"] {
+    overscroll-behavior: contain;
+    }
   #root {
     position: relative;
     z-index: 1;
@@ -167,6 +178,14 @@
   position: relative;
   background: rgb(14 21 34 / 0.9);
   border: 1px solid #1d3a4d;
+}
+
+.bezel.fixed {
+  position: fixed;
+}
+
+.bezel.sticky {
+  position: sticky;
 }
 
 .bezel::before {
@@ -281,6 +300,13 @@ button:hover,
 }
 
 @media (prefers-reduced-motion: reduce) {
+  html,
+  body,
+  #root,
+  * {
+    scroll-behavior: auto;
+  }
+
   body::before,
   .scan-line,
   .live-dot {

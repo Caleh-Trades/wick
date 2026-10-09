@@ -4,6 +4,8 @@ export type SpotMarket = {
   quote: string
   tickSize: string
   stepSize: string
+  name?: string
+  lastPrice?: string
 }
 
 const NAMES: Record<string, string> = {

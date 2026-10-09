@@ -132,7 +132,12 @@ def load_binance_series(
         start = end - span * 86_400
         try:
             candles = _fetch_klines(symbol, interval, start, end, int(spec["seconds"]), venue)
-        except (httpx.HTTPError, DataUnavailable) as exc:
+        except DataUnavailable:
+            if cached:
+                logger.warning("Using stale %s cache after Binance failed", key)
+                return cached["candles"], cached["source"]
+            raise
+        except httpx.HTTPError as exc:
             if cached:
                 logger.warning("Using stale %s cache after Binance failed: %s", key, exc)
                 return cached["candles"], cached["source"]
@@ -178,7 +183,12 @@ def load_funding(symbol: str, start: int, end: int) -> tuple[list[dict], bool]:
         return cached[0], False
     try:
         rates = _fetch_funding(symbol, start, end)
-    except (httpx.HTTPError, DataUnavailable) as exc:
+    except DataUnavailable:
+        if cached is not None:
+            logger.warning("Using stale funding cache for %s after Binance failed", symbol)
+            return cached[0], True
+        raise
+    except httpx.HTTPError as exc:
         if cached is not None:
             logger.warning("Using stale funding cache for %s after Binance failed: %s", symbol, exc)
             return cached[0], True

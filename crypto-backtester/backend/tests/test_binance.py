@@ -117,6 +117,23 @@ def test_perp_list_keeps_usdt_perpetuals(monkeypatch):
     assert markets[0]["tickSize"] == "0.10"
 
 
+def test_exchange_refusal_is_not_rewritten(monkeypatch):
+    monkeypatch.setattr("app.binance_feed._read_cache", lambda key: None)
+    monkeypatch.setattr(
+        "app.binance_feed._fetch_klines",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            DataUnavailable("Service unavailable from a restricted location.")
+        ),
+    )
+    try:
+        load_binance_series("ETHFIUSDT", "1d", 5, venue="perp")
+    except DataUnavailable as exc:
+        assert "restricted location" in str(exc)
+        assert "Try again" not in str(exc)
+    else:
+        raise AssertionError("a refused candle request should surface the exchange message")
+
+
 def test_kline_url_follows_the_venue():
     assert _kline_url("spot").endswith("/api/v3/klines")
     assert _kline_url("perp").endswith("/fapi/v1/klines")
@@ -144,7 +161,7 @@ def test_funding_history_is_kept_and_a_failure_does_not_invent_zero(monkeypatch)
     try:
         load_funding("ETHUSDT", 1_700_000_000, 1_700_086_400)
     except DataUnavailable as exc:
-        assert "invent" in str(exc)
+        assert str(exc) == "down"
     else:
         raise AssertionError("missing funding should not come back as an empty rate")
 

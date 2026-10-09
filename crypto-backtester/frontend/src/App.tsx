@@ -99,7 +99,7 @@ export default function App() {
       const map = { ...tapesRef.current }
       const missing = symbols.filter((symbol) => !tapeMatches(map[symbol], timeframe, range, venue))
       if (missing.length === 0) return map
-      const loaded = await Promise.all(
+      const loaded = await Promise.allSettled(
         missing.map((symbol) => fetchCandles(symbol, timeframe, { days: rangeDays(range), range, venue })),
       )
       if (
@@ -110,10 +110,17 @@ export default function App() {
       ) {
         return tapesRef.current
       }
-      for (const tape of loaded) map[tape.symbol] = tape
+      let failure = ""
+      for (const item of loaded) {
+        if (item.status === "fulfilled") map[item.value.symbol] = item.value
+        else if (!failure) {
+          failure = item.reason instanceof Error ? item.reason.message : "The tape didn't load."
+        }
+      }
       tapesRef.current = map
       setTapes(map)
       setStale(false)
+      if (failure) throw new Error(failure)
       return map
     },
     [],
@@ -129,16 +136,26 @@ export default function App() {
     setError(null)
     void (async () => {
       try {
-        const loaded = await Promise.all(
+        const loaded = await Promise.allSettled(
           symbols.map((symbol) => fetchCandles(symbol, timeframe, { days: rangeDays(range), range, venue })),
         )
         if (gen !== generation.current || deskRef.current.venue !== venue) return
         const map: Partial<Record<MarketId, Tape>> = {}
-        for (const tape of loaded) map[tape.symbol] = tape
+        let selectedError = ""
+        const selectedSymbol = deskRef.current.runs.find((run) => run.id === deskRef.current.selectedId)?.symbol
+        symbols.forEach((symbol, index) => {
+          const item = loaded[index]
+          if (!item) return
+          if (item.status === "fulfilled") map[item.value.symbol] = item.value
+          else if (symbol === selectedSymbol) {
+            selectedError = item.reason instanceof Error ? item.reason.message : "The tape didn't load."
+          }
+        })
         tapesRef.current = map
         setTapes(map)
         setStale(false)
-        setLastFetchAt(new Date())
+        if (selectedError && !map[selectedSymbol ?? ""]) setError(selectedError)
+        if (Object.keys(map).length > 0) setLastFetchAt(new Date())
         const current = deskRef.current
         const targets = current.runs.filter((run) => !run.hidden || run.id === current.selectedId)
         const next: Record<string, Outcome> = {}
@@ -403,16 +420,30 @@ export default function App() {
       const timeframe = deskRef.current.timeframe
       const range = deskRef.current.range
       const venue = deskRef.current.venue
-      const loaded = await Promise.all(
+      const loaded = await Promise.allSettled(
         symbols.map((symbol) => fetchCandles(symbol, timeframe, { days: rangeDays(range), range, venue })),
       )
       if (gen !== generation.current) return
       const map: Partial<Record<MarketId, Tape>> = {}
-      for (const tape of loaded) map[tape.symbol] = tape
+      let selectedError = ""
+      let otherError = ""
+      const selectedSymbol = deskRef.current.runs.find((run) => run.id === deskRef.current.selectedId)?.symbol
+      symbols.forEach((symbol, index) => {
+        const item = loaded[index]
+        if (!item) return
+        if (item.status === "fulfilled") map[item.value.symbol] = item.value
+        else {
+          const message = item.reason instanceof Error ? item.reason.message : "The tape didn't load."
+          if (symbol === selectedSymbol) selectedError = message
+          else if (!otherError) otherError = message
+        }
+      })
       tapesRef.current = map
       setTapes(map)
       setStale(false)
-      setLastFetchAt(new Date())
+      const notice = selectedError || otherError
+      if (notice) setError(notice)
+      if (Object.keys(map).length > 0) setLastFetchAt(new Date())
       const next: Record<string, Outcome> = {}
       for (const run of runs) {
         const tape = map[run.symbol]

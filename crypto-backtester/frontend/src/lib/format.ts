@@ -51,9 +51,6 @@ export function formatBookSize(value: number): string {
   const sign = value < 0 ? "-" : ""
   if (abs === 0) return "0"
   if (abs >= 1000) return formatCompact(value)
-  if (abs >= 100) return `${sign}${abs.toFixed(1)}`
-  if (abs >= 10) return `${sign}${abs.toFixed(2)}`
-  if (abs >= 1) return `${sign}${abs.toFixed(3)}`
   return `${sign}${abs.toFixed(4)}`
 }
 

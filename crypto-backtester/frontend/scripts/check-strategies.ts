@@ -125,4 +125,9 @@ assert.ok(shortTrade)
 assert.ok((shortTrade?.pnl ?? 0) > 0)
 assert.ok(buildSignals("buy_hold", falling, {}).every((value) => value === 1))
 
+const flatRun = createRun({ rule: "sma_cross", feeBps: 0, params: { fast: 2, slow: 3 }, allowShort: false, name: "Flat cross" })
+const flattened = backtest(falling, flatRun, 365)
+assert.equal(flattened.assumptions.allow_short, false)
+assert.equal(flattened.trades.some((trade) => trade.side === "short"), false)
+
 console.log("strategy library ok")

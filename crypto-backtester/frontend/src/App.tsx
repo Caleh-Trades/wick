@@ -198,6 +198,12 @@ export default function App() {
     }
     deskRef.current = updated
     setDesk(updated)
+    if (prev && prev.allowShort !== next.allowShort) {
+      const tape = tapesRef.current[next.symbol]
+      if (tape && tape.interval === updated.timeframe && tape.range === updated.range) {
+        setOutcomes((current) => ({ ...current, [next.id]: remember(next, tape) }))
+      }
+    }
     if (!prev || prev.symbol === next.symbol) return
     setOutcomes((current) => {
       if (!(next.id in current)) return current
@@ -310,6 +316,7 @@ export default function App() {
         rule: source.rule,
         params: { ...source.params },
         feeBps: source.feeBps,
+        allowShort: source.allowShort,
       },
       desk.runs,
     )

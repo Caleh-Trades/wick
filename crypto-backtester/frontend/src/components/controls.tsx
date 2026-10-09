@@ -224,6 +224,16 @@ export function Controls({
         />
       </Field>
 
+      <Button
+        type="button"
+        variant={selected.allowShort ? "default" : "outline"}
+        aria-pressed={selected.allowShort}
+        className="w-full"
+        onClick={() => patch({ allowShort: !selected.allowShort })}
+      >
+        {selected.allowShort ? "Shorts on" : "Shorts off"}
+      </Button>
+
       <div className="grid grid-cols-2 gap-2">
         <Button type="submit" disabled={running || problem != null}>
           {running ? "Running" : "Run"}

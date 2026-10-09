@@ -339,6 +339,7 @@ export function createRun(partial?: Partial<Run>, existing: Run[] = []): Run {
     rule,
     params,
     feeBps: partial?.feeBps ?? 10,
+    allowShort: partial?.allowShort !== false,
     hidden: partial?.hidden ?? false,
   }
 }
@@ -417,7 +418,7 @@ export function pollIntervalMs(timeframe: Timeframe): number {
 export function fingerprint(run: Run): string {
   const spec = ruleById(normalizeRule(run.rule))
   const fields = (spec?.params ?? []).map((param) => `${param.key}:${run.params[param.key] ?? param.default}`)
-  return [run.symbol, normalizeRule(run.rule), fields.join(","), run.feeBps].join("|")
+  return [run.symbol, normalizeRule(run.rule), fields.join(","), run.feeBps, run.allowShort ? "short" : "flat"].join("|")
 }
 
 function sanitizeRun(value: unknown): Run | null {
@@ -433,6 +434,7 @@ function sanitizeRun(value: unknown): Run | null {
     rule,
     params: sanitizeParams(raw.params),
     feeBps: clampInt(raw.feeBps, 0, 1000, 10),
+    allowShort: raw.allowShort !== false,
     hidden: Boolean(raw.hidden),
   }
 }

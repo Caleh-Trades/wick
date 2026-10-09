@@ -27,8 +27,10 @@ export function backtest(candles: TapeCandle[], run: Run, periodsPerYear: number
   let exposed = 0
   let open: OpenTrade | null = null
 
+  const allowShort = run.allowShort !== false
   for (let index = simStart; index <= hi; index += 1) {
-    const target = signals[index - 1] ?? 0
+    let target = signals[index - 1] ?? 0
+    if (!allowShort && target < 0) target = 0
     const bar = candles[index]
     if (!bar) continue
     if (sign(account.qty) !== target) {
@@ -118,7 +120,7 @@ export function backtest(candles: TapeCandle[], run: Run, periodsPerYear: number
       fee_bps: run.feeBps,
       slippage_bps: SLIPPAGE_BPS,
       initial_capital: INITIAL_CAPITAL,
-      allow_short: true,
+      allow_short: allowShort,
     },
     metrics,
     equity,

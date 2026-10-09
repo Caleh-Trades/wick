@@ -140,6 +140,7 @@ export type Run = {
   rule: RuleId
   params: RunParams
   feeBps: number
+  allowShort: boolean
   hidden: boolean
 }
 

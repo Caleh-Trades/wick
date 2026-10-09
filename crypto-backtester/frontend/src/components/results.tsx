@@ -47,7 +47,6 @@ type ResultsProps = {
   onToggleHidden: (id: string) => void
   onRemove: (id: string) => void
   onSort: (key: SortKey) => void
-  onKeep: () => void
   drawToken: number
 }
 
@@ -64,11 +63,9 @@ export const Results = memo(function Results({
   onToggleHidden,
   onRemove,
   onSort,
-  onKeep,
   drawToken,
 }: ResultsProps) {
   const market = marketById(result.symbol, venue)
-  const metrics = result.metrics
   const trades = venue === "spot" ? result.trades.filter((trade) => trade.side !== "short") : result.trades
   const closed = trades.filter((trade) => trade.status === "closed").length
   const liquidated = trades.filter((trade) => trade.status === "liquidated").length
@@ -162,40 +159,65 @@ export const Results = memo(function Results({
         )}
         </div>
       </div>
+    </div>
+  )
+})
 
-      <div className={cn("shrink-0", view === "equity" ? "block" : "hidden xl:block")}>
-        <div className="bezel grid grid-cols-2 gap-x-6 gap-y-5 p-4 md:grid-cols-4 xl:grid-cols-8">
-          <Metric label="Total return" value={formatPct(metrics.total_return_pct)} tone={tone(metrics.total_return_pct)} />
-          <Metric label="Buy and hold" value={formatPct(metrics.benchmark_return_pct)} tone={tone(metrics.benchmark_return_pct)} />
-          <Metric label="Excess return" value={formatPct(metrics.excess_return_pct)} tone={tone(metrics.excess_return_pct)} />
-          <Metric label="Max drawdown" value={formatPct(metrics.max_drawdown_pct)} tone={tone(metrics.max_drawdown_pct)} />
-          <Metric
-            label="Sharpe"
-            hint="Annualized return divided by volatility, scaled to this bar size. Crypto is marked on a 365-day year. Click to sort the comparison."
-            value={formatStat(metrics.sharpe)}
-            active={sortKey === "sharpe"}
-            dir={sortDir}
-            onSort={() => onSort("sharpe")}
-          />
-          <Metric
-            label="Win rate"
-            hint="Exits and liquidations. Click to sort the comparison."
-            value={formatPlainPct(metrics.win_rate_pct, 0)}
-            active={sortKey === "win_rate_pct"}
-            dir={sortDir}
-            onSort={() => onSort("win_rate_pct")}
-          />
-          <Metric
-            label="Profit factor"
-            hint="Gross profit divided by gross loss. Infinite when nothing lost money. Click to sort the comparison."
-            value={formatFactor(metrics.profit_factor, metrics.trades + metrics.liquidations, metrics.win_rate_pct)}
-            active={sortKey === "profit_factor"}
-            dir={sortDir}
-            onSort={() => onSort("profit_factor")}
-          />
-          <Metric label="Final equity" value={formatMoney(metrics.final_equity, 0)} />
-        </div>
-        <p className="mt-2 font-mono text-xs text-muted-foreground">
+export function RunStrip({
+  result,
+  sortKey,
+  sortDir,
+  onSort,
+  onKeep,
+}: {
+  result: BacktestResult
+  sortKey: SortKey | null
+  sortDir: "asc" | "desc"
+  onSort: (key: SortKey) => void
+  onKeep: () => void
+}) {
+  const metrics = result.metrics
+  const trades = result.assumptions.venue === "spot" ? result.trades.filter((trade) => trade.side !== "short") : result.trades
+  const liquidated = trades.filter((trade) => trade.status === "liquidated").length
+  const open = trades.filter((trade) => trade.status === "open").length
+  return (
+    <div className="shrink-0 px-3 pt-2">
+      <div className="bezel grid grid-cols-4 gap-x-3 gap-y-1 px-3 py-1.5 md:grid-cols-8" aria-label="Run summary">
+        <Metric label="Total return" value={formatPct(metrics.total_return_pct)} tone={tone(metrics.total_return_pct)} dense />
+        <Metric label="Buy and hold" value={formatPct(metrics.benchmark_return_pct)} tone={tone(metrics.benchmark_return_pct)} dense />
+        <Metric label="Excess return" value={formatPct(metrics.excess_return_pct)} tone={tone(metrics.excess_return_pct)} dense />
+        <Metric label="Max drawdown" value={formatPct(metrics.max_drawdown_pct)} tone={tone(metrics.max_drawdown_pct)} dense />
+        <Metric
+          label="Sharpe"
+          hint="Annualized return divided by volatility, scaled to this bar size. Crypto is marked on a 365-day year. Click to sort the comparison."
+          value={formatStat(metrics.sharpe)}
+          active={sortKey === "sharpe"}
+          dir={sortDir}
+          onSort={() => onSort("sharpe")}
+          dense
+        />
+        <Metric
+          label="Win rate"
+          hint="Exits and liquidations. Click to sort the comparison."
+          value={formatPlainPct(metrics.win_rate_pct, 0)}
+          active={sortKey === "win_rate_pct"}
+          dir={sortDir}
+          onSort={() => onSort("win_rate_pct")}
+          dense
+        />
+        <Metric
+          label="Profit factor"
+          hint="Gross profit divided by gross loss. Infinite when nothing lost money. Click to sort the comparison."
+          value={formatFactor(metrics.profit_factor, metrics.trades + metrics.liquidations, metrics.win_rate_pct)}
+          active={sortKey === "profit_factor"}
+          dir={sortDir}
+          onSort={() => onSort("profit_factor")}
+          dense
+        />
+        <Metric label="Final equity" value={formatMoney(metrics.final_equity, 0)} dense />
+      </div>
+      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <p className="min-w-0 flex-1 font-mono text-[10px] text-muted-foreground">
           In the market {formatPlainPct(metrics.exposure_pct, 0)}
           {" · "}
           CAGR {formatPct(metrics.cagr_pct)}
@@ -209,15 +231,23 @@ export const Results = memo(function Results({
           {" · "}
           Risk {riskLabel(result.assumptions.risk_pct)}
           {result.assumptions.funding_stale ? " · Funding stale" : ""}
+          {" · "}
+          In-sample {sliceText(result.in_sample)}
+          {" · "}
+          Holdout {sliceText(result.holdout)}
         </p>
-        <SamplePair result={result} />
-        <Button type="button" size="xs" variant="outline" className="mt-2 w-fit normal-case tracking-normal" onClick={onKeep}>
+        <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={onKeep}>
           Keep this run
         </Button>
       </div>
     </div>
   )
-})
+}
+
+function sliceText(slice: SampleSlice | undefined): string {
+  if (!slice) return "—"
+  return `${formatPct(slice.total_return_pct)} · DD ${formatPct(slice.max_drawdown_pct)} · ${formatStat(slice.sharpe)} · ${slice.trades}`
+}
 
 function Comparison({
   rows,
@@ -348,39 +378,6 @@ function Comparison({
   )
 }
 
-function SamplePair({ result }: { result: BacktestResult }) {
-  return (
-    <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2" aria-label="Out of sample">
-      <SampleCard title="In-sample" detail="First 70% of bars" slice={result.in_sample} />
-      <SampleCard title="Holdout" detail="Last 30%. Same parameters." slice={result.holdout} />
-    </div>
-  )
-}
-
-function SampleCard({ title, detail, slice }: { title: string; detail: string; slice: SampleSlice | undefined }) {
-  return (
-    <div className="border border-border px-3 py-2">
-      <p className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">{title}</p>
-      <p className="text-[11px] text-muted-foreground">{detail}</p>
-      <dl className="mt-2 grid grid-cols-4 gap-2">
-        <SampleStat label="Return" value={slice ? formatPct(slice.total_return_pct) : "—"} toneName={slice ? tone(slice.total_return_pct) : "ink"} />
-        <SampleStat label="Max DD" value={slice ? formatPct(slice.max_drawdown_pct) : "—"} toneName={slice ? tone(slice.max_drawdown_pct) : "ink"} />
-        <SampleStat label="Sharpe" value={slice ? formatStat(slice.sharpe) : "—"} />
-        <SampleStat label="Trades" value={slice ? String(slice.trades) : "—"} />
-      </dl>
-    </div>
-  )
-}
-
-function SampleStat({ label, value, toneName = "ink" }: { label: string; value: string; toneName?: "up" | "down" | "ink" }) {
-  return (
-    <div>
-      <dt className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">{label}</dt>
-      <dd className={cn("font-mono text-xs tabular-nums", toneName === "up" && "text-up", toneName === "down" && "text-down")}>{value}</dd>
-    </div>
-  )
-}
-
 function sliceOf(result: BacktestResult, lens: SampleLens): SampleSlice | null {
   if (lens === "full") return null
   return (lens === "in_sample" ? result.in_sample : result.holdout) ?? null
@@ -447,6 +444,7 @@ function Metric({
   active = false,
   dir = "desc",
   onSort,
+  dense = false,
 }: {
   label: string
   value: string
@@ -455,15 +453,16 @@ function Metric({
   active?: boolean
   dir?: "asc" | "desc"
   onSort?: () => void
+  dense?: boolean
 }) {
   const labelNode = (
-    <div className="text-[0.65rem] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
+    <div className="text-[0.6rem] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
       {label}
       {active ? (dir === "desc" ? " ↓" : " ↑") : ""}
     </div>
   )
   return (
-    <div className="border-t border-border pt-3">
+    <div className={dense ? "py-0.5" : "border-t border-border pt-3"}>
       {onSort ? (
         <Tooltip>
           <TooltipTrigger asChild>
@@ -487,7 +486,8 @@ function Metric({
       )}
       <div
         className={cn(
-          "mt-1 font-mono text-xl tabular-nums",
+          "font-mono tabular-nums",
+          dense ? "text-sm" : "mt-1 text-xl",
           toneName === "up" && "text-up",
           toneName === "down" && "text-down",
         )}

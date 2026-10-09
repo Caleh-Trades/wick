@@ -9,13 +9,13 @@ export type PaneSizes = {
   chart: number
 }
 
-const DEFAULTS: PaneSizes = { book: 320, chart: 0.46 }
+const DEFAULTS: PaneSizes = { book: 320, chart: 0.34 }
 
 export function loadPanes(): PaneSizes {
   try {
     const parsed = JSON.parse(localStorage.getItem(KEY) ?? "") as Partial<PaneSizes> & { v?: number }
     const book = clamp(parsed.book, 160, 520, DEFAULTS.book)
-    if (parsed.v !== 4) return { book, chart: DEFAULTS.chart }
+    if (parsed.v !== 5) return { book, chart: DEFAULTS.chart }
     return {
       book,
       chart: clamp(parsed.chart, CHART_MIN, CHART_MAX, DEFAULTS.chart),
@@ -31,7 +31,7 @@ export function clampChart(value: number): number {
 
 export function savePanes(sizes: PaneSizes): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify({ v: 4, ...sizes }))
+    localStorage.setItem(KEY, JSON.stringify({ v: 5, ...sizes }))
   } catch {
     /* the drag still applies for this visit */
   }

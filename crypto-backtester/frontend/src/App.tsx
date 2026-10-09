@@ -5,7 +5,7 @@ import { Controls } from "@/components/controls"
 import { DeskBar } from "@/components/desk-bar"
 import { MarketPane } from "@/components/market-pane"
 import { ResearchChart } from "@/components/research"
-import { Results } from "@/components/results"
+import { Results, RunStrip } from "@/components/results"
 import { Button } from "@/components/ui/button"
 import {
   Sheet,
@@ -609,6 +609,21 @@ export default function App() {
               {error}
             </div>
           ) : null}
+          {result ? (
+            <RunStrip
+              result={result}
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onKeep={keepSelected}
+              onSort={(key) => {
+                if (sortKey === key) setSortDir((dir) => (dir === "desc" ? "asc" : "desc"))
+                else {
+                  setSortKey(key)
+                  setSortDir("desc")
+                }
+              }}
+            />
+          ) : null}
           <div
             className={cn("price-split flex min-h-0 min-w-0", shown.length > 1 && "price-split-pair flex-col xl:flex-row")}
             style={{ flex: `${panes.chart} 1 0%` }}
@@ -678,7 +693,6 @@ export default function App() {
                   }))
                 }}
                 onRemove={removeRun}
-                onKeep={keepSelected}
                 onSort={(key) => {
                   if (sortKey === key) setSortDir((dir) => (dir === "desc" ? "asc" : "desc"))
                   else {

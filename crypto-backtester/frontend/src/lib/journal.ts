@@ -174,6 +174,11 @@ export function removeJournalEntry(id: string): void {
   commit(journalEntries().filter((entry) => entry.id !== id))
 }
 
+export function replaceJournal(raw: unknown): void {
+  const list = Array.isArray(raw) ? raw.map(sanitize).filter((entry) => entry != null).slice(0, MAX_ENTRIES) : []
+  commit(list)
+}
+
 function exitFromOp(op: BotOp): number | null {
   const raw = op.exitPrice ?? op.exit
   if (raw == null || raw === "") return null
@@ -376,6 +381,11 @@ export function keepRun(input: Omit<KeptRun, "id" | "time"> & { id?: string; tim
 
 export function removeKeptRun(id: string): void {
   commitKept(keptRuns().filter((item) => item.id !== id))
+}
+
+export function replaceKept(raw: unknown): void {
+  const list = Array.isArray(raw) ? raw.map(sanitizeKept).filter((row) => row != null).slice(0, MAX_KEPT) : []
+  commitKept(list)
 }
 
 function commitKept(next: KeptRun[]): void {

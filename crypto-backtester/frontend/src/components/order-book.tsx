@@ -84,7 +84,7 @@ export function OrderBook({ symbol, venue }: { symbol: string | null; venue: Ven
                 <span>{formatClock(new Date(print.t))}</span>
                 <span>{print.side === "buy" ? "Buy lift" : "Sell hit"}</span>
                 <span className="text-right">{formatPrice(print.price, tick)}</span>
-                <span className="text-right">{formatCompact(print.size)}</span>
+                <span className="text-right">{formatBookSize(print.size)}</span>
               </div>
             ))
           )}

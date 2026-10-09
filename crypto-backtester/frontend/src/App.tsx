@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 
 import { type OverlaySeries } from "@/components/charts"
+import { useAccountSync } from "@/lib/use-account"
 import { Controls } from "@/components/controls"
 import { DeskBar } from "@/components/desk-bar"
 import { MarketPane } from "@/components/market-pane"
@@ -91,6 +92,8 @@ export default function App() {
   useEffect(() => {
     savePanes(panes)
   }, [panes])
+
+  const account = useAccountSync(workspace, panes, setWorkspace, setPanes)
 
   const held = workspace.slots.map((slot) => `${slot.venue}:${slot.symbol}`).join("|")
   useEffect(() => {
@@ -579,6 +582,11 @@ export default function App() {
           onRange={(range) => patchSlot(active.id, { range })}
           onVenue={(venue) => patchSlot(active.id, { venue })}
           page={page}
+          accountSession={account.session}
+          accountStatus={account.status}
+          onCreateAccount={account.create}
+          onSignInAccount={account.signIn}
+          onSignOutAccount={account.signOut}
           onPage={(next) => {
             setPage(next)
             if (next === "journal") {

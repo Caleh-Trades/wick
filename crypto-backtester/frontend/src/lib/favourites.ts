@@ -9,6 +9,15 @@ export function getFavourites(): string[] {
   return ids
 }
 
+export function replaceFavourites(raw: unknown): void {
+  const next = Array.isArray(raw)
+    ? raw.filter((item): item is string => typeof item === "string" && item.trim().length > 0).slice(0, 40)
+    : []
+  ids = next
+  write(ids)
+  for (const listener of listeners) listener()
+}
+
 export function toggleFavourite(symbol: string): void {
   const id = symbol.toUpperCase()
   ids = ids.includes(id) ? ids.filter((item) => item !== id) : [id, ...ids]

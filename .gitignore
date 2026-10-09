@@ -10,6 +10,7 @@ dist/
 *.local
 crypto-backtester/backend/data/cache/
 crypto-backtester/backend/data/bot_access.json
+crypto-backtester/backend/data/accounts.json
 .env
 .env.*
 !.env.example

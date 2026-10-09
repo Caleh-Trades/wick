@@ -1,4 +1,6 @@
+import { AccountSheet } from "@/components/account-sheet"
 import { BotSettings } from "@/components/bot-settings"
+import type { AccountSession } from "@/lib/account"
 import { SymbolSelect } from "@/components/symbol-select"
 import { Button } from "@/components/ui/button"
 import { formatClock, formatDay, formatPrice } from "@/lib/format"
@@ -19,6 +21,11 @@ type DeskBarProps = {
   onVenue: (venue: Venue) => void
   page: "desk" | "journal"
   onPage: (page: "desk" | "journal") => void
+  accountSession: AccountSession | null
+  accountStatus: string
+  onCreateAccount: (name: string, password: string) => Promise<void>
+  onSignInAccount: (name: string, password: string) => Promise<void>
+  onSignOutAccount: () => Promise<void>
 }
 
 export function DeskBar({
@@ -35,6 +42,11 @@ export function DeskBar({
   onVenue,
   page,
   onPage,
+  accountSession,
+  accountStatus,
+  onCreateAccount,
+  onSignInAccount,
+  onSignOutAccount,
 }: DeskBarProps) {
   const frame = TIMEFRAMES.find((item) => item.id === timeframe)
   const market = symbol ? marketById(symbol, venue) : undefined
@@ -51,6 +63,13 @@ export function DeskBar({
         <div className="flex items-center gap-2">
           <CandleMark />
           <h1 className="font-mono text-sm tracking-[0.32em] text-[#c56a32] uppercase">Wick</h1>
+          <AccountSheet
+            session={accountSession}
+            status={accountStatus}
+            onCreate={onCreateAccount}
+            onSignIn={onSignInAccount}
+            onSignOut={onSignOutAccount}
+          />
           <BotSettings />
         </div>
 

@@ -8,7 +8,9 @@ from datetime import datetime, timezone
 from fastapi.middleware.cors import CORSMiddleware
 
 from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 
+from app.accounts import AccountError, DeskConflict, create_account, end_session, login_account, read_desk, save_desk
 from app.bot_access import acknowledge, authorize, check_ops, create_key, enqueue, list_keys, pending, revoke_key
 from app.binance_feed import (
     is_binance_symbol,
@@ -109,6 +111,64 @@ def bot_inbox_ack(body: dict) -> dict:
     if not isinstance(ids, list) or not all(isinstance(item, str) for item in ids):
         raise HTTPException(status_code=400, detail="Send the edit ids to drop.")
     acknowledge(ids)
+    return {"ok": True}
+
+
+def _account_token(request: Request) -> str:
+    header = request.headers.get("authorization", "")
+    return header[7:].strip() if header.lower().startswith("bearer ") else ""
+
+
+def _account_error(exc: AccountError) -> JSONResponse:
+    if isinstance(exc, DeskConflict):
+        return JSONResponse(
+            status_code=409,
+            content={"detail": str(exc), "revision": exc.revision, "desk": exc.desk},
+        )
+    return JSONResponse(status_code=exc.status, content={"detail": str(exc)})
+
+
+@app.post("/api/accounts")
+def account_create(body: dict) -> dict:
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Send a name and a password.")
+    try:
+        return create_account(body.get("name"), body.get("password"), body.get("desk"))
+    except AccountError as exc:
+        return _account_error(exc)
+
+
+@app.post("/api/accounts/login")
+def account_login(body: dict) -> dict:
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Send a name and a password.")
+    try:
+        return login_account(body.get("name"), body.get("password"))
+    except AccountError as exc:
+        return _account_error(exc)
+
+
+@app.get("/api/accounts/desk")
+def account_desk(request: Request) -> dict:
+    try:
+        return read_desk(_account_token(request))
+    except AccountError as exc:
+        return _account_error(exc)
+
+
+@app.put("/api/accounts/desk", response_model=None)
+def account_desk_save(body: dict, request: Request):
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Send the desk and the revision it was loaded from.")
+    try:
+        return save_desk(_account_token(request), body.get("revision"), body.get("desk"))
+    except AccountError as exc:
+        return _account_error(exc)
+
+
+@app.delete("/api/accounts/session")
+def account_logout(request: Request) -> dict:
+    end_session(_account_token(request))
     return {"ok": True}
 
 

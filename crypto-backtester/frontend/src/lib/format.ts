@@ -44,14 +44,14 @@ export function formatCompact(value: number): string {
   return `${sign}${body}`
 }
 
-/** Ladder size and cumulative size. Keeps a 0.001 step visible once the total is above 1. */
+/** Ladder size and cumulative liquidity. Four decimals stay past 1,000 so a small step still changes the total. */
 export function formatBookSize(value: number): string {
   if (!Number.isFinite(value)) return "—"
-  const abs = Math.abs(value)
+  if (value === 0) return "0"
   const sign = value < 0 ? "-" : ""
-  if (abs === 0) return "0"
-  if (abs >= 1000) return formatCompact(value)
-  return `${sign}${abs.toFixed(4)}`
+  const [whole, frac] = Math.abs(value).toFixed(4).split(".")
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+  return `${sign}${grouped}.${frac}`
 }
 
 export function formatSize(value: number): string {

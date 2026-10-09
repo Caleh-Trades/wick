@@ -23,12 +23,13 @@ import { CHART_MAX, CHART_MIN, clampChart, loadPanes, savePanes, type PaneSizes 
 import {
   MAX_RUNS,
   createRun,
+  comboKey,
   fingerprint,
   phraseFor,
   pollIntervalMs,
   rangeDays,
-  ruleName,
   runColor,
+  strategyLabel,
   suggestedName,
   uniqueName,
 } from "@/lib/runs"
@@ -292,7 +293,8 @@ export default function App() {
       prev.allowShort !== patched.allowShort ||
       prev.capital !== patched.capital ||
       prev.leverage !== patched.leverage ||
-      prev.riskPct !== patched.riskPct
+      prev.riskPct !== patched.riskPct ||
+      comboKey(prev) !== comboKey(patched)
     if (!restage) return
     const tape = tapesRef.current[tapeKey({ ...active, symbol })]
     if (!tape) return
@@ -360,6 +362,7 @@ export default function App() {
         capital: selected.capital,
         leverage: selected.leverage,
         riskPct: selected.riskPct,
+        combo: (selected.combo ?? []).map((item) => ({ rule: item.rule, params: { ...item.params } })),
         allowShort: active.venue === "perp" && selected.allowShort,
       },
       active.runs,
@@ -449,7 +452,7 @@ export default function App() {
       return [
         {
           id: run.id,
-          name: `${run.name} · ${ruleName(run.rule)}`,
+          name: `${run.name} · ${strategyLabel(run)}`,
           color: runColor(index),
           equity: outcome.result.equity.map((point) => ({ time: point.time, equity: point.equity })),
         },

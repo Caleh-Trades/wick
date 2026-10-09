@@ -168,7 +168,7 @@ export const EquityChart = memo(function EquityChart({
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      <div className="plot-solid mt-2 h-16 shrink-0">
+      <div className="plot-solid mt-2 h-14 shrink-0">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={drawdown} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <XAxis dataKey="time" hide />

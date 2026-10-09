@@ -16,7 +16,7 @@ import { Separator } from "@/components/ui/separator"
 import { SymbolSelect } from "@/components/symbol-select"
 import { formatMoney } from "@/lib/format"
 import type { RuleId, Run, Venue } from "@/lib/types"
-import { MAX_RUNS, RULES, clampRisk, paramsForRule, ruleName, runColor, runProblem } from "@/lib/runs"
+import { MAX_COMBO, MAX_RUNS, RULES, clampRisk, paramsForRule, ruleName, ruleParams, runColor, runProblem } from "@/lib/runs"
 
 type ControlsProps = {
   idPrefix: string
@@ -161,7 +161,13 @@ export function Controls({
       <Field label="Rule" htmlFor={`${idPrefix}-rule`}>
         <Select
           value={selected.rule}
-          onValueChange={(ruleId) => patch({ rule: ruleId as RuleId, params: paramsForRule(ruleId as RuleId, selected.params) })}
+          onValueChange={(ruleId) =>
+            patch({
+              rule: ruleId as RuleId,
+              params: paramsForRule(ruleId as RuleId, selected.params),
+              combo: (selected.combo ?? []).filter((item) => item.rule !== ruleId),
+            })
+          }
         >
           <SelectTrigger id={`${idPrefix}-rule`} className="w-full">
             <SelectValue />
@@ -208,6 +214,12 @@ export function Controls({
           )}
         </div>
       ) : null}
+
+      <ComboEditor
+        idPrefix={idPrefix}
+        selected={selected}
+        onChange={(combo) => patch({ combo })}
+      />
 
       {problem ? <p className="text-sm text-down">{problem}</p> : null}
 
@@ -278,6 +290,122 @@ export function Controls({
           : " Spot stays long or flat."}
       </p>
     </form>
+  )
+}
+
+function ComboEditor({
+  idPrefix,
+  selected,
+  onChange,
+}: {
+  idPrefix: string
+  selected: Run
+  onChange: (combo: Run["combo"]) => void
+}) {
+  const combo = selected.combo ?? []
+  const taken = new Set([selected.rule, ...combo.map((item) => item.rule)])
+  const available = RULES.filter((item) => !taken.has(item.id))
+  const [pendingRule, setPendingRule] = useState<RuleId>("supertrend")
+  const pending = available.some((item) => item.id === pendingRule) ? pendingRule : available[0]?.id
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Combined</span>
+        <span className="font-mono text-[10px] text-muted-foreground">
+          {combo.length} of {MAX_COMBO}
+        </span>
+      </div>
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        A position opens only when this rule and every strategy below want the same side.
+      </p>
+      {combo.map((item) => {
+        const spec = RULES.find((rule) => rule.id === item.rule)
+        return (
+          <div key={item.rule} className="flex flex-col gap-3 border-t border-border pt-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm">{spec?.name ?? item.rule}</span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-label={`Remove ${spec?.name ?? item.rule}`}
+                onClick={() => onChange(combo.filter((entry) => entry.rule !== item.rule))}
+              >
+                <Trash2 />
+              </Button>
+            </div>
+            {spec && spec.params.length > 0 ? (
+              <div className={spec.params.length > 1 ? "grid grid-cols-2 gap-3" : "flex flex-col gap-3"}>
+                {spec.params.map((param) =>
+                  param.toggle ? (
+                    <div key={param.key} className="col-span-2 flex items-center justify-between gap-3">
+                      <Label htmlFor={`${idPrefix}-combo-${item.rule}-${param.key}`}>{param.label}</Label>
+                      <Switch
+                        id={`${idPrefix}-combo-${item.rule}-${param.key}`}
+                        checked={(item.params[param.key] ?? param.default) >= 1}
+                        onCheckedChange={(checked) =>
+                          onChange(
+                            combo.map((entry) =>
+                              entry.rule === item.rule
+                                ? { ...entry, params: { ...entry.params, [param.key]: checked ? 1 : 0 } }
+                                : entry,
+                            ),
+                          )
+                        }
+                      />
+                    </div>
+                  ) : (
+                    <DecimalField
+                      key={param.key}
+                      id={`${idPrefix}-combo-${item.rule}-${param.key}`}
+                      label={param.label}
+                      value={item.params[param.key] ?? param.default}
+                      min={param.min}
+                      max={param.max}
+                      integer={param.integer}
+                      onValue={(value) =>
+                        onChange(
+                          combo.map((entry) =>
+                            entry.rule === item.rule ? { ...entry, params: { ...entry.params, [param.key]: value } } : entry,
+                          ),
+                        )
+                      }
+                    />
+                  ),
+                )}
+              </div>
+            ) : null}
+          </div>
+        )
+      })}
+      {pending ? (
+        <div className="flex items-end gap-2">
+          <div className="min-w-0 flex-1">
+            <Select value={pending} onValueChange={(ruleId) => setPendingRule(ruleId as RuleId)}>
+              <SelectTrigger id={`${idPrefix}-combo-add`} className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {available.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>
+                    {item.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={combo.length >= MAX_COMBO}
+            onClick={() => onChange([...combo, { rule: pending, params: ruleParams(pending) }])}
+          >
+            Add
+          </Button>
+        </div>
+      ) : null}
+    </div>
   )
 }
 

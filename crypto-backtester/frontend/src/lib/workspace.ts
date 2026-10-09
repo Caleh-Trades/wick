@@ -1,4 +1,4 @@
-import { clampRisk, createRun, isRange, isTimeframe, isVenue, loadDesk, MAX_RUNS, type DeskState } from "./runs.ts"
+import { clampRisk, createRun, isRange, isTimeframe, isVenue, loadDesk, MAX_RUNS, normalizeCombo, normalizeRule, type DeskState } from "./runs.ts"
 import type { MarketId, RangeId, Run, Timeframe, Venue } from "./types.ts"
 
 export const MAX_SLOTS = 4
@@ -120,6 +120,7 @@ function sanitizeSlot(value: unknown): Slot | null {
       symbol,
       allowShort: venue === "perp" ? run.allowShort !== false : false,
       riskPct: clampRisk(run.riskPct),
+      combo: normalizeCombo(run.combo, normalizeRule(String(run.rule ?? "sma_cross"))),
     }))
   if (cleaned.length === 0) return createSlot(symbol, venue, timeframe, range)
   const selectedId = cleaned.some((run) => run.id === raw.selectedId) ? String(raw.selectedId) : cleaned[0]!.id

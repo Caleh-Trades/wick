@@ -1,8 +1,9 @@
 import { getMarkets, marketName, normalizeSymbol } from "./markets.ts"
-import type { MarketId, RangeId, Run, RunParams, RuleId, TapeCandle, Timeframe, Venue } from "./types.ts"
+import type { ComboRule, MarketId, RangeId, Run, RunParams, RuleId, TapeCandle, Timeframe, Venue } from "./types.ts"
 
 export const STORAGE_KEY = "wick-runs"
 export const MAX_RUNS = 5
+export const MAX_COMBO = 3
 
 export type ParamField = {
   key: string
@@ -287,10 +288,53 @@ export function resolveRunParams(run: Run): RunParams {
 export function runProblem(run: Run): string | null {
   try {
     resolveRunParams(run)
+    for (const item of run.combo ?? []) resolveRunParams({ ...run, rule: item.rule, params: item.params })
     return null
   } catch (reason: unknown) {
     return reason instanceof Error ? reason.message : "This run didn't compute."
   }
+}
+
+export function ruleParams(rule: RuleId, current?: RunParams): RunParams {
+  const spec = ruleById(normalizeRule(rule))
+  const params: RunParams = {}
+  for (const param of spec?.params ?? []) {
+    const number = Number(current?.[param.key])
+    params[param.key] = Number.isFinite(number)
+      ? Math.min(param.max, Math.max(param.min, param.integer ? Math.round(number) : number))
+      : param.default
+  }
+  return params
+}
+
+export function normalizeCombo(value: unknown, primary: RuleId): ComboRule[] {
+  if (!Array.isArray(value)) return []
+  const seen = new Set<string>([normalizeRule(primary)])
+  const combo: ComboRule[] = []
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue
+    const rawRule = String((item as { rule?: string }).rule ?? "")
+    if (!ruleById(rawRule) && rawRule !== "rsi") continue
+    const rule = normalizeRule(rawRule)
+    if (seen.has(rule) || combo.length >= MAX_COMBO) continue
+    seen.add(rule)
+    combo.push({ rule, params: ruleParams(rule, (item as { params?: RunParams }).params) })
+  }
+  return combo
+}
+
+export function strategyLabel(run: Pick<Run, "rule" | "combo">): string {
+  return [ruleName(run.rule), ...(run.combo ?? []).map((item) => ruleName(item.rule))].join(" + ")
+}
+
+export function comboKey(run: Pick<Run, "combo">): string {
+  return (run.combo ?? [])
+    .map((item) => {
+      const spec = ruleById(item.rule)
+      const fields = (spec?.params ?? []).map((param) => `${param.key}:${item.params?.[param.key] ?? param.default}`)
+      return `${item.rule}:${fields.join(",")}`
+    })
+    .join("+")
 }
 
 export function ruleName(rule: string): string {
@@ -346,6 +390,7 @@ export function createRun(partial?: Partial<Run>, existing: Run[] = []): Run {
     capital: clampNum(partial?.capital, 1, 1_000_000_000, 10_000),
     leverage: clampNum(partial?.leverage, 1, 20, 3),
     riskPct: clampRisk(partial?.riskPct),
+    combo: normalizeCombo(partial?.combo, rule),
     allowShort: partial?.allowShort !== false,
     hidden: partial?.hidden ?? false,
   }
@@ -427,7 +472,9 @@ export function pollIntervalMs(timeframe: Timeframe): number {
 export function fingerprint(run: Run): string {
   const spec = ruleById(normalizeRule(run.rule))
   const fields = (spec?.params ?? []).map((param) => `${param.key}:${run.params[param.key] ?? param.default}`)
-  return [run.symbol, normalizeRule(run.rule), fields.join(","), run.feeBps, run.capital, run.allowShort ? "short" : "flat", run.leverage, clampRisk(run.riskPct)].join("|")
+  const base = [run.symbol, normalizeRule(run.rule), fields.join(","), run.feeBps, run.capital, run.allowShort ? "short" : "flat", run.leverage, clampRisk(run.riskPct)].join("|")
+  const combo = comboKey(run)
+  return combo ? `${base}|${combo}` : base
 }
 
 function sanitizeRun(value: unknown): Run | null {
@@ -446,6 +493,7 @@ function sanitizeRun(value: unknown): Run | null {
     capital: clampNum(raw.capital, 1, 1_000_000_000, 10_000),
     leverage: clampNum(raw.leverage, 1, 20, 3),
     riskPct: clampRisk(raw.riskPct),
+    combo: normalizeCombo(raw.combo, rule),
     allowShort: raw.allowShort !== false,
     hidden: Boolean(raw.hidden),
   }

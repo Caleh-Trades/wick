@@ -1,4 +1,4 @@
-import { clampRisk, normalizeRule, resolveRunParams, ruleById } from "./runs.ts"
+import { clampRisk, normalizeCombo, normalizeRule, resolveRunParams, strategyLabel } from "./runs.ts"
 import { buildSignals } from "./signals.ts"
 import type { BacktestResult, EquityPoint, FundingRate, Run, TapeCandle, Trade, Venue } from "./types"
 
@@ -36,7 +36,11 @@ export function backtest(
   }
   const rule = normalizeRule(run.rule)
   const params = resolveRunParams({ ...run, rule })
-  const signals = buildSignals(rule, candles, params)
+  const combo = normalizeCombo(run.combo, rule)
+  const signals = combineSignals([
+    buildSignals(rule, candles, params),
+    ...combo.map((item) => buildSignals(item.rule, candles, resolveRunParams({ ...run, rule: item.rule, params: item.params }))),
+  ])
   const venue = options?.venue ?? "spot"
   const leverage = venue === "perp" ? clampLeverage(run.leverage) : 1
   const riskPct = clampRisk(run.riskPct)
@@ -143,7 +147,7 @@ export function backtest(
   return {
     symbol: run.symbol,
     interval: "",
-    strategy: { id: rule, name: ruleById(rule)?.name ?? rule },
+    strategy: { id: rule, name: strategyLabel({ rule, combo }) },
     params,
     source: "",
     window: {
@@ -269,6 +273,16 @@ class Account {
     if (this.qty === 0) return this.cash
     return this.cash + this.qty * (price - this.entry)
   }
+}
+
+function combineSignals(rows: number[][]): number[] {
+  const length = rows[0]?.length ?? 0
+  return Array.from({ length }, (_, index) => {
+    const values = rows.map((row) => row[index] ?? 0)
+    if (values.every((value) => value > 0)) return 1
+    if (values.every((value) => value < 0)) return -1
+    return 0
+  })
 }
 
 function sign(qty: number): number {

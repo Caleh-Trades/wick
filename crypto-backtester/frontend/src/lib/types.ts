@@ -142,12 +142,19 @@ export type MarketId = string
 
 export type RunParams = Record<string, number>
 
+export type ComboRule = {
+  rule: RuleId
+  params: RunParams
+}
+
 export type Run = {
   id: string
   name: string
   symbol: MarketId
   rule: RuleId
   params: RunParams
+  /** Extra strategies that must agree with `rule` before a position opens. */
+  combo: ComboRule[]
   feeBps: number
   capital: number
   leverage: number

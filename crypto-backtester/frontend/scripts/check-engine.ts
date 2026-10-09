@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 
 import { backtest, liquidationPrice } from "../src/lib/backtest.ts"
-import { createRun, mergeCandles } from "../src/lib/runs.ts"
+import { createRun, fingerprint, mergeCandles } from "../src/lib/runs.ts"
 import type { TapeCandle } from "../src/lib/types.ts"
 
 function bars(prices: number[]): TapeCandle[] {
@@ -120,5 +120,23 @@ assert.ok(Math.abs((halfPerp.trades[0]?.quantity ?? 0) / (fullPerp.trades[0]?.qu
 
 const tiny = backtest(bars([100, 100, 110, 120]), { ...hold, riskPct: 0 }, 365)
 assert.equal(tiny.assumptions.risk_pct, 0.1)
+
+assert.equal(fingerprint({ ...cross, combo: [] }), fingerprint(cross))
+assert.equal(crossed.strategy.name, "SMA crossover")
+const duplicateHold = backtest(
+  bars([100, 100, 110, 120, 130]),
+  { ...hold, combo: [{ rule: "buy_hold", params: {} }] },
+  365,
+)
+assert.ok(Math.abs(duplicateHold.metrics.final_equity - held.metrics.final_equity) < 1e-6)
+const agreed = backtest(
+  bars([1, 1, 1, 5, 5, 5, 1, 1, 1]),
+  { ...cross, combo: [{ rule: "buy_hold", params: {} }] },
+  365,
+)
+assert.equal(agreed.strategy.name, "SMA crossover + Buy and hold")
+assert.equal(agreed.trades.some((trade) => trade.side === "short"), false)
+assert.equal(agreed.trades.some((trade) => trade.side === "long"), true)
+assert.notEqual(fingerprint({ ...cross, combo: [{ rule: "buy_hold", params: {} }] }), fingerprint(cross))
 
 console.log("engine check ok")

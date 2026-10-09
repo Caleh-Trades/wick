@@ -103,6 +103,45 @@ export type Candle = {
   close: number
 }
 
+export type TapeCandle = Candle & { t: number }
+
+export type Timeframe = "1m" | "5m" | "30m" | "1d"
+
+export type RuleId = "sma_cross" | "rsi" | "buy_hold"
+
+export type MarketId = "BTC-USD" | "ETH-USD"
+
+export type RunParams = {
+  fast: number
+  slow: number
+  rsi: number
+}
+
+export type Run = {
+  id: string
+  name: string
+  symbol: MarketId
+  rule: RuleId
+  params: RunParams
+  feeBps: number
+  hidden: boolean
+}
+
+export type Tape = {
+  symbol: MarketId
+  interval: Timeframe
+  source: string
+  seconds: number
+  periodsPerYear: number
+  candles: TapeCandle[]
+}
+
+export type SortKey = "sharpe" | "win_rate_pct" | "profit_factor"
+
+export type Outcome =
+  | { ok: true; result: BacktestResult; fingerprint: string }
+  | { ok: false; error: string; fingerprint: string }
+
 export type BacktestResult = {
   symbol: string
   interval: string

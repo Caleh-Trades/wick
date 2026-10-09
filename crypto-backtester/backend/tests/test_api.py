@@ -62,6 +62,34 @@ def test_bad_dates_are_rejected(monkeypatch):
     assert "start date" in backwards.json()["detail"]
 
 
+def test_candles_route_serves_a_tape_and_a_live_tail(monkeypatch):
+    monkeypatch.setattr("app.main.load_series", lambda symbol, interval: (_candles(), "coinbase"))
+
+    def tail(symbol, interval, since):
+        assert symbol == "ETH-USD"
+        assert interval == "5m"
+        assert since == 100
+        return (_candles()[-2:], "coinbase")
+
+    monkeypatch.setattr("app.main.load_tail", tail)
+    client = TestClient(app)
+    full = client.get("/api/candles", params={"symbol": "BTC-USD", "interval": "1m"})
+    assert full.status_code == 200
+    body = full.json()
+    assert body["source"] == "coinbase"
+    assert body["seconds"] == 60
+    assert body["candles"][0]["t"] > 0
+    assert "close" in body["candles"][0]
+
+    live = client.get("/api/candles", params={"symbol": "ETH-USD", "interval": "5m", "since": 100})
+    assert live.status_code == 200
+    assert len(live.json()["candles"]) == 2
+
+    missing = client.get("/api/candles", params={"symbol": "BTC-USD", "interval": "15m"})
+    assert missing.status_code == 400
+    assert "Interval" in missing.json()["detail"]
+
+
 def test_unknown_markets_are_rejected():
     client = TestClient(app)
     missing = client.post("/api/backtest", json={"symbol": "NOPE-USD", "strategy": "buy_hold"})

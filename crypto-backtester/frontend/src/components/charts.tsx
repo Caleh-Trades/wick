@@ -13,28 +13,55 @@ import {
 import { formatAxis, formatCompactMoney, formatMoney, formatPct, formatPrice, formatStamp } from "@/lib/format"
 import type { BacktestResult } from "@/lib/types"
 
+export type OverlaySeries = {
+  id: string
+  name: string
+  color: string
+  equity: { time: string; equity: number }[]
+}
+
 const axisTick = { fill: "#8a8176", fontSize: 11, fontFamily: "IBM Plex Mono, ui-monospace, monospace" }
 
-export function EquityChart({ result }: { result: BacktestResult }) {
+export function EquityChart({
+  result,
+  overlays,
+  selectedId,
+}: {
+  result: BacktestResult
+  overlays: OverlaySeries[]
+  selectedId: string
+}) {
+  const rows = overlayRows(result, overlays)
+  const selectedSeries = overlays.find((series) => series.id === selectedId)
+  const fill = selectedSeries?.color ?? "#e4b15a"
+  const headline = selectedSeries
+    ? (rows.at(-1)?.[selectedId] as number | null | undefined)
+    : result.metrics.final_equity
   return (
     <div className="bg-desk px-4 py-5 text-desk-ink sm:px-6 sm:py-6">
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-[0.65rem] font-semibold tracking-[0.18em] text-bench uppercase">Equity</p>
-          <p className="font-mono text-2xl text-gold tabular-nums">{formatMoney(result.metrics.final_equity, 0)}</p>
+          <p className="font-mono text-2xl text-gold tabular-nums">
+            {formatMoney(typeof headline === "number" ? headline : result.metrics.final_equity, 0)}
+          </p>
         </div>
-        <div className="flex gap-4 font-mono text-[11px] tracking-wide uppercase">
-          <span className="text-gold">Strategy</span>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] tracking-wide uppercase">
+          {overlays.map((series) => (
+            <span key={series.id} style={{ color: series.color }}>
+              {series.name}
+            </span>
+          ))}
           <span className="text-bench">Buy and hold</span>
         </div>
       </div>
       <div className="h-72">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={result.equity} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <ComposedChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="equity-fill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#e4b15a" stopOpacity={0.35} />
-                <stop offset="100%" stopColor="#e4b15a" stopOpacity={0} />
+                <stop offset="0%" stopColor={fill} stopOpacity={0.35} />
+                <stop offset="100%" stopColor={fill} stopOpacity={0} />
               </linearGradient>
             </defs>
             <CartesianGrid vertical={false} stroke="rgba(243,239,230,0.08)" />
@@ -58,20 +85,43 @@ export function EquityChart({ result }: { result: BacktestResult }) {
             <Tooltip
               content={({ active, payload, label }) => (
                 <ChartTip active={active} label={label} interval={result.interval}>
-                  <TipRow label="Strategy" value={formatMoney(numberFrom(payload, "equity"), 0)} />
-                  <TipRow label="Buy and hold" value={formatMoney(numberFrom(payload, "benchmark"), 0)} />
+                  {overlays.map((series) => (
+                    <TipRow
+                      key={series.id}
+                      label={series.name}
+                      value={moneyOrDash(numberFrom(payload, series.id))}
+                    />
+                  ))}
+                  <TipRow label="Buy and hold" value={moneyOrDash(numberFrom(payload, "benchmark"))} />
                 </ChartTip>
               )}
             />
-            <Area
-              type="monotone"
-              dataKey="equity"
-              stroke="#e4b15a"
-              strokeWidth={2}
-              fill="url(#equity-fill)"
-              dot={false}
-              isAnimationActive={false}
-            />
+            {overlays.map((series) =>
+              series.id === selectedId ? (
+                <Area
+                  key={series.id}
+                  type="monotone"
+                  dataKey={series.id}
+                  stroke={series.color}
+                  strokeWidth={2}
+                  fill="url(#equity-fill)"
+                  dot={false}
+                  connectNulls
+                  isAnimationActive={false}
+                />
+              ) : (
+                <Line
+                  key={series.id}
+                  type="monotone"
+                  dataKey={series.id}
+                  stroke={series.color}
+                  strokeWidth={1.75}
+                  dot={false}
+                  connectNulls
+                  isAnimationActive={false}
+                />
+              ),
+            )}
             <Line
               type="monotone"
               dataKey="benchmark"
@@ -79,6 +129,7 @@ export function EquityChart({ result }: { result: BacktestResult }) {
               strokeWidth={1.5}
               strokeDasharray="4 4"
               dot={false}
+              connectNulls
               isAnimationActive={false}
             />
           </ComposedChart>
@@ -158,7 +209,7 @@ export function PriceChart({ result }: { result: BacktestResult }) {
             <Tooltip
               content={({ active, payload, label }) => (
                 <ChartTip active={active} label={label} interval={result.interval} light>
-                  <TipRow label="Close" value={formatPrice(numberFrom(payload, "close"))} />
+                  <TipRow label="Close" value={priceOrDash(numberFrom(payload, "close"))} />
                 </ChartTip>
               )}
             />
@@ -191,6 +242,35 @@ export function PriceChart({ result }: { result: BacktestResult }) {
   )
 }
 
+function overlayRows(result: BacktestResult, overlays: OverlaySeries[]) {
+  const times = new Set<string>()
+  for (const point of result.equity) times.add(point.time)
+  for (const series of overlays) {
+    for (const point of series.equity) times.add(point.time)
+  }
+  const bench = new Map(result.equity.map((point) => [point.time, point.benchmark]))
+  const seriesMaps = overlays.map((series) => ({
+    id: series.id,
+    values: new Map(series.equity.map((point) => [point.time, point.equity])),
+  }))
+  return [...times].sort().map((time) => {
+    const row: Record<string, string | number | null> = {
+      time,
+      benchmark: bench.get(time) ?? null,
+    }
+    for (const series of seriesMaps) row[series.id] = series.values.get(time) ?? null
+    return row
+  })
+}
+
+function moneyOrDash(value: number | null): string {
+  return value == null ? "—" : formatMoney(value, 0)
+}
+
+function priceOrDash(value: number | null): string {
+  return value == null ? "—" : formatPrice(value)
+}
+
 function priceRows(result: BacktestResult) {
   const entries = new Map<string, number>()
   const exits = new Map<string, number>()
@@ -211,10 +291,12 @@ function priceRows(result: BacktestResult) {
 function numberFrom(
   payload: ReadonlyArray<{ dataKey?: unknown; value?: unknown }> | undefined,
   key: string,
-): number {
+): number | null {
   const match = payload?.find((item) => item.dataKey === key)
   const value = match?.value
-  return typeof value === "number" ? value : Number(value ?? 0)
+  if (value == null || value === "") return null
+  const number = typeof value === "number" ? value : Number(value)
+  return Number.isFinite(number) ? number : null
 }
 
 function ChartTip({

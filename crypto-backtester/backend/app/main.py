@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.data import (
@@ -16,6 +16,7 @@ from app.data import (
     list_intervals,
     list_symbols,
     load_series,
+    load_tail,
 )
 from app.engine import BacktestError, BacktestResult, run_backtest
 from app.schemas import BacktestRequest
@@ -56,6 +57,34 @@ def meta() -> dict:
             "slippage_bps": 5,
             "allow_short": False,
         },
+    }
+
+
+@app.get("/api/candles")
+def candles(
+    symbol: str = "BTC-USD",
+    interval: str = "1d",
+    since: int | None = Query(default=None, ge=0),
+) -> dict:
+    try:
+        spec = get_interval(interval)
+        if since is None:
+            series, source = load_series(symbol, interval)
+        else:
+            series, source = load_tail(symbol, interval, since)
+    except UnknownSymbol as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except UnknownInterval as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except DataUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {
+        "symbol": symbol,
+        "interval": interval,
+        "source": source,
+        "seconds": int(spec["seconds"]),
+        "periods_per_year": int(spec["periods_per_year"]),
+        "candles": [_candle_payload(candle) for candle in series],
     }
 
 
@@ -212,6 +241,17 @@ def _serialize(body: BacktestRequest, strategy_name: str, source: str, result: B
             }
             for candle in result.candles
         ],
+    }
+
+
+def _candle_payload(candle) -> dict:
+    return {
+        "t": candle.time,
+        "time": _iso(candle.time),
+        "open": candle.open,
+        "high": candle.high,
+        "low": candle.low,
+        "close": candle.close,
     }
 
 

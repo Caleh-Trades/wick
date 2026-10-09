@@ -79,7 +79,25 @@ export function formatAxis(iso: string, interval: string): string {
   if (interval === "1d") {
     return date.toLocaleDateString("en-US", { month: "short", year: "2-digit", timeZone: "UTC" })
   }
+  if (interval === "1m" || interval === "5m") {
+    return date.toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "UTC",
+      hourCycle: "h23",
+    })
+  }
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
+}
+
+export function formatClock(date: Date): string {
+  return date.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZone: "UTC",
+    hourCycle: "h23",
+  })
 }
 
 export function tone(value: number | null | undefined): "up" | "down" | "ink" {

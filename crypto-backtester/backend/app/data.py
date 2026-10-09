@@ -59,8 +59,36 @@ SYMBOLS: tuple[Symbol, ...] = (
     Symbol("ADA-USD", "ADA", "USD", "Cardano", "ADAUSD"),
 )
 
-# 4h bars are built from hourly Coinbase candles. Kraken already speaks 4h.
+# 30m is bundled from 5-minute Coinbase candles. 4h is bundled from hourly candles.
+# Kraken already speaks those sizes, so the fallback is not resampled.
 INTERVALS: dict[str, dict] = {
+    "1m": {
+        "label": "1 minute",
+        "detail": "About one day",
+        "seconds": 60,
+        "coinbase": 60,
+        "kraken": 1,
+        "lookback_days": 1,
+        "periods_per_year": 365 * 24 * 60,
+    },
+    "5m": {
+        "label": "5 minute",
+        "detail": "About five days",
+        "seconds": 300,
+        "coinbase": 300,
+        "kraken": 5,
+        "lookback_days": 5,
+        "periods_per_year": 365 * 24 * 12,
+    },
+    "30m": {
+        "label": "30 minute",
+        "detail": "About ten days",
+        "seconds": 1_800,
+        "coinbase": 300,
+        "kraken": 30,
+        "lookback_days": 10,
+        "periods_per_year": 365 * 48,
+    },
     "1h": {
         "label": "1 hour",
         "detail": "About sixty days",
@@ -118,7 +146,8 @@ def get_interval(interval: str) -> dict:
     try:
         return INTERVALS[interval]
     except KeyError as exc:
-        raise UnknownInterval("Interval has to be 1h, 4h, or 1d.") from exc
+        known = ", ".join(INTERVALS)
+        raise UnknownInterval(f"Interval has to be one of {known}.") from exc
 
 
 def load_series(symbol_id: str, interval: str) -> tuple[list[Candle], str]:
@@ -145,6 +174,34 @@ def load_series(symbol_id: str, interval: str) -> tuple[list[Candle], str]:
             raise DataUnavailable(f"Not enough {symbol.base} {spec['label'].lower()} bars came back.")
         _write_cache(key, candles, source)
         return candles, source
+
+
+def load_tail(symbol_id: str, interval: str, since: int | None = None) -> tuple[list[Candle], str]:
+    """Latest bars, always fetched. The full-history cache is left alone."""
+    symbol = get_symbol(symbol_id)
+    spec = get_interval(interval)
+    end = int(time.time())
+    granularity = int(spec["coinbase"])
+    target = int(spec["seconds"])
+    span = max(target * 8, granularity * 12)
+    start = end - span
+    if since is not None:
+        start = min(start, int(since) - target)
+    start = max(0, start)
+    try:
+        rows = _coinbase_rows(symbol.id, granularity, start, end)
+        candles = _coinbase_candles(rows)
+        if granularity != target:
+            candles = resample(candles, target, granularity)
+        source = "coinbase"
+    except (httpx.HTTPError, DataUnavailable) as exc:
+        logger.warning("Live tail failed on Coinbase for %s %s (%s). Trying Kraken.", symbol.id, interval, exc)
+        candles = _kraken_candles(symbol.kraken, int(spec["kraken"]))
+        source = "kraken"
+    candles = _dedupe(candles)
+    if since is not None:
+        candles = [candle for candle in candles if candle.time >= int(since)]
+    return candles, source
 
 
 def resample(candles: list[Candle], target_seconds: int, source_seconds: int) -> list[Candle]:
@@ -186,8 +243,8 @@ def _fetch(symbol: Symbol, interval: str, spec: dict) -> tuple[list[Candle], str
     try:
         rows = _coinbase_rows(symbol.id, int(spec["coinbase"]), start, end)
         candles = _coinbase_candles(rows)
-        if interval == "4h":
-            candles = resample(candles, int(spec["seconds"]), 3600)
+        if int(spec["coinbase"]) != int(spec["seconds"]):
+            candles = resample(candles, int(spec["seconds"]), int(spec["coinbase"]))
         if len(candles) < 3:
             raise DataUnavailable("Coinbase returned too few bars.")
         source = "coinbase"

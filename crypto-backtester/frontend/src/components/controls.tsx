@@ -4,6 +4,7 @@ import { Eye, EyeOff, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import {
   Select,
   SelectContent,
@@ -13,7 +14,7 @@ import {
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import type { MarketId, RuleId, Run } from "@/lib/types"
-import { MARKETS, MAX_RUNS, RULES, paramsForRule, runColor, runProblem } from "@/lib/runs"
+import { MARKETS, MAX_RUNS, RULES, paramsForRule, ruleName, runColor, runProblem } from "@/lib/runs"
 
 type ControlsProps = {
   idPrefix: string
@@ -88,7 +89,10 @@ export function Controls({
                   onClick={() => onSelect(run.id)}
                 >
                   <span className="size-2 shrink-0" style={{ backgroundColor: runColor(index) }} />
-                  <span className="truncate text-sm">{run.name}</span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm">{run.name}</span>
+                    <span className="block truncate font-mono text-[10px] text-muted-foreground uppercase">{ruleName(run.rule)}</span>
+                  </span>
                 </button>
                 <Button
                   type="button"
@@ -172,27 +176,42 @@ export function Controls({
 
       {rule && rule.params.length > 0 ? (
         <div className={rule.params.length > 1 ? "grid grid-cols-2 gap-4" : "flex flex-col gap-4"}>
-          {rule.params.map((param) => (
-            <Field key={param.key} label={param.label} htmlFor={`${idPrefix}-${param.key}`}>
-              <Input
-                id={`${idPrefix}-${param.key}`}
-                type="number"
-                inputMode="decimal"
-                min={param.min}
-                max={param.max}
-                step={param.step}
-                value={selected.params[param.key] ?? param.default}
-                onChange={(event) =>
-                  patch({
-                    params: {
-                      ...selected.params,
-                      [param.key]: numberOr(event.target.value, selected.params[param.key] ?? param.default),
-                    },
-                  })
-                }
-              />
-            </Field>
-          ))}
+          {rule.params.map((param) =>
+            param.toggle ? (
+              <div key={param.key} className="col-span-2 flex items-center justify-between gap-3 border-t border-border pt-3">
+                <Label htmlFor={`${idPrefix}-${param.key}`}>{param.label}</Label>
+                <Switch
+                  id={`${idPrefix}-${param.key}`}
+                  checked={(selected.params[param.key] ?? param.default) >= 1}
+                  onCheckedChange={(checked) =>
+                    patch({
+                      params: { ...selected.params, [param.key]: checked ? 1 : 0 },
+                    })
+                  }
+                />
+              </div>
+            ) : (
+              <Field key={param.key} label={param.label} htmlFor={`${idPrefix}-${param.key}`}>
+                <Input
+                  id={`${idPrefix}-${param.key}`}
+                  type="number"
+                  inputMode="decimal"
+                  min={param.min}
+                  max={param.max}
+                  step={param.step}
+                  value={selected.params[param.key] ?? param.default}
+                  onChange={(event) =>
+                    patch({
+                      params: {
+                        ...selected.params,
+                        [param.key]: numberOr(event.target.value, selected.params[param.key] ?? param.default),
+                      },
+                    })
+                  }
+                />
+              </Field>
+            ),
+          )}
         </div>
       ) : null}
 

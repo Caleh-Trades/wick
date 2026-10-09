@@ -11,6 +11,7 @@ export type ParamField = {
   step: number
   default: number
   integer: boolean
+  toggle?: boolean
 }
 
 export type RuleSpec = {
@@ -42,6 +43,27 @@ const period = (key: string, label: string, min: number, max: number, fallback: 
   integer: true,
 })
 
+const scale = (key: string, label: string, min: number, max: number, step: number, fallback: number): ParamField => ({
+  key,
+  label,
+  min,
+  max,
+  step,
+  default: fallback,
+  integer: false,
+})
+
+const toggle = (key: string, label: string): ParamField => ({
+  key,
+  label,
+  min: 0,
+  max: 1,
+  step: 1,
+  default: 0,
+  integer: true,
+  toggle: true,
+})
+
 export const RULES: RuleSpec[] = [
   {
     id: "buy_hold",
@@ -52,49 +74,126 @@ export const RULES: RuleSpec[] = [
   {
     id: "sma_cross",
     name: "SMA crossover",
-    summary: "Long when the fast simple average is above the slow one. Flat again when it falls back underneath.",
-    params: [period("fast", "Fast period", 2, 200, 20), period("slow", "Slow period", 3, 400, 50)],
+    summary: "Long when the fast simple average is above the slow one. Flat when it falls back underneath.",
+    params: [period("fast", "Fast", 2, 200, 20), period("slow", "Slow", 3, 400, 50)],
   },
   {
     id: "ema_cross",
     name: "EMA crossover",
     summary: "Same cross as the simple averages, but recent closes count for more than old ones.",
-    params: [period("fast", "Fast period", 2, 200, 12), period("slow", "Slow period", 3, 400, 26)],
-  },
-  {
-    id: "rsi_reversion",
-    name: "RSI reversion",
-    summary: "Buy a stretch below the oversold line. Leave it once the reading pushes through overbought.",
-    params: [
-      period("period", "RSI period", 2, 100, 14),
-      { key: "oversold", label: "Oversold", min: 5, max: 50, step: 1, default: 30, integer: false },
-      { key: "overbought", label: "Overbought", min: 50, max: 95, step: 1, default: 70, integer: false },
-    ],
-  },
-  {
-    id: "bollinger",
-    name: "Bollinger bounce",
-    summary: "Buy a close under the lower band. Exit when price gets back to the middle band.",
-    params: [
-      period("period", "Period", 5, 200, 20),
-      { key: "mult", label: "Band width", min: 0.5, max: 4, step: 0.1, default: 2, integer: false },
-    ],
-  },
-  {
-    id: "macd",
-    name: "MACD cross",
-    summary: "Long when the MACD line is above its signal line. The signal line is a moving average of the MACD itself.",
-    params: [
-      period("fast", "Fast EMA", 2, 100, 12),
-      period("slow", "Slow EMA", 3, 200, 26),
-      period("signal", "Signal", 2, 50, 9),
-    ],
+    params: [period("fast", "Fast", 2, 200, 12), period("slow", "Slow", 3, 400, 26)],
   },
   {
     id: "donchian",
     name: "Donchian breakout",
-    summary: "Buy a close through the prior high. Get out on a close through the shorter trailing low.",
-    params: [period("entry", "Entry window", 2, 200, 20), period("exit", "Exit window", 1, 200, 10)],
+    summary: "Long on a close through the entry channel high. Flat on a close through the exit channel low.",
+    params: [period("entry", "Entry channel", 2, 200, 20), period("exit", "Exit channel", 1, 200, 10)],
+  },
+  {
+    id: "tsmom",
+    name: "Time-series momentum",
+    summary: "Long when the lookback return, measured through the prior bar, is positive. Otherwise flat.",
+    params: [period("lookback", "Lookback", 1, 400, 20)],
+  },
+  {
+    id: "bollinger",
+    name: "Bollinger mean reversion",
+    summary: "Long on a close under the lower band. Flat back at the middle. The RSI filter, when on, also requires a 14-bar RSI at 30 or below.",
+    params: [
+      period("period", "Length", 5, 200, 20),
+      scale("mult", "Standard deviations", 0.5, 4, 0.1, 2),
+      toggle("rsiOn", "RSI filter"),
+    ],
+  },
+  {
+    id: "bb_break",
+    name: "Bollinger breakout",
+    summary: "Long on a close through the upper band. Flat when price falls back through the middle band.",
+    params: [period("period", "Length", 5, 200, 20), scale("mult", "Standard deviations", 0.5, 4, 0.1, 2)],
+  },
+  {
+    id: "rsi_reversion",
+    name: "RSI reversal",
+    summary: "Long when RSI touches oversold. Flat once it reaches overbought.",
+    params: [
+      period("period", "Length", 2, 100, 14),
+      scale("oversold", "Oversold", 5, 50, 1, 30),
+      scale("overbought", "Overbought", 50, 95, 1, 70),
+    ],
+  },
+  {
+    id: "macd",
+    name: "MACD trend",
+    summary: "Long when the MACD line is above its signal. Flat when the cross fails or the close breaks an ATR trail off the high since entry.",
+    params: [
+      period("fast", "Fast", 2, 100, 12),
+      period("slow", "Slow", 3, 200, 26),
+      period("signal", "Signal", 2, 50, 9),
+      period("atr", "ATR length", 2, 100, 14),
+      scale("mult", "ATR multiple", 0.5, 10, 0.1, 3),
+    ],
+  },
+  {
+    id: "keltner",
+    name: "Keltner breakout",
+    summary: "Long on a close through the upper Keltner band, an EMA plus ATR. Flat back through the EMA.",
+    params: [
+      period("period", "EMA length", 2, 200, 20),
+      period("atr", "ATR length", 2, 100, 14),
+      scale("mult", "Multiple", 0.5, 10, 0.1, 2),
+    ],
+  },
+  {
+    id: "supertrend",
+    name: "Supertrend",
+    summary: "Long while the Supertrend line is under price. Flat when price closes through it. No short on the way down.",
+    params: [period("atr", "ATR length", 2, 100, 10), scale("mult", "Multiple", 0.5, 10, 0.1, 3)],
+  },
+  {
+    id: "orb",
+    name: "Opening-range breakout",
+    summary: "The first bars of each UTC day set the range. Long on a later close through that high, flat through the low or at the next day.",
+    params: [period("bars", "Range bars", 1, 48, 6)],
+  },
+  {
+    id: "prev_day",
+    name: "Previous-day break",
+    summary: "Long on a close through the prior UTC day's high. Flat on a close through that day's low.",
+    params: [],
+  },
+  {
+    id: "gap_fade",
+    name: "Gap fade",
+    summary: "Long after a UTC-day gap down of at least the minimum. Flat when the gap fills or the session ends. Gap-up fades would be shorts, so they stay flat.",
+    params: [scale("gap", "Minimum gap %", 0.05, 20, 0.05, 0.5)],
+  },
+  {
+    id: "gap_go",
+    name: "Gap continuation",
+    summary: "Long after a UTC-day gap up of at least the minimum. Flat at the next session. Gap downs stay flat.",
+    params: [scale("gap", "Minimum gap %", 0.05, 20, 0.05, 0.5)],
+  },
+  {
+    id: "vwap",
+    name: "VWAP reclaim",
+    summary: "Session VWAP resets each UTC day. Long when the close is above it, flat when the close is below it.",
+    params: [],
+  },
+  {
+    id: "chandelier",
+    name: "ATR chandelier",
+    summary: "Long after a close crosses above the trend EMA. Flat on a close under the 22-bar ATR chandelier, or back under the EMA.",
+    params: [period("period", "Trend EMA", 2, 400, 50), scale("mult", "ATR multiple", 0.5, 10, 0.1, 3)],
+  },
+  {
+    id: "dual_ma",
+    name: "Dual moving average",
+    summary: "Long when the fast average is above the slow one and price is above a longer filter average. That filter stands in for a higher timeframe.",
+    params: [
+      period("fast", "Fast", 2, 200, 20),
+      period("slow", "Slow", 3, 400, 50),
+      period("filter", "Filter length", 4, 600, 200),
+    ],
   },
 ]
 
@@ -170,14 +269,17 @@ export function resolveRunParams(run: Run): RunParams {
     }
     resolved[param.key] = value
   }
-  if ((spec.id === "sma_cross" || spec.id === "ema_cross" || spec.id === "macd") && resolved.fast! >= resolved.slow!) {
+  if ((spec.id === "sma_cross" || spec.id === "ema_cross" || spec.id === "macd" || spec.id === "dual_ma") && resolved.fast! >= resolved.slow!) {
     throw new Error("The fast period has to be shorter than the slow period.")
+  }
+  if (spec.id === "dual_ma" && resolved.filter! <= resolved.slow!) {
+    throw new Error("The filter has to be longer than the slow period.")
   }
   if (spec.id === "rsi_reversion" && resolved.oversold! >= resolved.overbought!) {
     throw new Error("Oversold has to sit below overbought.")
   }
   if (spec.id === "donchian" && resolved.exit! > resolved.entry!) {
-    throw new Error("The exit window should be shorter than or equal to the entry window.")
+    throw new Error("The exit channel has to be shorter than or equal to the entry channel.")
   }
   return resolved
 }
@@ -191,15 +293,30 @@ export function runProblem(run: Run): string | null {
   }
 }
 
+export function ruleName(rule: string): string {
+  return ruleById(rule)?.name ?? rule
+}
+
 export function suggestedName(rule: RuleId, params: RunParams): string {
   const fast = params.fast ?? 20
   const slow = params.slow ?? 50
   if (rule === "sma_cross") return `SMA ${fast}/${slow}`
   if (rule === "ema_cross") return `EMA ${fast}/${slow}`
-  if (rule === "rsi_reversion") return `RSI ${params.period ?? 14}`
-  if (rule === "bollinger") return `Bollinger ${params.period ?? 20}`
-  if (rule === "macd") return `MACD ${fast}/${slow}`
   if (rule === "donchian") return `Donchian ${params.entry ?? 20}/${params.exit ?? 10}`
+  if (rule === "tsmom") return `TSMOM ${params.lookback ?? 20}`
+  if (rule === "bollinger") return `BB revert ${params.period ?? 20}`
+  if (rule === "bb_break") return `BB break ${params.period ?? 20}`
+  if (rule === "rsi_reversion") return `RSI ${params.period ?? 14}`
+  if (rule === "macd") return `MACD ${fast}/${slow}`
+  if (rule === "keltner") return `Keltner ${params.period ?? 20}`
+  if (rule === "supertrend") return `Supertrend ${params.atr ?? 10}`
+  if (rule === "orb") return `ORB ${params.bars ?? 6}`
+  if (rule === "prev_day") return "Prior day"
+  if (rule === "gap_fade") return `Gap fade ${params.gap ?? 0.5}`
+  if (rule === "gap_go") return `Gap go ${params.gap ?? 0.5}`
+  if (rule === "vwap") return "VWAP reclaim"
+  if (rule === "chandelier") return `Chandelier ${params.period ?? 50}`
+  if (rule === "dual_ma") return `Dual MA ${fast}/${slow}`
   return "Buy and hold"
 }
 

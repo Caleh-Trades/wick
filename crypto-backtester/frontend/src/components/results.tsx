@@ -23,7 +23,7 @@ import {
   formatStat,
   tone,
 } from "@/lib/format"
-import { MARKETS, fingerprint, marketById, runColor } from "@/lib/runs"
+import { MARKETS, fingerprint, marketById, ruleName, runColor } from "@/lib/runs"
 import type { BacktestResult, Outcome, Run, SortKey, TapeCandle } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -285,6 +285,7 @@ function Comparison({
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
+              <TableHead>Rule</TableHead>
               <TableHead className="text-right">Return</TableHead>
               <TableHead className="text-right">Excess</TableHead>
               <TableHead className="text-right">Max DD</TableHead>
@@ -318,6 +319,7 @@ function Comparison({
                     </span>
                   </span>
                 </TableCell>
+                <TableCell className="text-xs">{ruleName(row.run.rule)}</TableCell>
                 {row.outcome?.ok ? (
                   <>
                     <TableCell className={cn("text-right font-mono text-xs tabular-nums", toneClass(row.outcome.result.metrics.total_return_pct))}>

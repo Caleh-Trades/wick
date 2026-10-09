@@ -25,6 +25,7 @@ import {
   phraseFor,
   pollIntervalMs,
   rangeDays,
+  ruleName,
   runColor,
   saveDesk,
   suggestedName,
@@ -417,7 +418,7 @@ export default function App() {
         return [
           {
             id: run.id,
-            name: run.name,
+            name: `${run.name} · ${ruleName(run.rule)}`,
             color: runColor(index),
             equity: outcome.result.equity.map((point) => ({ time: point.time, equity: point.equity })),
           },

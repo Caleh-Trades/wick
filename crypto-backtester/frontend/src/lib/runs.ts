@@ -214,7 +214,6 @@ export type DeskState = {
   timeframe: Timeframe
   range: RangeId
   enlarged: boolean
-  paused: boolean
 }
 
 export function runColor(index: number): string {
@@ -372,7 +371,7 @@ export function windowNote(range: RangeId, tape: { interval: string; candles: { 
 
 export function defaultDesk(): DeskState {
   const run = createRun({ name: "SMA 20/50" })
-  return { runs: [run], selectedId: run.id, timeframe: "1d", range: "All", enlarged: false, paused: false }
+  return { runs: [run], selectedId: run.id, timeframe: "1d", range: "All", enlarged: false }
 }
 
 export function loadDesk(): DeskState {
@@ -392,7 +391,6 @@ export function loadDesk(): DeskState {
       timeframe,
       range,
       enlarged: Boolean(parsed.enlarged),
-      paused: Boolean(parsed.paused),
     }
   } catch {
     return defaultDesk()

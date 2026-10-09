@@ -183,12 +183,12 @@ export default function App() {
   }, [applyTape, remember])
 
   useEffect(() => {
-    if (desk.paused || setupOpen || editing || loading) return
+    if (setupOpen || editing || loading) return
     const timer = window.setInterval(() => {
       void refreshTail()
     }, pollIntervalMs(desk.timeframe))
     return () => window.clearInterval(timer)
-  }, [desk.paused, desk.timeframe, desk.selectedId, setupOpen, editing, loading, refreshTail])
+  }, [desk.timeframe, desk.selectedId, setupOpen, editing, loading, refreshTail])
 
   function updateRun(next: Run) {
     const prev = deskRef.current.runs.find((run) => run.id === next.id)
@@ -444,7 +444,6 @@ export default function App() {
         timeframe={desk.timeframe}
         range={desk.range}
         tape={tapeReady && activeTape ? activeTape : null}
-        paused={desk.paused}
         stale={stale}
         lastFetchAt={lastFetchAt}
         onSymbol={(symbol) => {
@@ -453,7 +452,6 @@ export default function App() {
         }}
         onTimeframe={changeTimeframe}
         onRange={changeRange}
-        onPause={() => setDesk((current) => ({ ...current, paused: !current.paused }))}
       />
 
       <main className="mx-auto grid max-w-[1440px] gap-6 px-4 py-4 lg:grid-cols-[320px_minmax(0,1fr)]">
@@ -488,18 +486,17 @@ export default function App() {
             </div>
           ) : null}
 
-          {loading && !tapeReady ? (
-            <LoadingCopy label={`Pulling the ${phrase} tape. The first look at a pair can take a few seconds.`} />
-          ) : null}
-
-          {!result && tapeReady && activeTape ? (
+          {!result && selected ? (
             <div className="flex h-[42vh] min-h-[16rem] flex-col gap-4">
+              {loading && !tapeReady ? (
+                <p className="text-sm text-muted-foreground">Pulling the {phrase} tape. The first look at a pair can take a few seconds.</p>
+              ) : null}
               {selectedOutcome && !selectedOutcome.ok ? (
                 <p className="font-heading text-3xl">{selectedOutcome.error}</p>
               ) : null}
               <MarketPane
-                symbol={selected?.symbol ?? activeTape.symbol}
-                candles={activeTape.candles}
+                symbol={selected.symbol}
+                candles={visibleCandles}
                 trades={EMPTY_TRADES}
                 interval={desk.timeframe}
                 onEnlarge={enlarge}
@@ -596,20 +593,6 @@ function EmptyRuns({ onAdd }: { onAdd: () => void }) {
       <Button type="button" variant="outline" onClick={onAdd}>
         Add run
       </Button>
-    </div>
-  )
-}
-
-function LoadingCopy({ label }: { label: string }) {
-  return (
-    <div className="flex flex-col gap-4" aria-live="polite">
-      <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">{label}</p>
-      <div className="bezel h-72" />
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        {Array.from({ length: 4 }, (_, index) => (
-          <div key={index} className="bezel h-16" />
-        ))}
-      </div>
     </div>
   )
 }

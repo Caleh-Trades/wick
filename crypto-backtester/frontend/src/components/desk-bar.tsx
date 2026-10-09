@@ -11,13 +11,11 @@ type DeskBarProps = {
   timeframe: Timeframe
   range: RangeId
   tape: Tape | null
-  paused: boolean
   stale: boolean
   lastFetchAt: Date | null
   onSymbol: (symbol: MarketId) => void
   onTimeframe: (timeframe: Timeframe) => void
   onRange: (range: RangeId) => void
-  onPause: () => void
 }
 
 export function DeskBar({
@@ -25,13 +23,11 @@ export function DeskBar({
   timeframe,
   range,
   tape,
-  paused,
   stale,
   lastFetchAt,
   onSymbol,
   onTimeframe,
   onRange,
-  onPause,
 }: DeskBarProps) {
   const frame = TIMEFRAMES.find((item) => item.id === timeframe)
   const market = symbol ? marketById(symbol) : undefined
@@ -102,10 +98,7 @@ export function DeskBar({
             <span>Loading {frame?.label ?? timeframe} bars</span>
           )}
           {lastFetchAt ? <span>Updated {formatClock(lastFetchAt)} UTC</span> : null}
-          <LiveClock paused={paused} />
-          <Button type="button" size="xs" variant="outline" onClick={onPause} aria-pressed={paused}>
-            {paused ? "Resume" : "Pause"}
-          </Button>
+          <LiveClock />
         </div>
       </div>
       {stale ? (
@@ -118,21 +111,12 @@ export function DeskBar({
   )
 }
 
-function LiveClock({ paused }: { paused: boolean }) {
+function LiveClock() {
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {
-    if (paused) return
     const timer = window.setInterval(() => setNow(new Date()), 1000)
     return () => window.clearInterval(timer)
-  }, [paused])
-  if (paused) {
-    return (
-      <span className="inline-flex items-center gap-1.5">
-        <span className="live-dot is-paused" />
-        Paused
-      </span>
-    )
-  }
+  }, [])
   return (
     <span className="inline-flex items-center gap-1.5">
       <span className="live-dot" />

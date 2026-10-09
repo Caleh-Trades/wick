@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+node_modules/
+dist/
+.DS_Store
+*.local
+crypto-backtester/backend/data/cache/
+.env
+.env.*
+!.env.example

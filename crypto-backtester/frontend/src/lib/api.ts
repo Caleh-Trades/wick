@@ -1,0 +1,52 @@
+import type { BacktestResult, Draft, Meta } from "@/lib/types"
+
+const base = (import.meta.env.VITE_API_URL as string | undefined) ?? ""
+
+export async function fetchMeta(): Promise<Meta> {
+  return request<Meta>("/api/meta")
+}
+
+export async function runBacktest(draft: Draft): Promise<BacktestResult> {
+  return request<BacktestResult>("/api/backtest", {
+    method: "POST",
+    body: JSON.stringify({
+      symbol: draft.symbol,
+      interval: draft.interval,
+      strategy: draft.strategy,
+      params: draft.params,
+      start: draft.start || null,
+      end: draft.end || null,
+      initial_capital: draft.initial_capital,
+      fee_bps: draft.fee_bps,
+      slippage_bps: draft.slippage_bps,
+      allow_short: draft.allow_short,
+    }),
+  })
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  let response: Response
+  try {
+    response = await fetch(`${base}${path}`, {
+      ...init,
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        ...(init?.headers ?? {}),
+      },
+      signal: AbortSignal.timeout(90_000),
+    })
+  } catch {
+    throw new Error(
+      "The desk can't reach the backtester. Start it with uvicorn on port 8000, then run this again.",
+    )
+  }
+
+  const text = await response.text()
+  const body = text ? (JSON.parse(text) as { detail?: unknown }) : null
+  if (!response.ok) {
+    const detail = body && typeof body.detail === "string" ? body.detail : "The backtest didn't run."
+    throw new Error(detail)
+  }
+  return body as T
+}

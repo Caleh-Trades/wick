@@ -535,7 +535,7 @@ export default function App() {
               if (event.key === "ArrowDown") setPanes((current) => ({ ...current, chart: clampChart(current.chart + 0.03) }))
             }}
           />
-          <div className="results-pane flex min-h-0 flex-col overflow-hidden px-3 pb-24 lg:pb-3" style={{ flex: `${Math.max(0.01, 1 - panes.chart)} 1 0%` }}>
+          <div className="results-pane flex min-h-0 flex-col overflow-hidden px-3 pb-24 xl:pb-3" style={{ flex: `${Math.max(0.01, 1 - panes.chart)} 1 0%` }}>
             {loadingKey === activeKey && !activeTape ? (
               <p className="py-4 text-sm text-muted-foreground">Pulling the {phrase} tape. The first look at a pair can take a few seconds.</p>
             ) : null}

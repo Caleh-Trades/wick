@@ -1,4 +1,4 @@
-import { createRun, isRange, isTimeframe, isVenue, loadDesk, MAX_RUNS, type DeskState } from "./runs.ts"
+import { clampRisk, createRun, isRange, isTimeframe, isVenue, loadDesk, MAX_RUNS, type DeskState } from "./runs.ts"
 import type { MarketId, RangeId, Run, Timeframe, Venue } from "./types.ts"
 
 export const MAX_SLOTS = 4
@@ -115,7 +115,12 @@ function sanitizeSlot(value: unknown): Slot | null {
   const cleaned = runs
     .filter((run): run is Run => Boolean(run) && typeof run === "object" && typeof (run as Run).id === "string")
     .slice(0, MAX_RUNS)
-    .map((run) => ({ ...run, symbol, allowShort: venue === "perp" ? run.allowShort !== false : false }))
+    .map((run) => ({
+      ...run,
+      symbol,
+      allowShort: venue === "perp" ? run.allowShort !== false : false,
+      riskPct: clampRisk(run.riskPct),
+    }))
   if (cleaned.length === 0) return createSlot(symbol, venue, timeframe, range)
   const selectedId = cleaned.some((run) => run.id === raw.selectedId) ? String(raw.selectedId) : cleaned[0]!.id
   return { id: raw.id, symbol, venue, timeframe, range, runs: cleaned, selectedId }

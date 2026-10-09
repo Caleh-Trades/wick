@@ -345,6 +345,7 @@ export function createRun(partial?: Partial<Run>, existing: Run[] = []): Run {
     feeBps: partial?.feeBps ?? 10,
     capital: clampNum(partial?.capital, 1, 1_000_000_000, 10_000),
     leverage: clampNum(partial?.leverage, 1, 20, 3),
+    riskPct: clampRisk(partial?.riskPct),
     allowShort: partial?.allowShort !== false,
     hidden: partial?.hidden ?? false,
   }
@@ -426,7 +427,7 @@ export function pollIntervalMs(timeframe: Timeframe): number {
 export function fingerprint(run: Run): string {
   const spec = ruleById(normalizeRule(run.rule))
   const fields = (spec?.params ?? []).map((param) => `${param.key}:${run.params[param.key] ?? param.default}`)
-  return [run.symbol, normalizeRule(run.rule), fields.join(","), run.feeBps, run.capital, run.allowShort ? "short" : "flat", run.leverage].join("|")
+  return [run.symbol, normalizeRule(run.rule), fields.join(","), run.feeBps, run.capital, run.allowShort ? "short" : "flat", run.leverage, clampRisk(run.riskPct)].join("|")
 }
 
 function sanitizeRun(value: unknown): Run | null {
@@ -444,6 +445,7 @@ function sanitizeRun(value: unknown): Run | null {
     feeBps: clampInt(raw.feeBps, 0, 1000, 10),
     capital: clampNum(raw.capital, 1, 1_000_000_000, 10_000),
     leverage: clampNum(raw.leverage, 1, 20, 3),
+    riskPct: clampRisk(raw.riskPct),
     allowShort: raw.allowShort !== false,
     hidden: Boolean(raw.hidden),
   }
@@ -469,6 +471,10 @@ function clampInt(value: unknown, min: number, max: number, fallback: number): n
   const number = Number(value)
   if (!Number.isFinite(number)) return fallback
   return Math.min(max, Math.max(min, Math.round(number)))
+}
+
+export function clampRisk(value: unknown): number {
+  return clampNum(value, 0.1, 100, 100)
 }
 
 function clampNum(value: unknown, min: number, max: number, fallback: number): number {

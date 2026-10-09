@@ -14,8 +14,9 @@ import {
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { SymbolSelect } from "@/components/symbol-select"
+import { formatMoney } from "@/lib/format"
 import type { RuleId, Run, Venue } from "@/lib/types"
-import { MAX_RUNS, RULES, paramsForRule, ruleName, runColor, runProblem } from "@/lib/runs"
+import { MAX_RUNS, RULES, clampRisk, paramsForRule, ruleName, runColor, runProblem } from "@/lib/runs"
 
 type ControlsProps = {
   idPrefix: string
@@ -230,6 +231,23 @@ export function Controls({
         />
       </Field>
 
+      <Field label="Risk per trade (%)" htmlFor={`${idPrefix}-risk`}>
+        <Input
+          id={`${idPrefix}-risk`}
+          type="number"
+          inputMode="decimal"
+          min={0.1}
+          max={100}
+          step={0.1}
+          value={clampRisk(selected.riskPct)}
+          onChange={(event) => {
+            const value = numberOr(event.target.value, clampRisk(selected.riskPct))
+            patch({ riskPct: clampRisk(value) })
+          }}
+        />
+        <p className="text-xs leading-relaxed text-muted-foreground">{riskCopy(selected.capital, clampRisk(selected.riskPct), venue)}</p>
+      </Field>
+
       {venue === "perp" ? (
         <Field label="Leverage" htmlFor={`${idPrefix}-leverage`}>
           <Input
@@ -283,7 +301,7 @@ export function Controls({
       </div>
       <p className="text-xs leading-relaxed break-words text-muted-foreground">
         A signal is fixed on the close and filled on the next bar’s open. Slippage stays at 5 bps. Ten basis points is
-        0.10%.
+        0.10%. Risk per trade is the share of equity that fill loses if the position is wiped out.
         {venue === "perp"
           ? " Perps size the position with this leverage, up to 20×, deduct funding, and liquidate through a 0.40% maintenance margin. If Binance history is blocked, candles and funding come from the Kraken USD perpetual."
           : " Spot stays long or flat."}
@@ -303,6 +321,19 @@ function Field({ label, htmlFor, children }: { label: string; htmlFor: string; c
 
 function isField(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && (target instanceof HTMLInputElement || target.getAttribute("role") === "combobox")
+}
+
+function riskCopy(capital: number, riskPct: number, venue: Venue): string {
+  const stake = capital * (riskPct / 100)
+  const money = formatMoney(stake, stake >= 100 ? 0 : 2)
+  if (venue === "perp") {
+    return riskPct >= 100
+      ? "A liquidation loses the whole base balance. Leverage still sizes the position."
+      : `A liquidation loses ${money} of the base balance. That amount is the margin.`
+  }
+  return riskPct >= 100
+    ? "If price goes to zero, this trade loses the whole base balance."
+    : `If price goes to zero, this trade loses ${money}. The rest stays in cash.`
 }
 
 function numberOr(raw: string, fallback: number): number {

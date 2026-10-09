@@ -23,7 +23,7 @@ import {
   formatStat,
   tone,
 } from "@/lib/format"
-import { fingerprint, marketById, ruleName, runColor } from "@/lib/runs"
+import { clampRisk, fingerprint, marketById, ruleName, runColor } from "@/lib/runs"
 import type { BacktestResult, Outcome, Run, SortKey, Venue } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -146,6 +146,8 @@ export const Results = memo(function Results({
             {liquidated ? ` · ${liquidated} liquidated` : ""}
             {open ? ` · ${open} still open` : ""}
             {result.assumptions.venue === "perp" ? ` · ${result.assumptions.leverage}×` : ""}
+            {" · "}
+            Risk {riskLabel(result.assumptions.risk_pct)}
             {result.assumptions.funding_stale ? " · Funding stale" : ""}
           </p>
         </div>
@@ -291,6 +293,7 @@ function Comparison({
                       <span className="block">{row.run.name}</span>
                       <span className="font-mono text-[10px] text-muted-foreground uppercase">
                         {marketById(row.run.symbol, venue)?.base ?? row.run.symbol}
+                        {` · ${riskLabel(row.run.riskPct)} risk`}
                         {row.run.hidden ? " · hidden" : ""}
                       </span>
                     </span>
@@ -482,6 +485,12 @@ function Metric({
       </div>
     </div>
   )
+}
+
+function riskLabel(value: number): string {
+  const risk = clampRisk(value)
+  const digits = Math.abs(risk - Math.round(risk)) < 0.05 ? 0 : 1
+  return formatPlainPct(risk, digits)
 }
 
 function toneClass(value: number): string {

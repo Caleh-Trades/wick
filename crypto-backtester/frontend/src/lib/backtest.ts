@@ -1,4 +1,4 @@
-import { normalizeRule, resolveRunParams, ruleById } from "./runs.ts"
+import { clampRisk, normalizeRule, resolveRunParams, ruleById } from "./runs.ts"
 import { buildSignals } from "./signals.ts"
 import type { BacktestResult, EquityPoint, FundingRate, Run, TapeCandle, Trade, Venue } from "./types"
 
@@ -39,6 +39,7 @@ export function backtest(
   const signals = buildSignals(rule, candles, params)
   const venue = options?.venue ?? "spot"
   const leverage = venue === "perp" ? clampLeverage(run.leverage) : 1
+  const riskPct = clampRisk(run.riskPct)
   if (venue === "perp" && options?.funding == null) {
     throw new Error("Funding history didn't load.")
   }
@@ -69,7 +70,7 @@ export function backtest(
       }
       if (target !== 0 && account.cash > 1) {
         const fill = openFill(bar.open, target, slip)
-        const opened = account.open(target, fill, leverage)
+        const opened = account.open(target, fill, leverage, riskPct / 100)
         if (opened.quantity > 0) {
           open = {
             entryTime: bar.time,
@@ -158,6 +159,7 @@ export function backtest(
       allow_short: allowShort,
       venue,
       leverage,
+      risk_pct: riskPct,
       maintenance_margin: venue === "perp" ? MAINTENANCE_MARGIN : 0,
       funding_stale: venue === "perp" && options?.fundingStale === true,
     },
@@ -234,10 +236,12 @@ class Account {
     this.fee = fee
   }
 
-  open(side: number, fill: number, leverage = 1): { quantity: number; fee: number } {
+  open(side: number, fill: number, leverage = 1, risk = 1): { quantity: number; fee: number } {
     if (fill <= 0 || this.cash <= 0 || side === 0) return { quantity: 0, fee: 0 }
     const scale = Math.min(20, Math.max(1, leverage))
-    const notional = (this.cash * scale) / (1 + this.fee * scale)
+    const fraction = Math.min(1, Math.max(0.001, risk))
+    const budget = this.cash * fraction
+    const notional = (budget * scale) / (1 + this.fee * scale)
     const feePaid = notional * this.fee
     this.cash -= feePaid
     this.qty = side * (notional / fill)

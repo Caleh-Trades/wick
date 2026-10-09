@@ -96,4 +96,29 @@ assert.ok(paid.metrics.final_equity < calm.metrics.final_equity)
 assert.equal(paid.trades[0]?.side, "long")
 assert.ok(paid.metrics.exposure_pct > 0)
 
+const wiped = backtest(bars([100, 100, 0]), { ...hold, feeBps: 0, riskPct: 100 }, 365)
+const quarter = backtest(bars([100, 100, 0]), { ...hold, feeBps: 0, riskPct: 25 }, 365)
+assert.equal(wiped.assumptions.risk_pct, 100)
+assert.equal(quarter.assumptions.risk_pct, 25)
+assert.ok(Math.abs(wiped.metrics.final_equity) < 1e-6)
+assert.ok(Math.abs(quarter.metrics.final_equity - 7_500) < 1e-6)
+assert.ok(Math.abs((quarter.trades[0]?.quantity ?? 0) / (wiped.trades[0]?.quantity ?? 1) - 0.25) < 1e-9)
+
+const half = backtest(bars([100, 100, 110, 120, 130]), { ...hold, feeBps: 0, riskPct: 50 }, 365)
+const fill = 100.05
+assert.ok(Math.abs(half.metrics.final_equity - 10_000 * (0.5 + 0.5 * (130 / fill))) < 1e-6)
+
+const fullPerp = backtest(bars([100, 100, 110, 120, 130]), { ...hold, leverage: 3, riskPct: 100 }, 365, {
+  venue: "perp",
+  funding: [],
+})
+const halfPerp = backtest(bars([100, 100, 110, 120, 130]), { ...hold, leverage: 3, riskPct: 50 }, 365, {
+  venue: "perp",
+  funding: [],
+})
+assert.ok(Math.abs((halfPerp.trades[0]?.quantity ?? 0) / (fullPerp.trades[0]?.quantity ?? 1) - 0.5) < 1e-9)
+
+const tiny = backtest(bars([100, 100, 110, 120]), { ...hold, riskPct: 0 }, 365)
+assert.equal(tiny.assumptions.risk_pct, 0.1)
+
 console.log("engine check ok")

@@ -151,6 +151,8 @@ export type Run = {
   feeBps: number
   capital: number
   leverage: number
+  /** Percent of equity lost if this trade is wiped out. 100 uses the whole balance. */
+  riskPct: number
   allowShort: boolean
   hidden: boolean
 }
@@ -189,6 +191,7 @@ export type BacktestResult = {
     allow_short: boolean
     venue: Venue
     leverage: number
+    risk_pct: number
     maintenance_margin: number
     funding_stale: boolean
   }

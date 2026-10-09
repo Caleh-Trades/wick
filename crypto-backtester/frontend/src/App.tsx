@@ -288,7 +288,11 @@ export default function App() {
       }),
     }))
     if (!prev) return
-    const restage = prev.allowShort !== patched.allowShort || prev.capital !== patched.capital || prev.leverage !== patched.leverage
+    const restage =
+      prev.allowShort !== patched.allowShort ||
+      prev.capital !== patched.capital ||
+      prev.leverage !== patched.leverage ||
+      prev.riskPct !== patched.riskPct
     if (!restage) return
     const tape = tapesRef.current[tapeKey({ ...active, symbol })]
     if (!tape) return
@@ -355,6 +359,7 @@ export default function App() {
         feeBps: selected.feeBps,
         capital: selected.capital,
         leverage: selected.leverage,
+        riskPct: selected.riskPct,
         allowShort: active.venue === "perp" && selected.allowShort,
       },
       active.runs,

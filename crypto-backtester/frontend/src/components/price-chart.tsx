@@ -23,12 +23,14 @@ export const PriceChart = memo(function PriceChart({
   interval,
   symbol,
   venue,
+  onEnlarge,
 }: {
   candles: TapeCandle[]
   trades: Trade[]
   interval: string
   symbol: string | null
   venue: Venue
+  onEnlarge: () => void
 }) {
   const book = useBookView(symbol, venue)
   const formed = useFormingCandles(candles, interval, symbol, venue)
@@ -228,7 +230,7 @@ export const PriceChart = memo(function PriceChart({
 
   if (shown.length === 0) {
     return (
-      <div className="bezel flex h-full min-h-0 flex-col px-3 py-2">
+      <div data-price-summary="" className="bezel flex h-full min-h-0 flex-col px-3 py-2">
         <div className="flex items-baseline gap-3">
           <h3 className="font-heading text-xl">Price</h3>
           <QuotePrice symbol={symbol} venue={venue} />
@@ -239,7 +241,7 @@ export const PriceChart = memo(function PriceChart({
   }
 
   return (
-    <div className="bezel flex h-full min-h-0 flex-col px-3 py-2">
+    <div data-price-summary="" className="bezel flex h-full min-h-0 flex-col px-3 py-2">
       <div className="mb-1 flex shrink-0 flex-wrap items-end justify-between gap-2">
         <div className="flex items-baseline gap-3">
           <h3 className="font-heading text-xl">Price</h3>
@@ -259,6 +261,9 @@ export const PriceChart = memo(function PriceChart({
               Fit
             </Button>
           )}
+          <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={onEnlarge}>
+            Enlarge
+          </Button>
         </div>
       </div>
       <div

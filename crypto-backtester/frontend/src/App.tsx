@@ -4,6 +4,7 @@ import { type OverlaySeries } from "@/components/charts"
 import { Controls } from "@/components/controls"
 import { DeskBar } from "@/components/desk-bar"
 import { MarketPane } from "@/components/market-pane"
+import { ResearchChart } from "@/components/research"
 import { Results } from "@/components/results"
 import { Button } from "@/components/ui/button"
 import {
@@ -503,6 +504,10 @@ export default function App() {
                   candleClock={clocks[slot.id] ?? null}
                   showCaption={shown.length > 1}
                   onBookWidth={(book) => setPanes((current) => ({ ...current, book }))}
+                  onEnlarge={() => {
+                    if (slot.id !== workspace.activeId) focusSlot(slot.id)
+                    setWorkspace((current) => ({ ...current, enlarged: true }))
+                  }}
                 />
               </div>
             ))}
@@ -641,6 +646,18 @@ export default function App() {
         </Sheet>
       </div>
 
+      {workspace.enlarged && active ? (
+        <ResearchChart
+          candles={activeTape?.candles ?? EMPTY_CANDLES}
+          trades={tradesFor(active, outcomes)}
+          interval={active.timeframe}
+          symbol={active.symbol}
+          venue={active.venue}
+          metrics={result?.metrics ?? null}
+          runName={selected?.name ?? "Run"}
+          onClose={() => setWorkspace((current) => ({ ...current, enlarged: false }))}
+        />
+      ) : null}
     </div>
   )
 }

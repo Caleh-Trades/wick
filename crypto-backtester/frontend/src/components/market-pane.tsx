@@ -17,6 +17,7 @@ export function MarketPane({
   candleClock,
   showCaption,
   onBookWidth,
+  onEnlarge,
 }: {
   symbol: string | null
   candles: TapeCandle[]
@@ -27,6 +28,7 @@ export function MarketPane({
   candleClock: Date | null
   showCaption: boolean
   onBookWidth: (width: number) => void
+  onEnlarge: () => void
 }) {
   const [tab, setTab] = useState<"chart" | "book">("chart")
   const rowRef = useRef<HTMLDivElement>(null)
@@ -77,7 +79,7 @@ export function MarketPane({
       </div>
       <div ref={rowRef} className="flex min-h-0 flex-1 flex-col gap-3 xl:flex-row xl:gap-0">
         <div className={cn("min-h-0 min-w-0 flex-1", tab === "chart" ? "block" : "hidden xl:block")}>
-          <PriceChart candles={candles} trades={trades} interval={interval} symbol={symbol} venue={venue} />
+          <PriceChart candles={candles} trades={trades} interval={interval} symbol={symbol} venue={venue} onEnlarge={onEnlarge} />
         </div>
         <div
           role="separator"

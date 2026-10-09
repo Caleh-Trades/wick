@@ -1,4 +1,4 @@
-import { memo } from "react"
+import { memo, useState } from "react"
 import { Eye, EyeOff, Trash2 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -26,6 +26,14 @@ import {
 import { fingerprint, marketById, ruleName, runColor } from "@/lib/runs"
 import type { BacktestResult, Outcome, Run, SortKey, Venue } from "@/lib/types"
 import { cn } from "@/lib/utils"
+
+const VIEWS = [
+  { id: "equity", label: "Equity" },
+  { id: "comparison", label: "Comparison" },
+  { id: "trades", label: "Trades" },
+] as const
+
+type ResultsView = (typeof VIEWS)[number]["id"]
 
 type ResultsProps = {
   runs: Run[]
@@ -67,19 +75,36 @@ export const Results = memo(function Results({
   const rows = sortedRows(runs, outcomes, sortKey, sortDir)
   const selectedOutcome = outcomes[selected.id]
   const setupChanged = Boolean(selectedOutcome?.ok && selectedOutcome.fingerprint !== fingerprint(selected))
+  const [view, setView] = useState<ResultsView>("equity")
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4">
+    <div className="flex h-full min-h-0 flex-col gap-3">
+      <div className="flex shrink-0 gap-1 overflow-x-auto" role="tablist" aria-label="Results">
+        {VIEWS.map((item) => (
+          <Button
+            key={item.id}
+            type="button"
+            size="xs"
+            variant={view === item.id ? "default" : "outline"}
+            className="normal-case tracking-normal"
+            role="tab"
+            aria-selected={view === item.id}
+            onClick={() => setView(item.id)}
+          >
+            {item.label}
+          </Button>
+        ))}
+      </div>
       {setupChanged ? (
         <p className="shrink-0 text-sm text-muted-foreground">This setup is newer than the last pass. Run it again to refresh.</p>
       ) : null}
 
-      <div className="min-h-0 flex-[2.6]">
-        <EquityChart result={result} overlays={overlays} selectedId={selected.id} drawToken={drawToken} />
-      </div>
-
-      <div className="flex min-h-0 flex-1 flex-col gap-8 overflow-auto">
-      <div className="bezel grid grid-cols-2 gap-x-6 gap-y-5 p-4 md:grid-cols-4">
+      {view === "equity" ? (
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
+          <div className="min-h-0 flex-1">
+            <EquityChart result={result} overlays={overlays} selectedId={selected.id} drawToken={drawToken} />
+          </div>
+          <div className="bezel grid shrink-0 grid-cols-2 gap-x-6 gap-y-5 p-4 md:grid-cols-4">
         <Metric label="Total return" value={formatPct(metrics.total_return_pct)} tone={tone(metrics.total_return_pct)} />
         <Metric label="Buy and hold" value={formatPct(metrics.benchmark_return_pct)} tone={tone(metrics.benchmark_return_pct)} />
         <Metric label="Excess return" value={formatPct(metrics.excess_return_pct)} tone={tone(metrics.excess_return_pct)} />
@@ -109,50 +134,52 @@ export const Results = memo(function Results({
           onSort={() => onSort("profit_factor")}
         />
         <Metric label="Final equity" value={formatMoney(metrics.final_equity, 0)} />
-      </div>
-
-      <Comparison
-        rows={rows}
-        venue={venue}
-        selectedId={selected.id}
-        sortKey={sortKey}
-        sortDir={sortDir}
-        onSelect={onSelect}
-        onToggleHidden={onToggleHidden}
-        onRemove={onRemove}
-        onSort={onSort}
-      />
-
-      <p className="font-mono text-xs text-muted-foreground">
-        In the market {formatPlainPct(metrics.exposure_pct, 0)}
-        {" · "}
-        CAGR {formatPct(metrics.cagr_pct)}
-        {" · "}
-        Sortino {formatStat(metrics.sortino)}
-        {" · "}
-        {metrics.trades} closed {metrics.trades === 1 ? "trade" : "trades"}
-        {liquidated ? ` · ${liquidated} liquidated` : ""}
-        {open ? ` · ${open} still open` : ""}
-        {result.assumptions.venue === "perp" ? ` · ${result.assumptions.leverage}×` : ""}
-        {result.assumptions.funding_stale ? " · Funding stale" : ""}
-      </p>
-
-      <div className="bezel p-4">
-        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-          <h3 className="font-heading text-2xl">Trades</h3>
-          <p className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
-            {venue === "perp" ? "Binance perp" : "Binance spot"}
-          </p>
-          <p className="font-mono text-xs text-muted-foreground uppercase">
-            {closed} closed{liquidated ? ` · ${liquidated} liquidated` : ""}{open ? ` · ${open} open` : ""}
+          </div>
+          <p className="shrink-0 font-mono text-xs text-muted-foreground">
+            In the market {formatPlainPct(metrics.exposure_pct, 0)}
+            {" · "}
+            CAGR {formatPct(metrics.cagr_pct)}
+            {" · "}
+            Sortino {formatStat(metrics.sortino)}
+            {" · "}
+            {metrics.trades} closed {metrics.trades === 1 ? "trade" : "trades"}
+            {liquidated ? ` · ${liquidated} liquidated` : ""}
+            {open ? ` · ${open} still open` : ""}
+            {result.assumptions.venue === "perp" ? ` · ${result.assumptions.leverage}×` : ""}
+            {result.assumptions.funding_stale ? " · Funding stale" : ""}
           </p>
         </div>
+      ) : null}
+
+      {view === "comparison" ? (
+        <div className="min-h-0 flex-1">
+          <Comparison
+            rows={rows}
+            venue={venue}
+            selectedId={selected.id}
+            sortKey={sortKey}
+            sortDir={sortDir}
+            onSelect={onSelect}
+            onToggleHidden={onToggleHidden}
+            onRemove={onRemove}
+            onSort={onSort}
+          />
+        </div>
+      ) : null}
+
+      {view === "trades" ? (
+      <div className="bezel flex min-h-0 flex-1 flex-col overflow-hidden p-4">
+        <p className="mb-3 shrink-0 font-mono text-xs text-muted-foreground uppercase">
+          {venue === "perp" ? "Binance perp" : "Binance spot"}
+          {" · "}
+          {closed} closed{liquidated ? ` · ${liquidated} liquidated` : ""}{open ? ` · ${open} open` : ""}
+        </p>
         {trades.length === 0 ? (
           <p className="border-t border-border py-6 text-sm text-muted-foreground">
             No round trips. The rule stayed in cash through this window.
           </p>
         ) : (
-          <div className="max-h-[28rem] overflow-auto border-t border-border">
+          <div className="min-h-0 flex-1 overflow-auto border-t border-border">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -201,7 +228,7 @@ export const Results = memo(function Results({
           </div>
         )}
       </div>
-      </div>
+      ) : null}
     </div>
   )
 })
@@ -228,12 +255,9 @@ function Comparison({
   onSort: (key: SortKey) => void
 }) {
   return (
-    <div className="bezel p-4">
-      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="font-heading text-2xl">Comparison</h3>
-        <p className="font-mono text-xs text-muted-foreground uppercase">Same tape, each rule</p>
-      </div>
-      <div className="overflow-auto border-t border-border">
+    <div className="bezel flex h-full min-h-0 flex-col p-4">
+      <p className="mb-3 shrink-0 font-mono text-xs text-muted-foreground uppercase">Same tape, each rule</p>
+      <div className="min-h-0 flex-1 overflow-auto border-t border-border">
         <Table>
           <TableHeader>
             <TableRow>

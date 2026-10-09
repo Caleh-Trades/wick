@@ -11,9 +11,12 @@ export default defineConfig({
     },
   },
   server: {
-    host: "0.0.0.0",
+    host: true,
     port: 43123,
     strictPort: true,
+    allowedHosts: [
+      "c38139267503abd136ee-pod-efwbjh5lunbufl7dp36wm3rhvq-43123.us3.cursorvm.com",
+    ],
     proxy: {
       "/api": {
         target: "http://127.0.0.1:8000",

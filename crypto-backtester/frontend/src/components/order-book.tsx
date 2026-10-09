@@ -68,7 +68,7 @@ export function OrderBook({ symbol }: { symbol: string | null }) {
               </span>
             </div>
             <div className="max-h-36 overflow-y-auto" aria-label="Trade tape">
-              <div className="mb-1 grid grid-cols-[4.5rem_4.5rem_1fr_auto] gap-2 px-1 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
+              <div className="mb-1 grid grid-cols-[3.6rem_4rem_minmax(0,1fr)_auto] gap-2 px-1 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
                 <span>Time</span>
                 <span>Side</span>
                 <span className="text-right">Price</span>
@@ -80,8 +80,8 @@ export function OrderBook({ symbol }: { symbol: string | null }) {
                 book.prints.map((print) => (
                   <div
                     key={print.id}
-                    className={cn(
-                      "book-row grid grid-cols-[4.5rem_4.5rem_1fr_auto] gap-2 border border-transparent px-1 py-0.5 font-mono text-[11px] transition-[border-color] duration-150",
+                      className={cn(
+                      "book-row grid grid-cols-[3.6rem_4rem_minmax(0,1fr)_auto] gap-2 border border-transparent px-1 py-0.5 font-mono text-[11px] transition-[border-color] duration-150",
                       print.side === "buy" ? "text-up" : "text-down",
                     )}
                   >

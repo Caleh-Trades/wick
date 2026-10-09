@@ -1,10 +1,10 @@
 import type { SpotMarket } from "@/lib/markets"
-import type { BacktestResult, Draft, MarketId, Meta, RangeId, Tape, TapeCandle, Timeframe } from "@/lib/types"
+import type { BacktestResult, Draft, FundingRate, MarketId, Meta, RangeId, Tape, TapeCandle, Timeframe, Venue } from "@/lib/types"
 
 const base = (import.meta.env.VITE_API_URL as string | undefined) ?? ""
 
-export async function fetchMarkets(): Promise<SpotMarket[]> {
-  const body = await request<{ markets: SpotMarket[] }>("/api/markets")
+export async function fetchMarkets(venue: Venue = "spot"): Promise<SpotMarket[]> {
+  const body = await request<{ markets: SpotMarket[] }>(`/api/markets?venue=${venue}`)
   return Array.isArray(body.markets) ? body.markets : []
 }
 
@@ -15,9 +15,10 @@ export async function fetchMeta(): Promise<Meta> {
 export async function fetchCandles(
   symbol: MarketId,
   interval: Timeframe,
-  options?: { since?: number; days?: number; range?: RangeId },
+  options?: { since?: number; days?: number; range?: RangeId; venue?: Venue },
 ): Promise<Tape> {
-  const params = new URLSearchParams({ symbol, interval })
+  const venue = options?.venue ?? "spot"
+  const params = new URLSearchParams({ symbol, interval, venue })
   if (options?.since != null) params.set("since", String(options.since))
   else if (options?.days != null) params.set("days", String(options.days))
   const body = await request<TapePayload>(`/api/candles?${params.toString()}`)
@@ -26,9 +27,12 @@ export async function fetchCandles(
     interval,
     range: options?.range ?? "All",
     source: body.source,
+    venue,
     seconds: body.seconds,
     periodsPerYear: body.periods_per_year,
     candles: body.candles.map(normalizeCandle),
+    funding: venue === "perp" ? normalizeFunding(body.funding) : undefined,
+    fundingStale: venue === "perp" ? body.funding_stale === true || body.funding == null : false,
   }
 }
 
@@ -55,6 +59,27 @@ type TapePayload = {
   seconds: number
   periods_per_year: number
   candles: Array<TapeCandle & { t?: number }>
+  funding?: FundingRate[] | null
+  funding_stale?: boolean
+}
+
+export function mergeFunding(existing: FundingRate[] | null | undefined, incoming: FundingRate[] | null | undefined): FundingRate[] | null {
+  if (incoming == null) return existing ?? null
+  const byTime = new Map<number, FundingRate>()
+  for (const rate of existing ?? []) byTime.set(rate.t, rate)
+  for (const rate of incoming) byTime.set(rate.t, rate)
+  return [...byTime.values()].sort((left, right) => left.t - right.t)
+}
+
+function normalizeFunding(rates: FundingRate[] | null | undefined): FundingRate[] | null {
+  if (!Array.isArray(rates)) return null
+  return rates
+    .filter((rate) => Number.isFinite(rate.t) && Number.isFinite(rate.rate))
+    .map((rate) => ({
+      t: rate.t,
+      rate: rate.rate,
+      mark: rate.mark != null && Number.isFinite(rate.mark) ? rate.mark : undefined,
+    }))
 }
 
 function normalizeCandle(candle: TapeCandle & { t?: number }): TapeCandle {

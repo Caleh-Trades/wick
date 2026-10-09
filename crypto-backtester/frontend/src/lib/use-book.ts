@@ -2,10 +2,14 @@ import { useEffect, useState, useSyncExternalStore } from "react"
 
 import { projectLadder, rollingFlow, streamNames, takerSide, TAPE_LENGTH, type FlowSide, type Level, type Print } from "@/lib/book"
 import { barSeconds, mergeForming } from "@/lib/forming"
-import type { TapeCandle } from "@/lib/types"
+import type { TapeCandle, Venue } from "@/lib/types"
 
-const SOCKET_URL = "wss://data-stream.binance.vision/ws"
+const SOCKET_URL: Record<Venue, string> = {
+  spot: "wss://data-stream.binance.vision/ws",
+  perp: "wss://fstream.binance.com/ws",
+}
 const REPAINT_MS = 1000
+const STALE_MS = 3_000
 const SILENCE_MS = 10_000
 const PRINT_MEMORY = 500
 
@@ -13,8 +17,10 @@ export type BookStatus = "connecting" | "connected" | "stale"
 
 export type LiveView = {
   symbol: string
+  venue: Venue
   status: BookStatus
   asOf: number | null
+  heardAt: number | null
   bids: Level[]
   asks: Level[]
   spread: number | null
@@ -29,8 +35,10 @@ export type LiveView = {
 
 const EMPTY: LiveView = {
   symbol: "",
+  venue: "spot",
   status: "connecting",
   asOf: null,
+  heardAt: null,
   bids: [],
   asks: [],
   spread: null,
@@ -47,6 +55,7 @@ let view: LiveView = EMPTY
 const listeners = new Set<() => void>()
 let socket: WebSocket | null = null
 let symbol = ""
+let venue: Venue = "spot"
 let accept = false
 let attempt = 0
 let retry = 0
@@ -62,6 +71,7 @@ let sizes = new Map<string, number>()
 let publishedPrice: number | null = null
 let sawGood = false
 let primed = false
+let heardAt: number | null = null
 let repaint = 0
 
 function emit(next: LiveView) {
@@ -77,23 +87,37 @@ function clearBook(nextSymbol: string, status: BookStatus) {
   publishedPrice = null
   sawGood = false
   primed = false
+  heardAt = null
   accept = false
-  emit({ ...EMPTY, symbol: nextSymbol, status })
+  emit({ ...EMPTY, symbol: nextSymbol, venue, status })
 }
 
-export function retainBook(next: string | null) {
+export function retainBook(next: string | null, nextVenue: Venue = "spot") {
   const id = (next ?? "").toUpperCase()
+  const venueChanged = nextVenue !== venue
   if (!id.endsWith("USDT")) {
+    venue = nextVenue
     symbol = ""
     clearBook("", "stale")
     return
   }
-  if (id === symbol && socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+  if (
+    id === symbol &&
+    !venueChanged &&
+    socket &&
+    (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)
+  ) {
     return
   }
   const previous = activeParams.slice()
   symbol = id
+  venue = nextVenue
   clearBook(id, "connecting")
+  if (venueChanged) {
+    dropSocket()
+    openSocket()
+    return
+  }
   if (!socket || socket.readyState !== WebSocket.OPEN) {
     openSocket()
     return
@@ -108,6 +132,25 @@ export function retainBook(next: string | null) {
   sendSubscribe()
 }
 
+function dropSocket() {
+  const ws = socket
+  socket = null
+  window.clearTimeout(silence)
+  accept = false
+  activeParams = []
+  pendingSub = null
+  pendingUnsub = null
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    try {
+      ws.close()
+    } catch {
+      /* the next socket replaces it */
+    }
+  } else {
+    ws?.close()
+  }
+}
+
 export function getLive(): LiveView {
   return view
 }
@@ -117,14 +160,14 @@ export function subscribeLive(listener: () => void): () => void {
   return () => listeners.delete(listener)
 }
 
-export function useLiveBook(symbolId: string | null): LiveView {
+export function useLiveBook(symbolId: string | null, nextVenue: Venue = "spot"): LiveView {
   const live = useSyncExternalStore(subscribeLive, getLive, getLive)
   useEffect(() => {
-    retainBook(symbolId)
-  }, [symbolId])
+    retainBook(symbolId, nextVenue)
+  }, [symbolId, nextVenue])
   const wanted = (symbolId ?? "").toUpperCase()
-  if (live.symbol !== wanted) {
-    return { ...EMPTY, symbol: wanted, status: wanted.endsWith("USDT") ? "connecting" : "stale" }
+  if (live.symbol !== wanted || live.venue !== nextVenue) {
+    return { ...EMPTY, symbol: wanted, venue: nextVenue, status: wanted.endsWith("USDT") ? "connecting" : "stale" }
   }
   return live
 }
@@ -162,7 +205,7 @@ function sameTail(left: TapeCandle[], right: TapeCandle[]): boolean {
 function openSocket() {
   window.clearTimeout(retry)
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return
-  const ws = new WebSocket(SOCKET_URL)
+  const ws = new WebSocket(SOCKET_URL[venue])
   socket = ws
   ws.onopen = () => {
     if (socket !== ws) return
@@ -174,23 +217,29 @@ function openSocket() {
   ws.onmessage = (event) => {
     if (socket !== ws) return
     armSilence()
+    heardAt = Date.now()
     let payload: Record<string, unknown>
     try {
       payload = JSON.parse(String(event.data)) as Record<string, unknown>
     } catch {
       return
     }
+    const nested = payload.data
+    if (nested && typeof nested === "object") payload = nested as Record<string, unknown>
     if (typeof payload.id === "number") {
       onAck(payload.id)
       return
     }
     if (!accept || !symbol) return
-    if (payload.e === "trade") {
+    if (typeof payload.s === "string" && payload.s !== symbol) return
+    if (payload.e === "trade" || payload.e === "aggTrade") {
       takeTrade(payload)
       return
     }
-    if (Array.isArray(payload.bids) && Array.isArray(payload.asks)) {
-      latest = { bids: payload.bids as [string, string][], asks: payload.asks as [string, string][] }
+    const bids = Array.isArray(payload.bids) ? payload.bids : Array.isArray(payload.b) ? payload.b : null
+    const asks = Array.isArray(payload.asks) ? payload.asks : Array.isArray(payload.a) ? payload.a : null
+    if (bids && asks) {
+      latest = { bids: bids as [string, string][], asks: asks as [string, string][] }
       if (!primed) {
         primed = true
         publish()
@@ -213,7 +262,7 @@ function openSocket() {
 
 function sendSubscribe() {
   if (!socket || socket.readyState !== WebSocket.OPEN || !symbol) return
-  activeParams = streamNames(symbol)
+  activeParams = streamNames(symbol, venue)
   const idNum = ++requestId
   pendingSub = idNum
   pendingUnsub = null
@@ -240,7 +289,8 @@ function takeTrade(payload: Record<string, unknown>) {
   const size = Number(payload.q)
   const t = Number(payload.T)
   if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(size) || size <= 0 || !Number.isFinite(t)) return
-  const id = payload.t == null ? `${t}|${payload.p}|${payload.q}` : String(payload.t)
+  const tradeId = payload.a ?? payload.t
+  const id = tradeId == null ? `${t}|${payload.p}|${payload.q}` : String(tradeId)
   if (seen.has(id)) return
   seen.add(id)
   prints.push({ id, t, side: takerSide(payload.m === true), price, size })
@@ -258,10 +308,13 @@ function armSilence() {
 function publish() {
   if (!symbol) return
   const now = Date.now()
+  const quiet = heardAt == null || now - heardAt > STALE_MS
   const flow = rollingFlow(prints, now)
   const tape = prints.slice(-TAPE_LENGTH).reverse()
   if (!latest || !accept) {
-    if (view.status === "connected") emit({ ...view, status: "stale", prints: tape, ...flow, freshIds: [] })
+    if (view.bids.length > 0 || view.asks.length > 0 || sawGood) {
+      emit({ ...view, status: "stale", heardAt, prints: tape, ...flow, freshIds: [] })
+    }
     return
   }
   const ladder = projectLadder(latest.bids, latest.asks, sizes)
@@ -271,8 +324,10 @@ function publish() {
     emit({
       ...EMPTY,
       symbol,
+      venue,
       status: "stale",
       asOf: view.asOf,
+      heardAt,
       prints: tape,
       ...flow,
       last: view.last ? { ...view.last, changed: false } : null,
@@ -290,8 +345,10 @@ function publish() {
   sawGood = true
   emit({
     symbol,
-    status: "connected",
+    venue,
+    status: quiet ? "stale" : "connected",
     asOf: now,
+    heardAt,
     bids: ladder.bids,
     asks: ladder.asks,
     spread: ladder.spread,

@@ -8,7 +8,10 @@ export type PlotBar = {
   close: number
   volume: number
   entry: number | null
+  entrySide: "long" | "short" | null
   exit: number | null
+  exitSide: "long" | "short" | null
+  liquidated: boolean
 }
 
 export function priceDomain(candles: Array<{ low: number; high: number }>): [number, number] {
@@ -20,23 +23,23 @@ export function priceDomain(candles: Array<{ low: number; high: number }>): [num
   }
   if (!Number.isFinite(lo) || !Number.isFinite(hi)) return [1, 2]
   if (lo === hi) {
-    const pad = Math.abs(lo) * 0.02 || 1
-    const min = lo - pad <= 0 ? (lo > 0 ? lo * 0.98 : pad) : lo - pad
+    const pad = Math.abs(lo) * 0.04 || 1
+    const min = lo - pad <= 0 ? (lo > 0 ? lo * 0.96 : pad) : lo - pad
     return [min, hi + pad]
   }
-  const pad = (hi - lo) * 0.06
-  const min = lo - pad <= 0 ? (lo > 0 ? lo * 0.98 : pad) : lo - pad
+  const pad = (hi - lo) * 0.04
+  const min = lo - pad <= 0 ? (lo > 0 ? lo * 0.96 : pad) : lo - pad
   return [min, hi + pad]
 }
 
 export function plotCandles(candles: TapeCandle[], trades: Trade[], maxPoints: number): PlotBar[] {
   if (candles.length === 0) return []
-  const entryAt = new Map<string, number>()
-  const exitAt = new Map<string, number>()
+  const entryAt = new Map<string, { price: number; side: "long" | "short" }>()
+  const exitAt = new Map<string, { price: number; side: "long" | "short"; liquidated: boolean }>()
   for (const trade of trades) {
-    entryAt.set(trade.entry_time, trade.entry_price)
-    if (trade.status === "closed" && trade.exit_time && trade.exit_price != null) {
-      exitAt.set(trade.exit_time, trade.exit_price)
+    entryAt.set(trade.entry_time, { price: trade.entry_price, side: trade.side })
+    if ((trade.status === "closed" || trade.status === "liquidated") && trade.exit_time && trade.exit_price != null) {
+      exitAt.set(trade.exit_time, { price: trade.exit_price, side: trade.side, liquidated: trade.status === "liquidated" })
     }
   }
   const size = Math.max(1, Math.ceil(candles.length / maxPoints))
@@ -50,15 +53,25 @@ export function plotCandles(candles: TapeCandle[], trades: Trade[], maxPoints: n
     let low = first.low
     let volume = 0
     let entry: number | null = null
+    let entrySide: "long" | "short" | null = null
     let exit: number | null = null
+    let exitSide: "long" | "short" | null = null
+    let liquidated = false
     for (const bar of slice) {
       if (bar.high > high) high = bar.high
       if (bar.low < low) low = bar.low
       volume += bar.volume ?? 0
-      const entryPrice = entryAt.get(bar.time)
-      const exitPrice = exitAt.get(bar.time)
-      if (entryPrice != null) entry = entryPrice
-      if (exitPrice != null) exit = exitPrice
+      const entryMark = entryAt.get(bar.time)
+      const exitMark = exitAt.get(bar.time)
+      if (entryMark) {
+        entry = entryMark.price
+        entrySide = entryMark.side
+      }
+      if (exitMark) {
+        exit = exitMark.price
+        exitSide = exitMark.side
+        liquidated = exitMark.liquidated
+      }
     }
     bars.push({
       time: first.time,
@@ -68,7 +81,10 @@ export function plotCandles(candles: TapeCandle[], trades: Trade[], maxPoints: n
       close: last.close,
       volume,
       entry,
+      entrySide,
       exit,
+      exitSide,
+      liquidated,
     })
   }
   return bars

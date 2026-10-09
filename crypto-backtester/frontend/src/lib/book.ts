@@ -8,6 +8,8 @@ export type Level = {
   priceKey: string
   size: number
   total: number
+  notional: number
+  notionalTotal: number
   changed: boolean
 }
 
@@ -29,9 +31,10 @@ export type Ladder = {
 
 type RawLevel = { priceKey: string; price: number; size: number }
 
-export function streamNames(symbol: string): string[] {
+export function streamNames(symbol: string, venue: "spot" | "perp" = "spot"): string[] {
   const pair = symbol.toLowerCase()
-  return [`${pair}@depth20@100ms`, `${pair}@trade`]
+  const trade = venue === "perp" ? "aggTrade" : "trade"
+  return [`${pair}@depth20@100ms`, `${pair}@${trade}`]
 }
 
 /** Binance `m` is true when the buyer is the maker, so the taker sold. */
@@ -94,8 +97,11 @@ function parseLevels(rows: Array<[string, string]>): RawLevel[] {
 
 function withTotals(levels: RawLevel[], side: "bid" | "ask", previous: Map<string, number>, reverse: boolean): Level[] {
   let total = 0
+  let notionalTotal = 0
   const summed = levels.map((level) => {
     total += level.size
+    const notional = level.price * level.size
+    notionalTotal += notional
     const key = `${side}:${level.priceKey}`
     const prior = previous.get(key)
     return {
@@ -103,6 +109,8 @@ function withTotals(levels: RawLevel[], side: "bid" | "ask", previous: Map<strin
       priceKey: level.priceKey,
       size: level.size,
       total,
+      notional,
+      notionalTotal,
       changed: prior !== undefined && prior !== level.size,
     }
   })

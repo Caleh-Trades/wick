@@ -1,15 +1,15 @@
-import { stepDecimals } from "@/lib/book"
 import { formatPrice } from "@/lib/format"
 import { marketSpec } from "@/lib/markets"
 import { useLiveBook } from "@/lib/use-book"
+import type { Venue } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-export function QuotePrice({ symbol, close }: { symbol: string | null; close?: number }) {
-  const book = useLiveBook(symbol)
-  const last = book.symbol && book.last ? book.last : null
+export function QuotePrice({ symbol, venue, close }: { symbol: string | null; venue: Venue; close?: number }) {
+  const book = useLiveBook(symbol, venue)
+  const last = book.symbol === (symbol ?? "").toUpperCase() && book.venue === venue && book.last ? book.last : null
   const price = last?.price ?? close
   if (price == null || !Number.isFinite(price)) return null
-  const tick = symbol ? marketSpec(symbol)?.tickSize : undefined
+  const tick = symbol ? marketSpec(symbol, venue)?.tickSize : undefined
   return (
     <span
       className={cn(
@@ -18,15 +18,7 @@ export function QuotePrice({ symbol, close }: { symbol: string | null; close?: n
         last?.changed && (last.side === "sell" ? "last-tick-down" : "last-tick-up"),
       )}
     >
-      {tick ? formatTick(price, tick) : formatPrice(price)}
+      {formatPrice(price, tick)}
     </span>
   )
-}
-
-function formatTick(value: number, tick: string): string {
-  const digits = stepDecimals(tick)
-  return value.toLocaleString("en-US", {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  })
 }

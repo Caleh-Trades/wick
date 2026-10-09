@@ -25,6 +25,25 @@ export function formatCompactMoney(value: number): string {
   return formatMoney(value, abs >= 1000 ? 0 : 2)
 }
 
+export function formatCompact(value: number): string {
+  if (!Number.isFinite(value)) return "—"
+  const sign = value < 0 ? "-" : ""
+  const abs = Math.abs(value)
+  const body =
+    abs >= 1_000_000_000
+      ? `${(abs / 1_000_000_000).toFixed(2)}B`
+      : abs >= 1_000_000
+        ? `${(abs / 1_000_000).toFixed(2)}M`
+        : abs >= 1_000
+          ? `${(abs / 1_000).toFixed(2)}K`
+          : abs >= 1
+            ? abs.toFixed(2)
+            : abs === 0
+              ? "0"
+              : abs.toFixed(4)
+  return `${sign}${body}`
+}
+
 export function formatSize(value: number): string {
   if (!Number.isFinite(value)) return "—"
   const abs = Math.abs(value)
@@ -35,13 +54,27 @@ export function formatSize(value: number): string {
   return value.toFixed(digits)
 }
 
-export function formatPrice(value: number): string {
-  const abs = Math.abs(value)
-  const digits = abs >= 1000 ? 2 : abs >= 1 ? 2 : abs >= 0.01 ? 4 : 6
+export function formatPrice(value: number, tick?: string): string {
+  const digits = tick ? tickDecimals(tick) : priceDigits(value)
   return value.toLocaleString("en-US", {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   })
+}
+
+function tickDecimals(step: string): number {
+  const text = step.trim()
+  const dot = text.indexOf(".")
+  if (dot < 0) return 0
+  return text.slice(dot + 1).replace(/0+$/, "").length
+}
+
+function priceDigits(value: number): number {
+  const abs = Math.abs(value)
+  if (abs >= 1) return 2
+  if (abs >= 0.01) return 4
+  if (abs === 0) return 2
+  return Math.min(10, Math.max(8, Math.ceil(-Math.log10(abs)) + 2))
 }
 
 export function formatStat(value: number | null | undefined, digits = 2): string {
@@ -126,6 +159,7 @@ export function daysAgoUtc(days: number): string {
 }
 
 export function sourceLabel(source: string): string {
+  if (source === "binance-perp") return "Binance perp"
   if (source === "binance") return "Binance spot"
   if (source === "coinbase") return "Coinbase spot"
   if (source === "kraken") return "Kraken spot"

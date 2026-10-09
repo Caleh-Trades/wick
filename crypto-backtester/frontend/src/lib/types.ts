@@ -67,6 +67,7 @@ export type Metrics = {
   win_rate_pct: number | null
   profit_factor: number | null
   trades: number
+  liquidations: number
   exposure_pct: number
   final_equity: number
   avg_trade_pct: number | null
@@ -92,7 +93,7 @@ export type Trade = {
   pnl: number
   return_pct: number
   bars_held: number
-  status: "open" | "closed"
+  status: "open" | "closed" | "liquidated"
 }
 
 export type Candle = {
@@ -106,6 +107,14 @@ export type Candle = {
 export type TapeCandle = Candle & { t: number; volume?: number }
 
 export type RangeId = "1D" | "5D" | "1M" | "3M" | "1Y" | "2Y" | "4Y" | "6Y" | "All"
+
+export type Venue = "spot" | "perp"
+
+export type FundingRate = {
+  t: number
+  rate: number
+  mark?: number
+}
 
 export type Timeframe = "1m" | "3m" | "5m" | "15m" | "30m" | "1h" | "4h" | "1d"
 
@@ -141,6 +150,7 @@ export type Run = {
   params: RunParams
   feeBps: number
   capital: number
+  leverage: number
   allowShort: boolean
   hidden: boolean
 }
@@ -150,9 +160,12 @@ export type Tape = {
   interval: Timeframe
   range: RangeId
   source: string
+  venue: Venue
   seconds: number
   periodsPerYear: number
   candles: TapeCandle[]
+  funding?: FundingRate[] | null
+  fundingStale?: boolean
 }
 
 export type SortKey = "sharpe" | "win_rate_pct" | "profit_factor" | "cagr_pct" | "trades"
@@ -174,6 +187,10 @@ export type BacktestResult = {
     slippage_bps: number
     initial_capital: number
     allow_short: boolean
+    venue: Venue
+    leverage: number
+    maintenance_margin: number
+    funding_stale: boolean
   }
   metrics: Metrics
   equity: EquityPoint[]

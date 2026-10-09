@@ -1,3 +1,5 @@
+import type { Venue } from "./types.ts"
+
 export type SpotMarket = {
   id: string
   base: string
@@ -29,16 +31,19 @@ export const SEED_MARKETS: SpotMarket[] = [
   { id: "DOGEUSDT", base: "DOGE", quote: "USDT", tickSize: "0.00001", stepSize: "1" },
 ]
 
-let markets = SEED_MARKETS
+const books: Record<Venue, SpotMarket[]> = {
+  spot: SEED_MARKETS,
+  perp: SEED_MARKETS.map((market) => ({ ...market })),
+}
 const listeners = new Set<() => void>()
 
-export function getMarkets(): SpotMarket[] {
-  return markets
+export function getMarkets(venue: Venue = "spot"): SpotMarket[] {
+  return books[venue]
 }
 
-export function replaceMarkets(next: SpotMarket[]): void {
+export function replaceMarkets(next: SpotMarket[], venue: Venue = "spot"): void {
   if (next.length === 0) return
-  markets = next
+  books[venue] = next
   for (const listener of listeners) listener()
 }
 
@@ -47,8 +52,8 @@ export function subscribeMarkets(listener: () => void): () => void {
   return () => listeners.delete(listener)
 }
 
-export function marketSpec(symbol: string): SpotMarket | undefined {
-  return markets.find((market) => market.id === symbol)
+export function marketSpec(symbol: string, venue: Venue = "spot"): SpotMarket | undefined {
+  return books[venue].find((market) => market.id === symbol)
 }
 
 export function marketName(base: string): string {

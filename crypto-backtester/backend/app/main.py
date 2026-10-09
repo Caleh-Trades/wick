@@ -8,7 +8,14 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.binance_feed import is_binance_symbol, list_usdt_markets, load_binance_series, load_binance_tail
+from app.binance_feed import (
+    is_binance_symbol,
+    list_usdt_markets,
+    load_binance_series,
+    load_binance_tail,
+    load_funding,
+    normalize_venue,
+)
 from app.data import (
     DataUnavailable,
     UnknownInterval,
@@ -62,11 +69,26 @@ def meta() -> dict:
 
 
 @app.get("/api/markets")
-def markets() -> dict:
+def markets(venue: str = Query(default="spot", pattern="^(spot|perp)$")) -> dict:
     try:
-        return {"markets": list_usdt_markets()}
+        return {"markets": list_usdt_markets(normalize_venue(venue)), "venue": normalize_venue(venue)}
     except (DataUnavailable, UnknownSymbol) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/api/funding")
+def funding(
+    symbol: str,
+    start: int = Query(ge=0),
+    end: int = Query(ge=0),
+) -> dict:
+    try:
+        rates, stale = load_funding(symbol, start, end)
+    except UnknownSymbol as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except DataUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"symbol": symbol, "rates": rates, "stale": stale}
 
 
 @app.get("/api/candles")
@@ -75,14 +97,18 @@ def candles(
     interval: str = "1d",
     since: int | None = Query(default=None, ge=0),
     days: int | None = Query(default=None, ge=0, le=20_000),
+    venue: str = Query(default="spot", pattern="^(spot|perp)$"),
 ) -> dict:
+    venue = normalize_venue(venue)
+    funding_rates: list | None = None
+    funding_stale = False
     try:
         spec = get_interval(interval)
-        if is_binance_symbol(symbol):
+        if venue == "perp" or is_binance_symbol(symbol):
             if since is None:
-                series, source = load_binance_series(symbol, interval, days)
+                series, source = load_binance_series(symbol, interval, days, venue=venue)
             else:
-                series, source = load_binance_tail(symbol, interval, since)
+                series, source = load_binance_tail(symbol, interval, since, venue=venue)
         elif since is None:
             if days is None:
                 series, source = load_series(symbol, interval)
@@ -90,20 +116,31 @@ def candles(
                 series, source = load_series(symbol, interval, days)
         else:
             series, source = load_tail(symbol, interval, since)
+        if venue == "perp" and series:
+            try:
+                funding_rates, funding_stale = load_funding(symbol, series[0].time, series[-1].time)
+            except DataUnavailable:
+                funding_rates = None
+                funding_stale = True
     except UnknownSymbol as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except UnknownInterval as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except DataUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    return {
+    body = {
         "symbol": symbol,
         "interval": interval,
         "source": source,
+        "venue": venue,
         "seconds": int(spec["seconds"]),
         "periods_per_year": int(spec["periods_per_year"]),
         "candles": [_candle_payload(candle) for candle in series],
     }
+    if venue == "perp":
+        body["funding"] = funding_rates
+        body["funding_stale"] = funding_stale
+    return body
 
 
 @app.post("/api/backtest")

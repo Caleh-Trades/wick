@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 
-import { backtest } from "../src/lib/backtest.ts"
+import { backtest, liquidationPrice } from "../src/lib/backtest.ts"
 import { createRun, mergeCandles } from "../src/lib/runs.ts"
 import type { TapeCandle } from "../src/lib/types.ts"
 
@@ -69,5 +69,31 @@ assert.deepEqual(
     [3, 3],
   ],
 )
+
+assert.throws(() => backtest(bars([100, 100, 110, 120]), hold, 365, { venue: "perp" }), /Funding history/)
+
+const crashed = backtest(bars([100, 100, 100, 100, 40]), { ...hold, leverage: 3 }, 365, {
+  venue: "perp",
+  funding: [],
+})
+const liquidated = crashed.trades.find((trade) => trade.status === "liquidated")
+assert.ok(liquidated)
+assert.equal(liquidated?.side, "long")
+assert.equal(liquidated?.status, "liquidated")
+const liq = liquidationPrice(liquidated?.entry_price ?? 0, "long", 3)
+assert.ok(Math.abs((liquidated?.exit_price ?? 0) - liq) < 1e-8)
+assert.ok(liq < (liquidated?.entry_price ?? 0))
+assert.ok(liquidationPrice(100, "short", 3) > 100)
+
+const calm = backtest(bars([100, 100, 110, 120, 130]), { ...hold, leverage: 3 }, 365, { venue: "perp", funding: [] })
+const paid = backtest(bars([100, 100, 110, 120, 130]), { ...hold, leverage: 3 }, 365, {
+  venue: "perp",
+  funding: [{ t: 1_700_000_000 + 2 * 86_400 + 10, rate: 0.01, mark: 100 }],
+})
+assert.equal(paid.assumptions.leverage, 3)
+assert.equal(paid.assumptions.venue, "perp")
+assert.ok(paid.metrics.final_equity < calm.metrics.final_equity)
+assert.equal(paid.trades[0]?.side, "long")
+assert.ok(paid.metrics.exposure_pct > 0)
 
 console.log("engine check ok")

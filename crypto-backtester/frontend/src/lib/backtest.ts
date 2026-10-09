@@ -1,11 +1,29 @@
 import { normalizeRule, resolveRunParams, ruleById } from "./runs.ts"
 import { buildSignals } from "./signals.ts"
-import type { BacktestResult, EquityPoint, Run, TapeCandle, Trade } from "./types"
+import type { BacktestResult, EquityPoint, FundingRate, Run, TapeCandle, Trade, Venue } from "./types"
 
 export const INITIAL_CAPITAL = 10_000
 export const SLIPPAGE_BPS = 5
+export const MAINTENANCE_MARGIN = 0.004
+export const DEFAULT_LEVERAGE = 3
 
-export function backtest(candles: TapeCandle[], run: Run, periodsPerYear: number): BacktestResult {
+export type BacktestOptions = {
+  venue?: Venue
+  funding?: FundingRate[] | null
+  fundingStale?: boolean
+}
+
+export function liquidationPrice(entry: number, side: "long" | "short", leverage: number): number {
+  if (side === "long") return entry * (1 - 1 / leverage + MAINTENANCE_MARGIN)
+  return entry * (1 + 1 / leverage - MAINTENANCE_MARGIN)
+}
+
+export function backtest(
+  candles: TapeCandle[],
+  run: Run,
+  periodsPerYear: number,
+  options?: BacktestOptions,
+): BacktestResult {
   if (candles.length < 3) {
     throw new Error("Need at least three bars before a backtest means anything.")
   }
@@ -19,6 +37,13 @@ export function backtest(candles: TapeCandle[], run: Run, periodsPerYear: number
   const rule = normalizeRule(run.rule)
   const params = resolveRunParams({ ...run, rule })
   const signals = buildSignals(rule, candles, params)
+  const venue = options?.venue ?? "spot"
+  const leverage = venue === "perp" ? clampLeverage(run.leverage) : 1
+  if (venue === "perp" && options?.funding == null) {
+    throw new Error("Funding history didn't load.")
+  }
+  const funding = venue === "perp" ? [...(options?.funding ?? [])].sort((left, right) => left.t - right.t) : []
+  let fundIndex = 0
   const fee = run.feeBps / 10_000
   const slip = SLIPPAGE_BPS / 10_000
   const simStart = 1
@@ -39,26 +64,12 @@ export function backtest(candles: TapeCandle[], run: Run, periodsPerYear: number
     if (!bar) continue
     if (sign(account.qty) !== target) {
       if (account.qty !== 0 && open) {
-        const fill = closeFill(bar.open, account.qty, slip)
-        const pnl = account.close(fill) - open.entryFee
-        const notional = open.quantity * open.entryPrice
-        trades.push({
-          entry_time: open.entryTime,
-          exit_time: bar.time,
-          side: open.side,
-          entry_price: open.entryPrice,
-          exit_price: fill,
-          quantity: open.quantity,
-          pnl,
-          return_pct: notional ? (pnl / notional) * 100 : 0,
-          bars_held: index - open.entryIndex,
-          status: "closed",
-        })
+        pushClose(trades, open, account, closeFill(bar.open, account.qty, slip), bar.time, index, "closed")
         open = null
       }
       if (target !== 0 && account.cash > 1) {
         const fill = openFill(bar.open, target, slip)
-        const opened = account.open(target, fill)
+        const opened = account.open(target, fill, leverage)
         if (opened.quantity > 0) {
           open = {
             entryTime: bar.time,
@@ -67,12 +78,32 @@ export function backtest(candles: TapeCandle[], run: Run, periodsPerYear: number
             entryFee: opened.fee,
             quantity: opened.quantity,
             side: target > 0 ? "long" : "short",
+            fundingPaid: 0,
           }
         }
       }
     }
 
-    if (account.qty !== 0) exposed += 1
+    if (open && account.qty !== 0) {
+      const end = barEnd(candles, index)
+      while (fundIndex < funding.length && funding[fundIndex]!.t <= bar.t) fundIndex += 1
+      while (fundIndex < funding.length && funding[fundIndex]!.t <= end) {
+        const event = funding[fundIndex]!
+        const mark = event.mark != null && event.mark > 0 ? event.mark : bar.close
+        open.fundingPaid += account.applyFunding(event.rate, mark)
+        fundIndex += 1
+      }
+      const liq = liquidationPrice(open.entryPrice, open.side, leverage)
+      const hit = open.side === "long" ? bar.low <= liq : bar.high >= liq
+      if (venue === "perp" && hit) {
+        pushClose(trades, open, account, liq, bar.time, index, "liquidated")
+        open = null
+      }
+    }
+
+    if (account.qty !== 0 || (trades[trades.length - 1]?.status === "liquidated" && trades[trades.length - 1]?.exit_time === bar.time)) {
+      exposed += 1
+    }
     const marked = account.mark(bar.close)
     peak = Math.max(peak, marked)
     equity.push({
@@ -87,7 +118,7 @@ export function backtest(candles: TapeCandle[], run: Run, periodsPerYear: number
   if (open && account.qty !== 0) {
     const last = candles[hi]
     if (last) {
-      const unrealized = account.qty * (last.close - account.entry) - open.entryFee
+      const unrealized = account.qty * (last.close - account.entry) - open.entryFee - open.fundingPaid
       const notional = open.quantity * open.entryPrice
       trades.push({
         entry_time: open.entryTime,
@@ -125,6 +156,10 @@ export function backtest(candles: TapeCandle[], run: Run, periodsPerYear: number
       slippage_bps: SLIPPAGE_BPS,
       initial_capital: capital,
       allow_short: allowShort,
+      venue,
+      leverage,
+      maintenance_margin: venue === "perp" ? MAINTENANCE_MARGIN : 0,
+      funding_stale: venue === "perp" && options?.fundingStale === true,
     },
     metrics,
     equity,
@@ -146,6 +181,46 @@ type OpenTrade = {
   entryFee: number
   quantity: number
   side: "long" | "short"
+  fundingPaid: number
+}
+
+function pushClose(
+  trades: Trade[],
+  open: OpenTrade,
+  account: Account,
+  fill: number,
+  exitTime: string,
+  index: number,
+  status: "closed" | "liquidated",
+) {
+  const pnl = account.close(fill) - open.entryFee - open.fundingPaid
+  const notional = open.quantity * open.entryPrice
+  trades.push({
+    entry_time: open.entryTime,
+    exit_time: exitTime,
+    side: open.side,
+    entry_price: open.entryPrice,
+    exit_price: fill,
+    quantity: open.quantity,
+    pnl,
+    return_pct: notional ? (pnl / notional) * 100 : 0,
+    bars_held: index - open.entryIndex,
+    status,
+  })
+}
+
+function barEnd(candles: TapeCandle[], index: number): number {
+  const current = candles[index]?.t ?? 0
+  const next = candles[index + 1]?.t
+  if (next != null) return next
+  const prev = candles[index - 1]?.t
+  const step = prev != null ? current - prev : 0
+  return current + Math.max(0, step)
+}
+
+function clampLeverage(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_LEVERAGE
+  return Math.min(20, Math.max(1, value))
 }
 
 class Account {
@@ -159,14 +234,22 @@ class Account {
     this.fee = fee
   }
 
-  open(side: number, fill: number): { quantity: number; fee: number } {
+  open(side: number, fill: number, leverage = 1): { quantity: number; fee: number } {
     if (fill <= 0 || this.cash <= 0 || side === 0) return { quantity: 0, fee: 0 }
-    const notional = this.cash / (1 + this.fee)
+    const scale = Math.min(20, Math.max(1, leverage))
+    const notional = (this.cash * scale) / (1 + this.fee * scale)
     const feePaid = notional * this.fee
     this.cash -= feePaid
     this.qty = side * (notional / fill)
     this.entry = fill
     return { quantity: Math.abs(this.qty), fee: feePaid }
+  }
+
+  applyFunding(rate: number, mark: number): number {
+    if (this.qty === 0 || mark <= 0 || !Number.isFinite(rate)) return 0
+    const payment = this.qty * mark * rate
+    this.cash -= payment
+    return payment
   }
 
   close(fill: number): number {
@@ -233,7 +316,8 @@ function measure(
   const benchmarkFinal = last?.benchmark ?? initial
   const total = pct(finalEquity, initial)
   const benchmarkReturn = pct(benchmarkFinal, initial)
-  const closed = trades.filter((trade) => trade.status === "closed")
+  const closed = trades.filter((trade) => trade.status === "closed" || trade.status === "liquidated")
+  const liquidations = trades.filter((trade) => trade.status === "liquidated").length
   const returns = closed.map((trade) => trade.return_pct)
   const wins = closed.filter((trade) => trade.pnl > 0)
   const losses = closed.filter((trade) => trade.pnl < 0)
@@ -256,7 +340,8 @@ function measure(
     sortino: sortino(barReturns, periodsPerYear),
     win_rate_pct: closed.length ? (wins.length / closed.length) * 100 : null,
     profit_factor: grossLoss > 0 ? grossProfit / grossLoss : null,
-    trades: closed.length,
+    trades: closed.length - liquidations,
+    liquidations,
     exposure_pct: equity.length ? (exposedBars / equity.length) * 100 : 0,
     final_equity: finalEquity,
     avg_trade_pct: returns.length ? returns.reduce((sum, value) => sum + value, 0) / returns.length : null,

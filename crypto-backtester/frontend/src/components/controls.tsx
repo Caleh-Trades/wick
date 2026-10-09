@@ -14,13 +14,14 @@ import {
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { SymbolSelect } from "@/components/symbol-select"
-import type { RuleId, Run } from "@/lib/types"
+import type { RuleId, Run, Venue } from "@/lib/types"
 import { MAX_RUNS, RULES, paramsForRule, ruleName, runColor, runProblem } from "@/lib/runs"
 
 type ControlsProps = {
   idPrefix: string
   runs: Run[]
   selected: Run
+  venue: Venue
   running: boolean
   onSelect: (id: string) => void
   onChange: (run: Run) => void
@@ -37,6 +38,7 @@ export function Controls({
   idPrefix,
   runs,
   selected,
+  venue,
   running,
   onSelect,
   onChange,
@@ -145,6 +147,7 @@ export function Controls({
           id={`${idPrefix}-symbol`}
           className="w-full"
           value={selected.symbol}
+          venue={venue}
           onChange={(symbol) => patch({ symbol })}
         />
       </Field>
@@ -227,6 +230,24 @@ export function Controls({
         />
       </Field>
 
+      {venue === "perp" ? (
+        <Field label="Leverage" htmlFor={`${idPrefix}-leverage`}>
+          <Input
+            id={`${idPrefix}-leverage`}
+            type="number"
+            inputMode="decimal"
+            min={1}
+            max={20}
+            step={1}
+            value={selected.leverage}
+            onChange={(event) => {
+              const value = numberOr(event.target.value, selected.leverage)
+              patch({ leverage: Math.min(20, Math.max(1, value)) })
+            }}
+          />
+        </Field>
+      ) : null}
+
       <Field label="Fee (bps)" htmlFor={`${idPrefix}-fee`}>
         <Input
           id={`${idPrefix}-fee`}
@@ -261,6 +282,9 @@ export function Controls({
       <p className="text-xs leading-relaxed break-words text-muted-foreground">
         A signal is fixed on the close and filled on the next bar’s open. Slippage stays at 5 bps. Ten basis points is
         0.10%.
+        {venue === "perp"
+          ? " Perps size the position with this leverage, up to 20×, deduct funding, and liquidate through a 0.40% maintenance margin."
+          : ""}
       </p>
     </form>
   )

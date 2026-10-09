@@ -25,7 +25,7 @@ import {
   tone,
 } from "@/lib/format"
 import { fingerprint, marketById, ruleName, runColor } from "@/lib/runs"
-import type { BacktestResult, Outcome, Run, SortKey, TapeCandle } from "@/lib/types"
+import type { BacktestResult, Outcome, Run, SortKey, TapeCandle, Venue } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 type ResultsProps = {
@@ -35,6 +35,7 @@ type ResultsProps = {
   result: BacktestResult
   candles: TapeCandle[]
   interval: string
+  venue: Venue
   overlays: OverlaySeries[]
   sortKey: SortKey | null
   sortDir: "asc" | "desc"
@@ -53,6 +54,7 @@ export const Results = memo(function Results({
   result,
   candles,
   interval,
+  venue,
   overlays,
   sortKey,
   sortDir,
@@ -63,12 +65,13 @@ export const Results = memo(function Results({
   onSort,
   drawToken,
 }: ResultsProps) {
-  const market = marketById(result.symbol)
+  const market = marketById(result.symbol, venue)
   const metrics = result.metrics
   const split = useSplit()
   const [pane, setPane] = useState<"chart" | "book">("chart")
   const closed = result.trades.filter((trade) => trade.status === "closed").length
-  const open = result.trades.length - closed
+  const liquidated = result.trades.filter((trade) => trade.status === "liquidated").length
+  const open = result.trades.filter((trade) => trade.status === "open").length
   const rows = sortedRows(runs, outcomes, sortKey, sortDir)
   const selectedOutcome = outcomes[selected.id]
   const setupChanged = Boolean(selectedOutcome?.ok && selectedOutcome.fingerprint !== fingerprint(selected))
@@ -117,6 +120,7 @@ export const Results = memo(function Results({
                 candles={candles}
                 trades={result.trades}
                 interval={interval}
+                venue={venue}
                 onEnlarge={onEnlarge}
               />
             </div>
@@ -139,7 +143,7 @@ export const Results = memo(function Results({
             </div>
           </div>
           <div className={cn("h-full min-h-0", pane === "chart" && "hidden xl:block")}>
-            <OrderBook symbol={selected.symbol} />
+            <OrderBook symbol={selected.symbol} venue={venue} />
           </div>
         </div>
       </div>
@@ -159,7 +163,7 @@ export const Results = memo(function Results({
         />
         <Metric
           label="Win rate"
-          hint="Closed round trips only. Click to sort the comparison."
+          hint="Exits and liquidations. Click to sort the comparison."
           value={formatPlainPct(metrics.win_rate_pct, 0)}
           active={sortKey === "win_rate_pct"}
           dir={sortDir}
@@ -168,7 +172,7 @@ export const Results = memo(function Results({
         <Metric
           label="Profit factor"
           hint="Gross profit divided by gross loss. Infinite when nothing lost money. Click to sort the comparison."
-          value={formatFactor(metrics.profit_factor, metrics.trades, metrics.win_rate_pct)}
+          value={formatFactor(metrics.profit_factor, metrics.trades + metrics.liquidations, metrics.win_rate_pct)}
           active={sortKey === "profit_factor"}
           dir={sortDir}
           onSort={() => onSort("profit_factor")}
@@ -178,6 +182,7 @@ export const Results = memo(function Results({
 
       <Comparison
         rows={rows}
+        venue={venue}
         selectedId={selected.id}
         sortKey={sortKey}
         sortDir={sortDir}
@@ -195,14 +200,17 @@ export const Results = memo(function Results({
         Sortino {formatStat(metrics.sortino)}
         {" · "}
         {metrics.trades} closed {metrics.trades === 1 ? "trade" : "trades"}
+        {liquidated ? ` · ${liquidated} liquidated` : ""}
         {open ? ` · ${open} still open` : ""}
+        {result.assumptions.venue === "perp" ? ` · ${result.assumptions.leverage}×` : ""}
+        {result.assumptions.funding_stale ? " · Funding stale" : ""}
       </p>
 
       <div className="bezel p-4">
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
           <h3 className="font-heading text-2xl">Trades</h3>
           <p className="font-mono text-xs text-muted-foreground uppercase">
-            {closed} closed{open ? ` · ${open} open` : ""}
+            {closed} closed{liquidated ? ` · ${liquidated} liquidated` : ""}{open ? ` · ${open} open` : ""}
           </p>
         </div>
         {result.trades.length === 0 ? (
@@ -227,13 +235,13 @@ export const Results = memo(function Results({
                   <TableRow key={`${trade.entry_time}-${trade.side}-${trade.status}`}>
                     <TableCell>
                       <Badge variant={trade.side === "long" ? "default" : "secondary"}>
-                        {trade.side}
-                        {trade.status === "open" ? " · open" : ""}
+                        {trade.side === "short" ? "Short" : "Long"}
+                        {trade.status === "open" ? " · open" : trade.status === "liquidated" ? " · liquidated" : ""}
                       </Badge>
                     </TableCell>
                     <TableCell className="font-mono text-xs">
                       <div>{formatStamp(trade.entry_time, result.interval)}</div>
-                      <div className="text-muted-foreground">{formatPrice(trade.entry_price)}</div>
+                      <div className="text-muted-foreground">{formatPrice(trade.entry_price, market?.tickSize)}</div>
                     </TableCell>
                     <TableCell className="font-mono text-xs">
                       <div>
@@ -242,7 +250,7 @@ export const Results = memo(function Results({
                           : formatStamp(trade.exit_time, result.interval)}
                       </div>
                       <div className="text-muted-foreground">
-                        {trade.exit_price == null ? "—" : formatPrice(trade.exit_price)}
+                        {trade.exit_price == null ? "—" : formatPrice(trade.exit_price, market?.tickSize)}
                       </div>
                     </TableCell>
                     <TableCell className={cn("text-right font-mono text-xs tabular-nums", toneClass(trade.return_pct))}>
@@ -300,6 +308,7 @@ function useSplit(initial = 0.5) {
 
 function Comparison({
   rows,
+  venue,
   selectedId,
   sortKey,
   sortDir,
@@ -309,6 +318,7 @@ function Comparison({
   onSort,
 }: {
   rows: ComparisonRow[]
+  venue: Venue
   selectedId: string
   sortKey: SortKey | null
   sortDir: "asc" | "desc"
@@ -356,7 +366,7 @@ function Comparison({
                     <span>
                       <span className="block">{row.run.name}</span>
                       <span className="font-mono text-[10px] text-muted-foreground uppercase">
-                        {marketById(row.run.symbol)?.base ?? row.run.symbol}
+                        {marketById(row.run.symbol, venue)?.base ?? row.run.symbol}
                         {row.run.hidden ? " · hidden" : ""}
                       </span>
                     </span>

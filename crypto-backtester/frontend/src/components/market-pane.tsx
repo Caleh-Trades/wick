@@ -3,7 +3,7 @@ import { useState } from "react"
 import { PriceChart } from "@/components/charts"
 import { OrderBook } from "@/components/order-book"
 import { Button } from "@/components/ui/button"
-import type { TapeCandle, Trade } from "@/lib/types"
+import type { TapeCandle, Trade, Venue } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 export function MarketPane({
@@ -11,12 +11,14 @@ export function MarketPane({
   candles,
   trades,
   interval,
+  venue,
   onEnlarge,
 }: {
   symbol: string | null
   candles: TapeCandle[]
   trades: Trade[]
   interval: string
+  venue: Venue
   onEnlarge: () => void
 }) {
   const [tab, setTab] = useState<"chart" | "book">("chart")
@@ -49,10 +51,10 @@ export function MarketPane({
       </div>
       <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,1fr)_20rem]">
         <div className={cn("min-h-0", tab === "chart" ? "block" : "hidden xl:block")}>
-          <PriceChart candles={candles} trades={trades} interval={interval} symbol={symbol} onEnlarge={onEnlarge} />
+          <PriceChart candles={candles} trades={trades} interval={interval} symbol={symbol} venue={venue} onEnlarge={onEnlarge} />
         </div>
         <div className={cn("min-h-0", tab === "book" ? "block" : "hidden xl:block")}>
-          <OrderBook symbol={symbol} />
+          <OrderBook symbol={symbol} venue={venue} />
         </div>
       </div>
     </div>

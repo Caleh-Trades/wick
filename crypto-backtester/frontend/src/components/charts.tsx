@@ -13,7 +13,9 @@ import {
 import { QuotePrice } from "@/components/quote-price"
 import { Button } from "@/components/ui/button"
 import { formatAxis, formatCompactMoney, formatMoney, formatPct, formatPrice, formatStamp } from "@/lib/format"
+import { marketSpec } from "@/lib/markets"
 import { plotCandles, priceDomain, thinRows } from "@/lib/plot"
+import type { Venue } from "@/lib/types"
 import { useFormingCandles } from "@/lib/use-book"
 import type { BacktestResult, TapeCandle, Trade } from "@/lib/types"
 
@@ -214,23 +216,26 @@ export const PriceChart = memo(function PriceChart({
   trades,
   interval,
   symbol,
+  venue,
   onEnlarge,
 }: {
   candles: TapeCandle[]
   trades: Trade[]
   interval: string
   symbol: string | null
+  venue: Venue
   onEnlarge: () => void
 }) {
   const shown = useFormingCandles(candles, interval, symbol)
   const rows = plotCandles(shown, trades, 360)
-  const domain = priceDomain(shown)
+  const domain = priceDomain(rows)
+  const tick = symbol ? marketSpec(symbol, venue)?.tickSize : undefined
   if (shown.length === 0) {
     return (
       <div data-price-summary="" className="bezel flex h-full min-h-0 flex-col p-4">
         <div className="flex items-baseline gap-3">
           <h3 className="font-heading text-2xl">Price</h3>
-          <QuotePrice symbol={symbol} />
+          <QuotePrice symbol={symbol} venue={venue} />
         </div>
         <p className="mt-6 text-sm text-muted-foreground">Waiting for bars.</p>
       </div>
@@ -241,12 +246,12 @@ export const PriceChart = memo(function PriceChart({
       <div className="mb-2 flex shrink-0 flex-wrap items-end justify-between gap-3">
         <div className="flex items-baseline gap-3">
           <h3 className="font-heading text-2xl">Price</h3>
-          <QuotePrice symbol={symbol} close={shown.at(-1)?.close} />
+          <QuotePrice symbol={symbol} venue={venue} close={shown.at(-1)?.close} />
         </div>
         <div className="flex items-center gap-4 font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
           <span>Close</span>
-          <span className="text-up">Entry</span>
-          <span className="text-down">Exit</span>
+          <span className="text-up">Long</span>
+          <span className="text-down">Short</span>
           <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={onEnlarge}>
             Enlarge
           </Button>
@@ -268,18 +273,25 @@ export const PriceChart = memo(function PriceChart({
               orientation="right"
               domain={domain}
               allowDataOverflow
-              tickFormatter={(value) => formatPrice(Number(value))}
+              tickFormatter={(value) => formatPrice(Number(value), tick)}
               tick={axisTick}
               axisLine={false}
               tickLine={false}
-              width={72}
+              width={112}
             />
             <Tooltip
-              content={({ active, payload, label }) => (
-                <ChartTip active={active} label={label} interval={interval}>
-                  <TipRow label="Close" value={priceOrDash(numberFrom(payload, "close"))} />
-                </ChartTip>
-              )}
+              content={({ active, payload, label }) => {
+                const row = payload?.[0]?.payload as { entrySide?: string | null; exitSide?: string | null; liquidated?: boolean } | undefined
+                return (
+                  <ChartTip active={active} label={label} interval={interval}>
+                    <TipRow label="Close" value={priceOrDash(numberFrom(payload, "close"), tick)} />
+                    {row?.entrySide ? <TipRow label="Entry" value={sideLabel(row.entrySide)} /> : null}
+                    {row?.exitSide ? (
+                      <TipRow label={row.liquidated ? "Liquidated" : "Exit"} value={sideLabel(row.exitSide)} />
+                    ) : null}
+                  </ChartTip>
+                )
+              }}
             />
             <Line
               type="monotone"
@@ -292,14 +304,18 @@ export const PriceChart = memo(function PriceChart({
             <Line
               dataKey="entry"
               stroke="none"
-              dot={{ r: 3.5, fill: "#3ee0a2", stroke: "#f3e6d6", strokeWidth: 1 }}
+              dot={(props: { cx?: number; cy?: number; payload?: { entrySide?: string | null } }) =>
+                sideDot(props.cx, props.cy, props.payload?.entrySide)
+              }
               isAnimationActive={false}
               connectNulls={false}
             />
             <Line
               dataKey="exit"
               stroke="none"
-              dot={{ r: 3.5, fill: "#ff5d73", stroke: "#f3e6d6", strokeWidth: 1 }}
+              dot={(props: { cx?: number; cy?: number; payload?: { exitSide?: string | null } }) =>
+                sideDot(props.cx, props.cy, props.payload?.exitSide)
+              }
               isAnimationActive={false}
               connectNulls={false}
             />
@@ -335,8 +351,17 @@ function moneyOrDash(value: number | null): string {
   return value == null ? "—" : formatMoney(value, 0)
 }
 
-function priceOrDash(value: number | null): string {
-  return value == null ? "—" : formatPrice(value)
+function priceOrDash(value: number | null, tick?: string): string {
+  return value == null ? "—" : formatPrice(value, tick)
+}
+
+function sideLabel(side: string): string {
+  return side === "short" ? "Short" : "Long"
+}
+
+function sideDot(cx?: number, cy?: number, side?: string | null) {
+  if (cx == null || cy == null || !side) return <g />
+  return <circle cx={cx} cy={cy} r={3.5} fill={side === "short" ? "#ff5d73" : "#3ee0a2"} stroke="#f3e6d6" strokeWidth={1} />
 }
 
 function numberFrom(

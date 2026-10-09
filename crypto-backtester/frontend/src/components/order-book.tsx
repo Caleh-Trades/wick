@@ -1,18 +1,26 @@
-import { formatClock } from "@/lib/format"
-import { stepDecimals } from "@/lib/book"
+import { useEffect, useRef } from "react"
+
+import { formatClock, formatCompact, formatPrice } from "@/lib/format"
 import { marketSpec } from "@/lib/markets"
-import { useLiveBook, type BookStatus } from "@/lib/use-book"
+import { useLiveBook, type BookStatus, type LiveView } from "@/lib/use-book"
 import type { Level } from "@/lib/book"
+import type { Venue } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-export function OrderBook({ symbol }: { symbol: string | null }) {
-  const book = useLiveBook(symbol)
-  const spec = symbol ? marketSpec(symbol) : undefined
-  const tick = spec?.tickSize ?? "0.01"
-  const step = spec?.stepSize ?? "0.00001"
+export function OrderBook({ symbol, venue }: { symbol: string | null; venue: Venue }) {
+  const book = useLiveBook(symbol, venue)
+  const spec = symbol ? marketSpec(symbol, venue) : undefined
+  const tick = spec?.tickSize
   const rows = [...book.asks, ...book.bids]
-  const scale = rows.reduce((max, level) => Math.max(max, level.total), 0)
-  const showLadder = book.status === "connected" && book.asks.length > 0 && book.bids.length > 0
+  const scale = rows.reduce((max, level) => Math.max(max, level.notional), 0)
+  const showLadder = book.asks.length > 0 && book.bids.length > 0
+  const asksRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const node = asksRef.current
+    if (!node) return
+    node.scrollTop = node.scrollHeight
+  }, [book.asks, book.heardAt, showLadder])
 
   return (
     <section className="bezel grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)_auto_minmax(0,1fr)_5.5rem] gap-1 overflow-hidden p-3" aria-label="Order book">
@@ -23,37 +31,37 @@ export function OrderBook({ symbol }: { symbol: string | null }) {
             className="size-1.5 rounded-full"
             style={{ background: book.status === "connected" ? "#e6c36a" : book.status === "stale" ? "#e07856" : "#8d6b56" }}
           />
-          <StatusLabel status={book.status} asOf={book.asOf} />
+          <StatusLabel status={book.status} heardAt={book.heardAt} />
         </p>
       </header>
 
       {showLadder ? (
         <>
           <LevelHead />
-          <div className="flex min-h-0 flex-col-reverse overflow-y-auto">
-            {[...book.asks].reverse().map((level) => (
-              <LevelRow key={`ask-${level.priceKey}`} level={level} scale={scale} tone="ask" tick={tick} step={step} best={level === book.asks.at(-1)} />
+          <div ref={asksRef} className="flex min-h-0 flex-col justify-end overflow-y-auto">
+            {book.asks.map((level) => (
+              <LevelRow key={`ask-${level.priceKey}`} level={level} scale={scale} tone="ask" tick={tick} best={level === book.asks.at(-1)} />
             ))}
           </div>
           <MidRow book={book} tick={tick} />
           <div className="min-h-0 overflow-y-auto">
             {book.bids.map((level) => (
-              <LevelRow key={`bid-${level.priceKey}`} level={level} scale={scale} tone="bid" tick={tick} step={step} best={level === book.bids[0]} />
+              <LevelRow key={`bid-${level.priceKey}`} level={level} scale={scale} tone="bid" tick={tick} best={level === book.bids[0]} />
             ))}
           </div>
         </>
       ) : (
         <p className="row-span-4 px-1 py-6 text-sm text-muted-foreground">
           {book.status === "stale"
-            ? book.asOf
-              ? `Book stale ${formatClock(new Date(book.asOf))} UTC.`
+            ? book.heardAt
+              ? `Book stale ${formatClock(new Date(book.heardAt))} UTC.`
               : "Book stale. No ladder yet."
             : "Waiting for the book."}
         </p>
       )}
 
       <div className="flex min-h-0 flex-col overflow-hidden border-t border-border pt-1">
-        <DeltaRow delta={book.delta} buy={book.buy} sell={book.sell} step={step} />
+        <DeltaRow delta={book.delta} buy={book.buy} sell={book.sell} />
         <div className="mt-1 min-h-0 flex-1 overflow-y-auto" aria-label="Trade tape">
           <div className="mb-1 grid grid-cols-[3.6rem_4rem_minmax(0,1fr)_auto] gap-2 px-1 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
             <span>Time</span>
@@ -75,8 +83,8 @@ export function OrderBook({ symbol }: { symbol: string | null }) {
               >
                 <span>{formatClock(new Date(print.t))}</span>
                 <span>{print.side === "buy" ? "Buy lift" : "Sell hit"}</span>
-                <span className="text-right">{formatStep(print.price, tick)}</span>
-                <span className="text-right">{formatStep(print.size, step)}</span>
+                <span className="text-right">{formatPrice(print.price, tick)}</span>
+                <span className="text-right">{formatCompact(print.size)}</span>
               </div>
             ))
           )}
@@ -86,35 +94,36 @@ export function OrderBook({ symbol }: { symbol: string | null }) {
   )
 }
 
-function StatusLabel({ status, asOf }: { status: BookStatus; asOf: number | null }) {
-  if (status === "connected") return <span>Connected</span>
-  if (status === "stale") return <span>{asOf ? `Stale ${formatClock(new Date(asOf))} UTC` : "Stale"}</span>
+function StatusLabel({ status, heardAt }: { status: BookStatus; heardAt: number | null }) {
+  const clock = heardAt ? `Book ${formatClock(new Date(heardAt))} UTC` : "Book"
+  if (status === "connected") return <span>{clock}</span>
+  if (status === "stale") return <span>{heardAt ? `${clock} · Stale` : "Stale"}</span>
   return <span>Connecting</span>
 }
 
-function MidRow({ book, tick }: { book: ReturnType<typeof useLiveBook>; tick: string }) {
+function MidRow({ book, tick }: { book: LiveView; tick?: string }) {
   const last = book.last
   return (
     <div className="my-1 grid grid-cols-3 gap-2 border-y border-border px-1 py-1.5 font-mono text-[11px]">
       <span>
         <span className="block text-[10px] tracking-wide text-muted-foreground uppercase">Last</span>
         <span className={cn(last?.side === "sell" ? "text-down" : "text-up", last?.changed && (last.side === "sell" ? "last-tick-down" : "last-tick-up"))}>
-          {last ? formatStep(last.price, tick) : "—"}
+          {last ? formatPrice(last.price, tick) : "—"}
         </span>
       </span>
       <span className="text-center">
         <span className="block text-[10px] tracking-wide text-muted-foreground uppercase">Spread</span>
-        <span className="text-muted-foreground">{book.spread == null ? "—" : formatStep(book.spread, tick)}</span>
+        <span className="text-muted-foreground">{book.spread == null ? "—" : formatPrice(book.spread, tick)}</span>
       </span>
       <span className="text-right">
         <span className="block text-[10px] tracking-wide text-muted-foreground uppercase">Mid</span>
-        <span>{book.mid == null ? "—" : formatStep(book.mid, tick)}</span>
+        <span>{book.mid == null ? "—" : formatPrice(book.mid, tick)}</span>
       </span>
     </div>
   )
 }
 
-function DeltaRow({ delta, buy, sell, step }: { delta: number; buy: number; sell: number; step: string }) {
+function DeltaRow({ delta, buy, sell }: { delta: number; buy: number; sell: number }) {
   const total = buy + sell
   const sellWidth = total > 0 ? (sell / total) * 50 : 0
   const buyWidth = total > 0 ? (buy / total) * 50 : 0
@@ -123,7 +132,10 @@ function DeltaRow({ delta, buy, sell, step }: { delta: number; buy: number; sell
     <div>
       <div className="mb-1 flex items-baseline justify-between gap-2 font-mono text-[11px]">
         <span className="tracking-wide text-muted-foreground uppercase">60s delta</span>
-        <span className={delta > 0 ? "text-up" : delta < 0 ? "text-down" : "text-foreground"}>{signedStep(delta, step)}</span>
+        <span className={delta > 0 ? "text-up" : delta < 0 ? "text-down" : "text-foreground"}>
+          {delta > 0 ? "+" : ""}
+          {formatCompact(delta)}
+        </span>
       </div>
       <div className="relative h-2 bg-[#f3e6d6]" aria-hidden="true">
         <div className="absolute inset-y-0 right-1/2 bg-[#ff5d73]/70" style={{ width: `${sellWidth}%` }} />
@@ -136,10 +148,11 @@ function DeltaRow({ delta, buy, sell, step }: { delta: number; buy: number; sell
 
 function LevelHead() {
   return (
-    <div className="grid grid-cols-[1fr_auto_auto] gap-2 px-1 pb-1 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
+    <div className="grid grid-cols-[minmax(0,1fr)_3.2rem_3.2rem_3.6rem] gap-2 px-1 pb-1 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
       <span>Price</span>
-      <span className="w-16 text-right">Size</span>
-      <span className="w-16 text-right">Total</span>
+      <span className="text-right">Size</span>
+      <span className="text-right">Total</span>
+      <span className="text-right">Notional</span>
     </div>
   )
 }
@@ -149,17 +162,15 @@ function LevelRow({
   scale,
   tone,
   tick,
-  step,
   best,
 }: {
   level: Level
   scale: number
   tone: "bid" | "ask"
-  tick: string
-  step: string
+  tick?: string
   best: boolean
 }) {
-  const width = scale > 0 ? Math.min(100, (level.total / scale) * 100) : 0
+  const width = scale > 0 ? Math.min(100, (level.notional / scale) * 100) : 0
   return (
     <div
       className={cn(
@@ -175,25 +186,12 @@ function LevelRow({
           background: tone === "bid" ? "rgb(62 224 162 / 0.16)" : "rgb(255 93 115 / 0.16)",
         }}
       />
-      <div className="relative grid grid-cols-[1fr_auto_auto] gap-2">
-        <span className={tone === "bid" ? "text-up" : "text-down"}>{formatStep(level.price, tick)}</span>
-        <span className="w-16 text-right">{formatStep(level.size, step)}</span>
-        <span className="w-16 text-right text-muted-foreground">{formatStep(level.total, step)}</span>
+      <div className="relative grid grid-cols-[minmax(0,1fr)_3.2rem_3.2rem_3.6rem] gap-2">
+        <span className={tone === "bid" ? "text-up" : "text-down"}>{formatPrice(level.price, tick)}</span>
+        <span className="text-right">{formatCompact(level.size)}</span>
+        <span className="text-right text-muted-foreground">{formatCompact(level.total)}</span>
+        <span className="text-right text-muted-foreground">{formatCompact(level.notional)}</span>
       </div>
     </div>
   )
-}
-
-function formatStep(value: number, step: string): string {
-  const digits = stepDecimals(step)
-  return value.toLocaleString("en-US", {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  })
-}
-
-function signedStep(value: number, step: string): string {
-  if (!Number.isFinite(value) || value === 0) return formatStep(0, step)
-  const body = formatStep(Math.abs(value), step)
-  return value > 0 ? `+${body}` : `-${body}`
 }

@@ -5,10 +5,11 @@ import { X } from "lucide-react"
 import { QuotePrice } from "@/components/quote-price"
 import { Button } from "@/components/ui/button"
 import { formatAxis, formatPct, formatPlainPct, formatPrice, formatStamp, formatStat, tone } from "@/lib/format"
+import { marketSpec } from "@/lib/markets"
 import { barsLabel } from "@/lib/runs"
 import { useFormingCandles } from "@/lib/use-book"
 import { plotCandles, priceDomain, type PlotBar } from "@/lib/plot"
-import type { Metrics, TapeCandle, Trade } from "@/lib/types"
+import type { Metrics, TapeCandle, Trade, Venue } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const MIN_BARS = 20
@@ -23,6 +24,7 @@ export const ResearchChart = memo(function ResearchChart({
   trades,
   interval,
   symbol,
+  venue,
   metrics,
   runName,
   onClose,
@@ -31,6 +33,7 @@ export const ResearchChart = memo(function ResearchChart({
   trades: Trade[]
   interval: string
   symbol: string | null
+  venue: Venue
   metrics: Metrics | null
   runName: string
   onClose: () => void
@@ -154,6 +157,7 @@ export const ResearchChart = memo(function ResearchChart({
   )
   const bars = useMemo(() => (settled ? plotCandles(slice, trades, 220) : []), [settled, slice, trades])
   const domain = useMemo(() => (settled ? priceDomain(slice) : ([1, 2] as [number, number])), [settled, slice])
+  const tick = symbol ? marketSpec(symbol, venue)?.tickSize : undefined
   const windowStart = candles[view.start]
   const windowEnd = candles[view.end]
 
@@ -335,7 +339,7 @@ export const ResearchChart = memo(function ResearchChart({
           <div>
             <p className="flex flex-wrap items-baseline gap-3 text-[0.65rem] font-semibold tracking-[0.18em] text-bench uppercase">
               <span>Price · {runName}</span>
-              <QuotePrice symbol={symbol} close={candles.at(-1)?.close} />
+              <QuotePrice symbol={symbol} venue={venue} close={candles.at(-1)?.close} />
             </p>
             <p className="mt-1 font-mono text-[11px] tracking-wide text-bench uppercase">
               {barsLabel(interval, candles.length)}
@@ -392,13 +396,13 @@ export const ResearchChart = memo(function ResearchChart({
                   orientation="right"
                   domain={domain}
                   allowDataOverflow
-                  tickFormatter={(value) => formatPrice(Number(value))}
+                  tickFormatter={(value) => formatPrice(Number(value), tick)}
                   tick={axisTick}
                   axisLine={false}
                   tickLine={false}
-                  width={76}
+                  width={112}
                 />
-                <Tooltip content={({ active, payload, label }) => <CandleTip active={active} label={label} payload={payload} interval={interval} />} />
+                <Tooltip content={({ active, payload, label }) => <CandleTip active={active} label={label} payload={payload} interval={interval} tick={tick} />} />
                 <Line type="linear" dataKey="close" stroke="transparent" dot={false} activeDot={false} isAnimationActive={false} />
               </ComposedChart>
             </ResponsiveContainer>
@@ -420,7 +424,7 @@ export const ResearchChart = memo(function ResearchChart({
                   tick={axisTick}
                   axisLine={false}
                   tickLine={false}
-                  width={76}
+                  width={112}
                 />
                 <Tooltip
                   content={({ active, payload, label }) =>
@@ -498,8 +502,8 @@ function CandleLayer({ bars, domain, plot }: { bars: PlotBar[]; domain: [number,
       downWicks += wick
       downBodies += body
     }
-    if (bar.entry != null) marks.push({ x: cx, y: y(bar.entry), fill: "#3ee0a2" })
-    if (bar.exit != null) marks.push({ x: cx, y: y(bar.exit), fill: "#ff5d73" })
+    if (bar.entry != null && bar.entrySide) marks.push({ x: cx, y: y(bar.entry), fill: bar.entrySide === "short" ? "#ff5d73" : "#3ee0a2" })
+    if (bar.exit != null && bar.exitSide) marks.push({ x: cx, y: y(bar.exit), fill: bar.exitSide === "short" ? "#ff5d73" : "#3ee0a2" })
   }
   return (
     <svg className="pointer-events-none absolute" style={{ left: plot.left, top: plot.top, width: plot.width, height: plot.height }} aria-hidden="true">
@@ -519,22 +523,30 @@ function CandleTip({
   label,
   payload,
   interval,
+  tick,
 }: {
   active?: boolean
   label?: string | number
   payload?: ReadonlyArray<{ payload?: PlotBar }>
   interval: string
+  tick?: string
 }) {
   const bar = payload?.[0]?.payload
   if (!active || !bar || label == null) return null
   return (
     <div className="border border-border bg-[#fffaf4] px-3 py-2 font-mono text-xs text-[#3c2a22]">
       <div className="mb-1 text-[10px] tracking-wide uppercase opacity-70">{formatStamp(String(label), interval)}</div>
-      <div>O {formatPrice(bar.open)}</div>
-      <div>H {formatPrice(bar.high)}</div>
-      <div>L {formatPrice(bar.low)}</div>
-      <div>C {formatPrice(bar.close)}</div>
+      <div>O {formatPrice(bar.open, tick)}</div>
+      <div>H {formatPrice(bar.high, tick)}</div>
+      <div>L {formatPrice(bar.low, tick)}</div>
+      <div>C {formatPrice(bar.close, tick)}</div>
       <div>Vol {formatVolume(bar.volume)}</div>
+      {bar.entrySide ? <div>{bar.entrySide === "short" ? "Short" : "Long"} entry</div> : null}
+      {bar.exitSide ? (
+        <div>
+          {bar.exitSide === "short" ? "Short" : "Long"} {bar.liquidated ? "liquidation" : "exit"}
+        </div>
+      ) : null}
     </div>
   )
 }

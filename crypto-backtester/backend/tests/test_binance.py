@@ -2,8 +2,15 @@ import time
 
 from fastapi.testclient import TestClient
 
-from app.binance_feed import _binance_span, is_binance_symbol, list_usdt_markets, load_binance_series
-from app.data import get_interval, span_days
+from app.binance_feed import (
+    _binance_span,
+    _kline_url,
+    is_binance_symbol,
+    list_usdt_markets,
+    load_binance_series,
+    load_funding,
+)
+from app.data import DataUnavailable, get_interval, span_days
 from app.engine import Candle
 from app.main import app
 
@@ -27,7 +34,7 @@ def test_market_list_pins_the_majors_and_reads_tick_size(monkeypatch):
             _symbol("OLDUSDT", "OLD", "0.01000000", "1", status="BREAK"),
         ]
     }
-    monkeypatch.setattr("app.binance_feed._exchange_info", lambda: payload)
+    monkeypatch.setattr("app.binance_feed._exchange_info", lambda venue="spot": payload)
     markets = list_usdt_markets()
     assert [item["base"] for item in markets] == ["BTC", "ETH", "SOL", "XRP", "DOGE"]
     bitcoin = markets[0]
@@ -37,8 +44,9 @@ def test_market_list_pins_the_majors_and_reads_tick_size(monkeypatch):
 
 
 def test_klines_become_second_candles(monkeypatch):
-    def fetch(symbol, interval, start, end, seconds):
+    def fetch(symbol, interval, start, end, seconds, venue="spot"):
         assert symbol == "ETHUSDT"
+        assert venue == "spot"
         assert interval == "1h"
         assert seconds == 3600
         now = int(time.time())
@@ -74,8 +82,9 @@ def test_hourly_and_coarser_ranges_cover_the_requested_years():
 def test_load_uses_the_wider_hourly_span(monkeypatch):
     captured: dict[str, int] = {}
 
-    def fetch(symbol, interval, start, end, seconds):
+    def fetch(symbol, interval, start, end, seconds, venue="spot"):
         assert symbol == "BTCUSDT"
+        assert venue == "spot"
         captured["span"] = (end - start) // 86_400
         captured["seconds"] = seconds
         now = int(time.time())
@@ -92,13 +101,88 @@ def test_load_uses_the_wider_hourly_span(monkeypatch):
     assert captured["span"] < 60
 
 
+def test_perp_list_keeps_usdt_perpetuals(monkeypatch):
+    payload = {
+        "symbols": [
+            _symbol("BTCUSDT", "BTC", "0.10", "0.001", contract="PERPETUAL"),
+            _symbol("ETHUSDT_241227", "ETH", "0.01", "0.001", contract="CURRENT_QUARTER"),
+            _symbol("SOLUSDT", "SOL", "0.010", "0.01", contract="PERPETUAL"),
+            _symbol("BTCUSD_PERP", "BTC", "0.1", "1", contract="PERPETUAL", quote="USD"),
+            _symbol("OLDUSDT", "OLD", "0.01", "1", contract="PERPETUAL", status="BREAK"),
+        ]
+    }
+    monkeypatch.setattr("app.binance_feed._exchange_info", lambda venue="spot": payload)
+    markets = list_usdt_markets("perp")
+    assert [item["id"] for item in markets] == ["BTCUSDT", "SOLUSDT"]
+    assert markets[0]["tickSize"] == "0.10"
+
+
+def test_kline_url_follows_the_venue():
+    assert _kline_url("spot").endswith("/api/v3/klines")
+    assert _kline_url("perp").endswith("/fapi/v1/klines")
+    assert "fapi.binance.com" in _kline_url("perp")
+
+
+def test_funding_history_is_kept_and_a_failure_does_not_invent_zero(monkeypatch):
+    def page(symbol, start_ms, end_ms):
+        assert symbol == "BTCUSDT"
+        return [
+            {"symbol": symbol, "fundingRate": "0.00010000", "fundingTime": start_ms + 1_000, "markPrice": "100.5"}
+        ]
+
+    monkeypatch.setattr("app.binance_feed._read_funding_cache", lambda key: None)
+    monkeypatch.setattr("app.binance_feed._write_funding_cache", lambda key, rates: None)
+    monkeypatch.setattr("app.binance_feed._funding_page", page)
+    rates, stale = load_funding("BTCUSDT", 1_700_000_000, 1_700_086_400)
+    assert stale is False
+    assert rates == [{"t": 1_700_000_001, "rate": 0.0001, "mark": 100.5}]
+
+    def down(symbol, start_ms, end_ms):
+        raise DataUnavailable("down")
+
+    monkeypatch.setattr("app.binance_feed._funding_page", down)
+    try:
+        load_funding("ETHUSDT", 1_700_000_000, 1_700_086_400)
+    except DataUnavailable as exc:
+        assert "invent" in str(exc)
+    else:
+        raise AssertionError("missing funding should not come back as an empty rate")
+
+    monkeypatch.setattr(
+        "app.binance_feed._read_funding_cache",
+        lambda key: ([{"t": 1_700_000_000, "rate": -0.0002}], time.time() - 40 * 60),
+    )
+    cached, stale_cache = load_funding("ETHUSDT", 1_700_000_000, 1_700_086_400)
+    assert stale_cache is True
+    assert cached == [{"t": 1_700_000_000, "rate": -0.0002}]
+
+
+def test_candles_route_loads_perp_funding_without_inventing_it(monkeypatch):
+    now = int(time.time())
+
+    def load(symbol, interval, days=None, venue="spot"):
+        assert symbol == "BTCUSDT"
+        assert venue == "perp"
+        return ([Candle(time=now - 3_600, open=1, high=2, low=1, close=1.5, volume=4)], "binance-perp")
+
+    monkeypatch.setattr("app.main.load_binance_series", load)
+    monkeypatch.setattr("app.main.load_funding", lambda symbol, start, end: (_ for _ in ()).throw(DataUnavailable("down")))
+    response = TestClient(app).get("/api/candles", params={"symbol": "BTCUSDT", "interval": "1h", "days": 1, "venue": "perp"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source"] == "binance-perp"
+    assert body["funding"] is None
+    assert body["funding_stale"] is True
+
+
 def test_candles_route_loads_binance_usdt_pairs(monkeypatch):
     now = int(time.time())
 
-    def load(symbol, interval, days=None):
+    def load(symbol, interval, days=None, venue="spot"):
         assert symbol == "SOLUSDT"
         assert interval == "5m"
         assert days == 1
+        assert venue == "spot"
         return ([Candle(time=now - 60, open=1, high=2, low=1, close=1.5, volume=4)], "binance")
 
     monkeypatch.setattr("app.main.load_binance_series", load)
@@ -111,8 +195,16 @@ def test_candles_route_loads_binance_usdt_pairs(monkeypatch):
     assert body["candles"][0]["close"] == 1.5
 
 
-def _symbol(symbol: str, base: str, tick: str, step: str, quote: str = "USDT", status: str = "TRADING") -> dict:
-    return {
+def _symbol(
+    symbol: str,
+    base: str,
+    tick: str,
+    step: str,
+    quote: str = "USDT",
+    status: str = "TRADING",
+    contract: str | None = None,
+) -> dict:
+    row = {
         "symbol": symbol,
         "status": status,
         "baseAsset": base,
@@ -123,3 +215,7 @@ def _symbol(symbol: str, base: str, tick: str, step: str, quote: str = "USDT", s
             {"filterType": "LOT_SIZE", "stepSize": step},
         ],
     }
+    if contract:
+        row["contractType"] = contract
+        row["marginAsset"] = "USDT"
+    return row

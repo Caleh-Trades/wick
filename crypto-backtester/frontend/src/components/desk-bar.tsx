@@ -1,36 +1,38 @@
-import { useEffect, useState } from "react"
-
 import { SymbolSelect } from "@/components/symbol-select"
 import { Button } from "@/components/ui/button"
-import { formatClock, formatDay, formatPrice, sourceLabel } from "@/lib/format"
+import { formatClock, formatDay, formatPrice } from "@/lib/format"
 import { RANGES, TIMEFRAMES, barsLabel, marketById, windowNote } from "@/lib/runs"
-import type { MarketId, RangeId, Tape, Timeframe } from "@/lib/types"
+import type { MarketId, RangeId, Tape, Timeframe, Venue } from "@/lib/types"
 
 type DeskBarProps = {
   symbol: MarketId | null
   timeframe: Timeframe
   range: RangeId
+  venue: Venue
   tape: Tape | null
   stale: boolean
   lastFetchAt: Date | null
   onSymbol: (symbol: MarketId) => void
   onTimeframe: (timeframe: Timeframe) => void
   onRange: (range: RangeId) => void
+  onVenue: (venue: Venue) => void
 }
 
 export function DeskBar({
   symbol,
   timeframe,
   range,
+  venue,
   tape,
   stale,
   lastFetchAt,
   onSymbol,
   onTimeframe,
   onRange,
+  onVenue,
 }: DeskBarProps) {
   const frame = TIMEFRAMES.find((item) => item.id === timeframe)
-  const market = symbol ? marketById(symbol) : undefined
+  const market = symbol ? marketById(symbol, venue) : undefined
   const last = tape?.candles.at(-1)
   const first = tape?.candles[0]
   const limited = tape ? windowNote(range, tape) : null
@@ -46,8 +48,24 @@ export function DeskBar({
           <h1 className="font-mono text-sm tracking-[0.32em] text-[#c56a32] uppercase">Wick</h1>
         </div>
 
+        <div className="flex shrink-0 gap-1" role="group" aria-label="Venue">
+          {(["spot", "perp"] as const).map((item) => (
+            <Button
+              key={item}
+              type="button"
+              size="xs"
+              variant={item === venue ? "default" : "outline"}
+              className="normal-case tracking-normal"
+              aria-pressed={item === venue}
+              onClick={() => onVenue(item)}
+            >
+              {item === "spot" ? "Spot" : "Perp"}
+            </Button>
+          ))}
+        </div>
+
         {symbol ? (
-          <SymbolSelect value={symbol} className="w-44" onChange={(value) => onSymbol(value)} />
+          <SymbolSelect value={symbol} venue={venue} className="w-44" onChange={(value) => onSymbol(value)} />
         ) : null}
 
         <div className="flex shrink-0 gap-1 overflow-x-auto" role="group" aria-label="Timeframe">
@@ -83,22 +101,21 @@ export function DeskBar({
         </div>
 
         <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
+          <span>{venue === "perp" ? "Binance perp" : "Binance spot"}</span>
           {tape && last && first ? (
             <>
               <span>{market?.base ?? tape.symbol}</span>
-              <span>{sourceLabel(tape.source)}</span>
               <span>{barsLabel(timeframe, tape.candles.length)}</span>
               <span>
                 {formatDay(first.time)} – {formatDay(last.time)}
               </span>
-              <span className="text-foreground tabular-nums">{formatPrice(last.close)}</span>
+              <span className="text-foreground tabular-nums">{formatPrice(last.close, market?.tickSize)}</span>
               {limited ? <span>{limited}</span> : null}
             </>
           ) : (
             <span>Loading {frame?.label ?? timeframe} bars</span>
           )}
-          {lastFetchAt ? <span>Updated {formatClock(lastFetchAt)} UTC</span> : null}
-          <LiveClock />
+          <span>Candles {lastFetchAt ? `${formatClock(lastFetchAt)} UTC` : "—"}</span>
         </div>
       </div>
       {stale ? (
@@ -108,20 +125,6 @@ export function DeskBar({
         </p>
       ) : null}
     </header>
-  )
-}
-
-function LiveClock() {
-  const [now, setNow] = useState(() => new Date())
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 1000)
-    return () => window.clearInterval(timer)
-  }, [])
-  return (
-    <span className="inline-flex items-center gap-1.5">
-      <span className="live-dot" />
-      Live {formatClock(now)} UTC
-    </span>
   )
 }
 

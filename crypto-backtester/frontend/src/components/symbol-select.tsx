@@ -7,21 +7,24 @@ import { Input } from "@/components/ui/input"
 import { toggleFavourite, useFavourites } from "@/lib/favourites"
 import { orderMarkets } from "@/lib/market-search"
 import { marketName, type SpotMarket } from "@/lib/markets"
-import { useSpotMarkets } from "@/lib/use-markets"
+import { useMarkets } from "@/lib/use-markets"
+import type { Venue } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 export function SymbolSelect({
   value,
+  venue,
   onChange,
   id,
   className,
 }: {
   value: string
+  venue: Venue
   onChange: (symbol: string) => void
   id?: string
   className?: string
 }) {
-  const markets = useSpotMarkets()
+  const markets = useMarkets(venue)
   const favourites = useFavourites()
   const listId = useId()
   const rootRef = useRef<HTMLDivElement>(null)

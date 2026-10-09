@@ -1,7 +1,9 @@
 import assert from "node:assert/strict"
 
 import { projectLadder, rollingFlow, stepDecimals, streamNames, takerSide, type Print } from "../src/lib/book.ts"
+import { formatCompact, formatPrice } from "../src/lib/format.ts"
 import { mergeForming } from "../src/lib/forming.ts"
+import { priceDomain } from "../src/lib/plot.ts"
 import { barsLabel, rangeDays, windowNote } from "../src/lib/runs.ts"
 import type { TapeCandle } from "../src/lib/types.ts"
 
@@ -25,6 +27,8 @@ assert.equal(first.bids[1]?.total, 3)
 assert.equal(first.asks[0]?.price, 111)
 assert.equal(first.asks.at(-1)?.price, 110)
 assert.equal(first.asks[0]?.total, 4)
+assert.equal(first.asks[0]?.notional, 333)
+assert.equal(first.bids[0]?.notional, 100)
 assert.equal(first.spread, 10)
 assert.equal(first.mid, 105)
 assert.equal(first.bids[0]?.changed, false)
@@ -57,6 +61,16 @@ assert.equal(empty.crossed, true)
 assert.equal(empty.asks.length, 0)
 
 assert.deepEqual(streamNames("ETHUSDT"), ["ethusdt@depth20@100ms", "ethusdt@trade"])
+assert.deepEqual(streamNames("ETHUSDT", "perp"), ["ethusdt@depth20@100ms", "ethusdt@aggTrade"])
+assert.equal(formatPrice(0.00000391, "0.00000001"), "0.00000391")
+assert.equal(formatCompact(1_500), "1.50K")
+assert.equal(formatCompact(2_500_000), "2.50M")
+assert.equal(formatCompact(3_000_000_000), "3.00B")
+const [axisLow, axisHigh] = priceDomain([{ low: 60_000, high: 64_000 }])
+const pad = (64_000 - 60_000) * 0.04
+assert.ok(Math.abs(axisLow - (60_000 - pad)) < 1e-6)
+assert.ok(Math.abs(axisHigh - (64_000 + pad)) < 1e-6)
+assert.ok(axisLow > 50_000)
 assert.equal(takerSide(true), "sell")
 assert.equal(takerSide(false), "buy")
 

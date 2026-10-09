@@ -1,5 +1,5 @@
 import { getMarkets, marketName, normalizeSymbol } from "./markets.ts"
-import type { MarketId, RangeId, Run, RunParams, RuleId, TapeCandle, Timeframe } from "./types.ts"
+import type { MarketId, RangeId, Run, RunParams, RuleId, TapeCandle, Timeframe, Venue } from "./types.ts"
 
 export const STORAGE_KEY = "wick-runs"
 export const MAX_RUNS = 5
@@ -198,7 +198,7 @@ export const TIMEFRAMES: { id: Timeframe; label: string; phrase: string }[] = [
 ]
 
 export const RANGES: { id: RangeId; label: string; days: number }[] = [
-  { id: "1D", label: "1D", days: 1 },
+  { id: "1D", label: "1 day", days: 1 },
   { id: "5D", label: "5D", days: 5 },
   { id: "1M", label: "1M", days: 31 },
   { id: "3M", label: "3M", days: 92 },
@@ -216,6 +216,7 @@ export type DeskState = {
   selectedId: string
   timeframe: Timeframe
   range: RangeId
+  venue: Venue
   enlarged: boolean
 }
 
@@ -232,12 +233,12 @@ export function normalizeRule(rule: string): RuleId {
   return ruleById(rule)?.id ?? "sma_cross"
 }
 
-export function marketById(symbol: string): { id: MarketId; base: string; name: string } | undefined {
+export function marketById(symbol: string, venue: Venue = "spot"): { id: MarketId; base: string; name: string; tickSize?: string } | undefined {
   const id = normalizeSymbol(symbol)
   if (!id) return undefined
-  const known = getMarkets().find((market) => market.id === id)
+  const known = getMarkets(venue).find((market) => market.id === id)
   const base = known?.base ?? id.replace(/USDT$/, "")
-  return { id, base, name: marketName(base) }
+  return { id, base, name: marketName(base), tickSize: known?.tickSize }
 }
 
 export function defaultParams(): RunParams {
@@ -343,6 +344,7 @@ export function createRun(partial?: Partial<Run>, existing: Run[] = []): Run {
     params,
     feeBps: partial?.feeBps ?? 10,
     capital: clampNum(partial?.capital, 1, 1_000_000_000, 10_000),
+    leverage: clampNum(partial?.leverage, 1, 20, 3),
     allowShort: partial?.allowShort !== false,
     hidden: partial?.hidden ?? false,
   }
@@ -376,7 +378,7 @@ export function windowNote(range: RangeId, tape: { interval: string; candles: { 
 
 export function defaultDesk(): DeskState {
   const run = createRun({ name: "SMA 20/50" })
-  return { runs: [run], selectedId: run.id, timeframe: "1d", range: "All", enlarged: false }
+  return { runs: [run], selectedId: run.id, timeframe: "1d", range: "All", venue: "spot", enlarged: false }
 }
 
 export function loadDesk(): DeskState {
@@ -390,11 +392,13 @@ export function loadDesk(): DeskState {
     const selectedId = trimmed.some((run) => run.id === parsed.selectedId) ? String(parsed.selectedId) : trimmed[0]!.id
     const timeframe = isTimeframe(parsed.timeframe) ? parsed.timeframe : "1d"
     const range = isRange(parsed.range) ? parsed.range : "All"
+    const venue = isVenue(parsed.venue) ? parsed.venue : "spot"
     return {
       runs: trimmed,
       selectedId,
       timeframe,
       range,
+      venue,
       enlarged: Boolean(parsed.enlarged),
     }
   } catch {
@@ -422,7 +426,7 @@ export function pollIntervalMs(timeframe: Timeframe): number {
 export function fingerprint(run: Run): string {
   const spec = ruleById(normalizeRule(run.rule))
   const fields = (spec?.params ?? []).map((param) => `${param.key}:${run.params[param.key] ?? param.default}`)
-  return [run.symbol, normalizeRule(run.rule), fields.join(","), run.feeBps, run.capital, run.allowShort ? "short" : "flat"].join("|")
+  return [run.symbol, normalizeRule(run.rule), fields.join(","), run.feeBps, run.capital, run.allowShort ? "short" : "flat", run.leverage].join("|")
 }
 
 function sanitizeRun(value: unknown): Run | null {
@@ -439,6 +443,7 @@ function sanitizeRun(value: unknown): Run | null {
     params: sanitizeParams(raw.params),
     feeBps: clampInt(raw.feeBps, 0, 1000, 10),
     capital: clampNum(raw.capital, 1, 1_000_000_000, 10_000),
+    leverage: clampNum(raw.leverage, 1, 20, 3),
     allowShort: raw.allowShort !== false,
     hidden: Boolean(raw.hidden),
   }
@@ -478,6 +483,10 @@ function isTimeframe(value: unknown): value is Timeframe {
 
 function isRange(value: unknown): value is RangeId {
   return RANGES.some((item) => item.id === value)
+}
+
+function isVenue(value: unknown): value is Venue {
+  return value === "spot" || value === "perp"
 }
 
 function browserStorage(): Storage | null {

@@ -48,6 +48,7 @@ export function EquityChart({ result }: { result: BacktestResult }) {
             />
             <YAxis
               orientation="right"
+              domain={[(value: number) => value - Math.abs(value) * 0.06, (value: number) => value + Math.abs(value) * 0.06]}
               tickFormatter={(value) => formatCompactMoney(Number(value))}
               tick={axisTick}
               axisLine={false}

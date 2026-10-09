@@ -4,6 +4,11 @@ export function formatPct(value: number | null | undefined, digits = 1): string 
   return `${sign}${value.toFixed(digits)}%`
 }
 
+export function formatPlainPct(value: number | null | undefined, digits = 0): string {
+  if (value == null || Number.isNaN(value)) return "—"
+  return `${value.toFixed(digits)}%`
+}
+
 export function formatMoney(value: number, digits = 0): string {
   return value.toLocaleString("en-US", {
     style: "currency",

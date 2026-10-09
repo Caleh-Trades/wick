@@ -214,7 +214,7 @@ export function Controls({ idPrefix, meta, draft, running, onChange, onRun }: Co
       <Button type="submit" disabled={running} className="w-full">
         {running ? "Running" : "Run backtest"}
       </Button>
-      <p className="text-xs leading-relaxed text-muted-foreground">
+      <p className="text-xs leading-relaxed break-words text-muted-foreground">
         A signal is fixed on the close and filled on the next bar’s open. Ten basis points is 0.10%.
       </p>
     </form>

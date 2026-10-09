@@ -101,8 +101,8 @@ export default function App() {
       </header>
 
       <main className="mx-auto grid max-w-6xl gap-10 px-5 py-8 lg:grid-cols-[320px_minmax(0,1fr)]">
-        <aside className="hidden lg:block">
-          <div className="sticky top-6 max-h-[calc(100svh-3rem)] overflow-y-auto pr-2">
+        <aside className="hidden min-w-0 lg:block">
+          <div className="sticky top-6 max-h-[calc(100svh-3rem)] overflow-x-hidden overflow-y-auto pr-2">
             {meta && draft ? (
               <Controls
                 idPrefix="desk"

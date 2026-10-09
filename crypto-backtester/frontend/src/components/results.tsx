@@ -14,6 +14,7 @@ import {
   formatFactor,
   formatMoney,
   formatPct,
+  formatPlainPct,
   formatPrice,
   formatStamp,
   formatStat,
@@ -57,7 +58,7 @@ export function Results({ result, meta }: { result: BacktestResult; meta: Meta }
           hint="Annualized return divided by volatility. Crypto is marked on a 365-day year."
           value={formatStat(metrics.sharpe)}
         />
-        <Metric label="Win rate" hint="Closed round trips only." value={formatPct(metrics.win_rate_pct, 0)} />
+        <Metric label="Win rate" hint="Closed round trips only." value={formatPlainPct(metrics.win_rate_pct, 0)} />
         <Metric
           label="Profit factor"
           hint="Gross profit divided by gross loss. Infinite when nothing lost money."
@@ -67,13 +68,14 @@ export function Results({ result, meta }: { result: BacktestResult; meta: Meta }
       </div>
 
       <p className="font-mono text-xs text-muted-foreground">
-        In the market {formatPct(metrics.exposure_pct, 0).replace("+", "")}
+        In the market {formatPlainPct(metrics.exposure_pct, 0)}
         {" · "}
         CAGR {formatPct(metrics.cagr_pct)}
         {" · "}
         Sortino {formatStat(metrics.sortino)}
         {" · "}
         {metrics.trades} closed {metrics.trades === 1 ? "trade" : "trades"}
+        {open ? ` · ${open} still open` : ""}
       </p>
 
       <PriceChart result={result} />

@@ -49,7 +49,7 @@ export function MarketPane({
       </div>
       <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,1fr)_20rem]">
         <div className={cn("min-h-0", tab === "chart" ? "block" : "hidden xl:block")}>
-          <PriceChart candles={candles} trades={trades} interval={interval} onEnlarge={onEnlarge} />
+          <PriceChart candles={candles} trades={trades} interval={interval} symbol={symbol} onEnlarge={onEnlarge} />
         </div>
         <div className={cn("min-h-0", tab === "book" ? "block" : "hidden xl:block")}>
           <OrderBook symbol={symbol} />

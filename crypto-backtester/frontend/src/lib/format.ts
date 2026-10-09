@@ -126,6 +126,7 @@ export function daysAgoUtc(days: number): string {
 }
 
 export function sourceLabel(source: string): string {
+  if (source === "binance") return "Binance spot"
   if (source === "coinbase") return "Coinbase spot"
   if (source === "kraken") return "Kraken spot"
   return source

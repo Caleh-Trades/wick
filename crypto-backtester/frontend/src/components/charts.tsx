@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { formatAxis, formatCompactMoney, formatMoney, formatPct, formatPrice, formatStamp } from "@/lib/format"
 import { plotCandles, priceDomain, thinRows } from "@/lib/plot"
+import { useFormingCandles } from "@/lib/use-book"
 import type { BacktestResult, TapeCandle, Trade } from "@/lib/types"
 
 export type OverlaySeries = {
@@ -211,15 +212,18 @@ export const PriceChart = memo(function PriceChart({
   candles,
   trades,
   interval,
+  symbol,
   onEnlarge,
 }: {
   candles: TapeCandle[]
   trades: Trade[]
   interval: string
+  symbol: string | null
   onEnlarge: () => void
 }) {
-  const rows = plotCandles(candles, trades, 360)
-  const domain = priceDomain(candles)
+  const shown = useFormingCandles(candles, interval, symbol)
+  const rows = plotCandles(shown, trades, 360)
+  const domain = priceDomain(shown)
   return (
     <div data-price-summary="" className="bezel flex h-full min-h-0 flex-col p-4">
       <div className="mb-2 flex shrink-0 flex-wrap items-end justify-between gap-3">

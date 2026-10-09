@@ -4,7 +4,8 @@ import { X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { formatAxis, formatPct, formatPlainPct, formatPrice, formatStamp, formatStat, tone } from "@/lib/format"
-import { phraseFor } from "@/lib/runs"
+import { barsLabel } from "@/lib/runs"
+import { useFormingCandles } from "@/lib/use-book"
 import { plotCandles, priceDomain, type PlotBar } from "@/lib/plot"
 import type { Metrics, TapeCandle, Trade } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -17,9 +18,10 @@ type PlotBox = { left: number; top: number; width: number; height: number }
 type Drag = { kind: "zoom" | "pan"; x0: number; origin: View; x: number }
 
 export const ResearchChart = memo(function ResearchChart({
-  candles,
+  candles: fetched,
   trades,
   interval,
+  symbol,
   metrics,
   runName,
   onClose,
@@ -27,10 +29,12 @@ export const ResearchChart = memo(function ResearchChart({
   candles: TapeCandle[]
   trades: Trade[]
   interval: string
+  symbol: string | null
   metrics: Metrics | null
   runName: string
   onClose: () => void
 }) {
+  const candles = useFormingCandles(fetched, interval, symbol)
   const closeRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const frameRef = useRef<HTMLDivElement>(null)
@@ -149,7 +153,6 @@ export const ResearchChart = memo(function ResearchChart({
   )
   const bars = useMemo(() => (settled ? plotCandles(slice, trades, 220) : []), [settled, slice, trades])
   const domain = useMemo(() => (settled ? priceDomain(slice) : ([1, 2] as [number, number])), [settled, slice])
-  const phrase = phraseFor(interval)
   const windowStart = candles[view.start]
   const windowEnd = candles[view.end]
 
@@ -331,7 +334,7 @@ export const ResearchChart = memo(function ResearchChart({
           <div>
             <p className="text-[0.65rem] font-semibold tracking-[0.18em] text-bench uppercase">Price · {runName}</p>
             <p className="mt-1 font-mono text-[11px] tracking-wide text-bench uppercase">
-              {candles.length.toLocaleString("en-US")} {phrase} bars
+              {barsLabel(interval, candles.length)}
               {windowStart && windowEnd ? ` · ${formatStamp(windowStart.time, interval)} – ${formatStamp(windowEnd.time, interval)}` : ""}
             </p>
           </div>

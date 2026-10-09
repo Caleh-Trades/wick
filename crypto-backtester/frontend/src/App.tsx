@@ -501,7 +501,7 @@ export default function App() {
                 symbol={selected?.symbol ?? activeTape.symbol}
                 candles={activeTape.candles}
                 trades={EMPTY_TRADES}
-                interval={activeTape.interval}
+                interval={desk.timeframe}
                 onEnlarge={enlarge}
               />
             </div>
@@ -578,7 +578,8 @@ export default function App() {
         <ResearchChart
           candles={visibleCandles}
           trades={visibleTrades}
-          interval={activeTape?.interval ?? desk.timeframe}
+          interval={desk.timeframe}
+          symbol={selected?.symbol ?? null}
           metrics={result?.metrics ?? null}
           runName={selected?.name ?? "Run"}
           onClose={closeEnlarge}

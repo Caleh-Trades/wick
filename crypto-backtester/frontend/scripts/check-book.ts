@@ -1,113 +1,119 @@
 import assert from "node:assert/strict"
 
-import { applyFeed, createBook, parseCoinbase, projectBook, takerSide } from "../src/lib/book.ts"
-import { phraseFor, windowNote } from "../src/lib/runs.ts"
+import { projectLadder, rollingFlow, stepDecimals, streamNames, takerSide, type Print } from "../src/lib/book.ts"
+import { mergeForming } from "../src/lib/forming.ts"
+import { barsLabel, windowNote } from "../src/lib/runs.ts"
+import type { TapeCandle } from "../src/lib/types.ts"
 
 const now = Date.parse("2026-10-09T12:00:00Z")
 
-function level(side: string, price: string, size: string) {
-  return { side, price_level: price, new_quantity: size }
+const first = projectLadder(
+  [
+    ["100", "1"],
+    ["99", "2"],
+  ],
+  [
+    ["110", "1"],
+    ["111", "3"],
+  ],
+  new Map(),
+)
+assert.equal(first.crossed, false)
+assert.equal(first.bids[0]?.price, 100)
+assert.equal(first.bids[0]?.total, 1)
+assert.equal(first.bids[1]?.total, 3)
+assert.equal(first.asks[0]?.price, 111)
+assert.equal(first.asks.at(-1)?.price, 110)
+assert.equal(first.asks[0]?.total, 4)
+assert.equal(first.spread, 10)
+assert.equal(first.mid, 105)
+assert.equal(first.bids[0]?.changed, false)
+
+const sized = new Map<string, number>([
+  ["bid:100", 1],
+  ["ask:110", 1],
+])
+const moved = projectLadder(
+  [
+    ["100", "2"],
+    ["99", "2"],
+  ],
+  [
+    ["110", "1"],
+    ["111", "3"],
+  ],
+  sized,
+)
+assert.equal(moved.bids[0]?.changed, true)
+assert.equal(moved.asks.at(-1)?.changed, false)
+
+const crossed = projectLadder([["110", "1"]], [["100", "1"]], new Map())
+assert.equal(crossed.crossed, true)
+assert.equal(crossed.bids.length, 0)
+assert.equal(crossed.asks.length, 0)
+
+const empty = projectLadder([], [["100", "1"]], new Map())
+assert.equal(empty.crossed, true)
+assert.equal(empty.asks.length, 0)
+
+assert.deepEqual(streamNames("ETHUSDT"), ["ethusdt@depth20@100ms", "ethusdt@trade"])
+assert.equal(takerSide(true), "sell")
+assert.equal(takerSide(false), "buy")
+
+const prints: Print[] = [
+  { id: "old", t: now - 70_000, side: "buy", price: 1, size: 9 },
+  { id: "buy", t: now - 1_000, side: "buy", price: 2, size: 2 },
+  { id: "sell", t: now - 2_000, side: "sell", price: 2, size: 0.5 },
+]
+const flow = rollingFlow(prints, now)
+assert.equal(flow.buy, 2)
+assert.equal(flow.sell, 0.5)
+assert.equal(flow.delta, 1.5)
+
+assert.equal(stepDecimals("0.01000000"), 2)
+assert.equal(stepDecimals("0.00001000"), 5)
+assert.equal(stepDecimals("1.00000000"), 0)
+
+const bar: TapeCandle = {
+  t: Math.floor(now / 1000 / 60) * 60,
+  time: "2026-10-09T12:00:00Z",
+  open: 100,
+  high: 101,
+  low: 99,
+  close: 100,
+  volume: 1,
 }
+const updated = mergeForming([bar], [{ id: "p", t: now + 1_000, side: "buy", price: 104, size: 0.2 }], 60, now)
+assert.equal(updated.length, 1)
+assert.equal(updated[0]?.close, 104)
+assert.equal(updated[0]?.high, 104)
+assert.equal(updated[0]?.volume, 1.2)
+const nextBar = mergeForming(
+  updated,
+  [{ id: "n", t: now + 70_000, side: "sell", price: 90, size: 1 }],
+  60,
+  now,
+)
+assert.equal(nextBar.length, 2)
+assert.equal(nextBar[1]?.open, 90)
+assert.equal(mergeForming([bar], prints, 60, now + 10_000)[0], bar)
+assert.equal(mergeForming([bar], [], 60, now)[0], bar)
 
-const book = createBook()
-applyFeed(book, {
-  kind: "snapshot",
-  levels: [
-    ...Array.from({ length: 20 }, (_, index) => ({ side: "bid", price: String(100 - index), size: String(index + 1) })),
-    ...Array.from({ length: 20 }, (_, index) => ({ side: "offer", price: String(110 + index), size: String(index + 1) })),
-  ],
-})
-applyFeed(book, {
-  kind: "trades",
-  trades: [
-    { id: "1", time: "2026-10-09T11:58:00Z", makerSide: "SELL", price: "110", size: "0.4" },
-    { id: "2", time: "2026-10-09T11:59:30Z", makerSide: "BUY", price: "100", size: "0.1" },
-    { id: "1", time: "2026-10-09T11:58:00Z", makerSide: "SELL", price: "110", size: "0.4" },
-    { id: "old", time: "2026-10-09T11:59:10Z", makerSide: "SELL", price: "110", size: "9" },
-  ],
-})
+for (const interval of ["1m", "5m", "1h"]) {
+  const label = barsLabel(interval, 1435)
+  assert.match(label, new RegExp(`1,435 ${interval} bars`))
+  assert.doesNotMatch(label, /daily/)
+}
+assert.equal(barsLabel("1d", 100), "100 1D bars")
 
-let view = projectBook(book, now)
-assert.equal(view.bids.length, 15)
-assert.equal(view.asks.length, 15)
-assert.equal(view.bids[0]?.price, 100)
-assert.equal(view.bids[0]?.size, 1)
-assert.equal(view.bids[0]?.cum, 1)
-assert.equal(view.bids[1]?.cum, 3)
-assert.equal(view.asks.at(-1)?.price, 110)
-assert.equal(view.asks[0]?.price, 124)
-assert.equal(view.spread, 10)
-assert.equal(view.mid, 105)
-assert.equal(view.prints.length, 3)
-assert.equal(view.prints[0]?.side, "sell")
-assert.equal(view.prints[0]?.id, "2")
-assert.equal(view.prints.at(-1)?.side, "buy")
-assert.equal(view.delta, 9 - 0.1)
-
-applyFeed(book, { kind: "delta", levels: [{ side: "bid", price: "100", size: "0" }] })
-applyFeed(book, { kind: "delta", levels: [{ side: "offer", price: "110", size: "4" }] })
-view = projectBook(book, now)
-assert.equal(view.bids[0]?.price, 99)
-assert.equal(view.asks.at(-1)?.size, 4)
-assert.equal(view.spread, 11)
-
-const fresh = createBook()
-applyFeed(fresh, { kind: "delta", levels: [{ side: "bid", price: "50", size: "2" }] })
-assert.equal(fresh.ready, false)
-assert.equal(projectBook(fresh, now).bids.length, 0)
-applyFeed(fresh, { kind: "snapshot", levels: [{ side: "bid", price: "40", size: "1" }, { side: "offer", price: "41", size: "1" }] })
-applyFeed(fresh, { kind: "snapshot", levels: [{ side: "bid", price: "70", size: "2" }, { side: "offer", price: "72", size: "2" }] })
-const replaced = projectBook(fresh, now)
-assert.equal(replaced.bids[0]?.price, 70)
-assert.equal(replaced.spread, 2)
-assert.equal(replaced.mid, 71)
-
-assert.equal(takerSide("sell"), "buy")
-assert.equal(takerSide("BUY"), "sell")
-assert.equal(takerSide("offer"), null)
-
-const parsed = parseCoinbase({
-  channel: "l2_data",
-  events: [{ type: "snapshot", updates: [level("bid", "10", "1"), level("offer", "11", "2")] }],
-})
-assert.equal(parsed.length, 1)
-assert.equal(parsed[0]?.kind, "snapshot")
-const trades = parseCoinbase({
-  channel: "market_trades",
-  events: [
-    {
-      type: "update",
-      trades: [{ trade_id: "9", price: "11", size: "0.2", side: "SELL", time: "2026-10-09T11:59:59Z" }],
-    },
-  ],
-})
-assert.equal(trades[0]?.kind, "trades")
-const parsedBook = createBook()
-for (const message of [...parsed, ...trades]) applyFeed(parsedBook, message)
-const parsedView = projectBook(parsedBook, now)
-assert.equal(parsedView.prints[0]?.side, "buy")
-assert.equal(parsedView.spread, 1)
-
-assert.equal(phraseFor("1m"), "1-minute")
-assert.equal(phraseFor("1d"), "daily")
 const minuteTape = {
   interval: "1m",
-  candles: [
-    { t: 1_700_000_000 },
-    { t: 1_700_000_000 + 31 * 86_400 },
-  ],
+  candles: [{ t: 1_700_000_000 }, { t: 1_700_000_000 + 31 * 86_400 }],
 }
 const note = windowNote("1Y", minuteTape)
 assert.ok(note)
-assert.match(note, /1-minute/)
-assert.doesNotMatch(note, /daily/)
+assert.match(note!, /1-minute/)
+assert.doesNotMatch(note!, /daily/)
 assert.equal(windowNote("1D", minuteTape), null)
-assert.equal(
-  windowNote("All", {
-    interval: "1d",
-    candles: [{ t: 1_700_000_000 }, { t: 1_700_000_000 + 400 * 86_400 }],
-  }),
-  null,
-)
 
 console.log("book ok")

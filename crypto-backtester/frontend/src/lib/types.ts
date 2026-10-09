@@ -129,16 +129,7 @@ export type RuleId =
   | "chandelier"
   | "dual_ma"
 
-export type MarketId =
-  | "BTC-USD"
-  | "ETH-USD"
-  | "SOL-USD"
-  | "XRP-USD"
-  | "DOGE-USD"
-  | "AVAX-USD"
-  | "LINK-USD"
-  | "LTC-USD"
-  | "ADA-USD"
+export type MarketId = string
 
 export type RunParams = Record<string, number>
 

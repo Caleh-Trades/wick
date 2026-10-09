@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react"
 
+import { SymbolSelect } from "@/components/symbol-select"
 import { Button } from "@/components/ui/button"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { formatClock, formatDay, formatPrice, sourceLabel } from "@/lib/format"
-import { MARKETS, RANGES, TIMEFRAMES, marketById, phraseFor, windowNote } from "@/lib/runs"
+import { RANGES, TIMEFRAMES, barsLabel, marketById, windowNote } from "@/lib/runs"
 import type { MarketId, RangeId, Tape, Timeframe } from "@/lib/types"
 
 type DeskBarProps = {
@@ -33,7 +33,7 @@ export function DeskBar({
   onRange,
   onPause,
 }: DeskBarProps) {
-  const phrase = phraseFor(timeframe)
+  const frame = TIMEFRAMES.find((item) => item.id === timeframe)
   const market = symbol ? marketById(symbol) : undefined
   const last = tape?.candles.at(-1)
   const first = tape?.candles[0]
@@ -51,18 +51,7 @@ export function DeskBar({
         </div>
 
         {symbol ? (
-          <Select value={symbol} onValueChange={(value) => onSymbol(value as MarketId)}>
-            <SelectTrigger className="w-40" aria-label="Symbol">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {MARKETS.map((item) => (
-                <SelectItem key={item.id} value={item.id}>
-                  {item.base} · {item.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <SymbolSelect value={symbol} className="w-44" onChange={(value) => onSymbol(value)} />
         ) : null}
 
         <div className="flex shrink-0 gap-1 overflow-x-auto" role="group" aria-label="Timeframe">
@@ -102,10 +91,7 @@ export function DeskBar({
             <>
               <span>{market?.base ?? tape.symbol}</span>
               <span>{sourceLabel(tape.source)}</span>
-              <span>{phrase}</span>
-              <span>
-                {tape.candles.length.toLocaleString("en-US")} {phrase} bars
-              </span>
+              <span>{barsLabel(timeframe, tape.candles.length)}</span>
               <span>
                 {formatDay(first.time)} – {formatDay(last.time)}
               </span>
@@ -113,7 +99,7 @@ export function DeskBar({
               {limited ? <span>{limited}</span> : null}
             </>
           ) : (
-            <span>Loading {phrase} bars</span>
+            <span>Loading {frame?.label ?? timeframe} bars</span>
           )}
           {lastFetchAt ? <span>Updated {formatClock(lastFetchAt)} UTC</span> : null}
           <LiveClock paused={paused} />

@@ -13,8 +13,9 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
-import type { MarketId, RuleId, Run } from "@/lib/types"
-import { MARKETS, MAX_RUNS, RULES, paramsForRule, ruleName, runColor, runProblem } from "@/lib/runs"
+import { SymbolSelect } from "@/components/symbol-select"
+import type { RuleId, Run } from "@/lib/types"
+import { MAX_RUNS, RULES, paramsForRule, ruleName, runColor, runProblem } from "@/lib/runs"
 
 type ControlsProps = {
   idPrefix: string
@@ -140,19 +141,12 @@ export function Controls({
       </Field>
 
       <Field label="Market" htmlFor={`${idPrefix}-symbol`}>
-        <Select value={selected.symbol} onValueChange={(symbol) => patch({ symbol: symbol as MarketId })}>
-          <SelectTrigger id={`${idPrefix}-symbol`} className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {MARKETS.map((symbol) => (
-              <SelectItem key={symbol.id} value={symbol.id}>
-                {symbol.name}
-                <span className="text-muted-foreground"> {symbol.base}</span>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SymbolSelect
+          id={`${idPrefix}-symbol`}
+          className="w-full"
+          value={selected.symbol}
+          onChange={(symbol) => patch({ symbol })}
+        />
       </Field>
 
       <Field label="Rule" htmlFor={`${idPrefix}-rule`}>

@@ -243,6 +243,45 @@ button:hover,
   50% { opacity: 0.4; box-shadow: 0 0 0 4px rgb(62 224 162 / 0); }
 }
 
+.depth-bar {
+  transition: width 200ms ease-out;
+}
+
+.book-flash-bid {
+  animation: wick-flash-bid 200ms ease-out;
+}
+
+.book-flash-ask {
+  animation: wick-flash-ask 200ms ease-out;
+}
+
+.last-tick-up {
+  animation: wick-flash-bid 200ms ease-out;
+}
+
+.last-tick-down {
+  animation: wick-flash-ask 200ms ease-out;
+}
+
+.tape-in {
+  animation: wick-print-in 200ms ease-out;
+}
+
+@keyframes wick-flash-bid {
+  from { background-color: rgb(62 224 162 / 0.32); }
+  to { background-color: transparent; }
+}
+
+@keyframes wick-flash-ask {
+  from { background-color: rgb(255 93 115 / 0.32); }
+  to { background-color: transparent; }
+}
+
+@keyframes wick-print-in {
+  from { transform: translateY(-8px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   body::before,
   .scan-line,
@@ -253,5 +292,15 @@ button:hover,
   .live-dot {
     opacity: 1;
     box-shadow: none;
+  }
+
+  .depth-bar,
+  .book-flash-bid,
+  .book-flash-ask,
+  .last-tick-up,
+  .last-tick-down,
+  .tape-in {
+    animation: none;
+    transition: none;
   }
 }

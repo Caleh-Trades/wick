@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.binance_feed import is_binance_symbol, list_usdt_markets, load_binance_series, load_binance_tail
 from app.data import (
     DataUnavailable,
     UnknownInterval,
@@ -60,6 +61,14 @@ def meta() -> dict:
     }
 
 
+@app.get("/api/markets")
+def markets() -> dict:
+    try:
+        return {"markets": list_usdt_markets()}
+    except (DataUnavailable, UnknownSymbol) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 @app.get("/api/candles")
 def candles(
     symbol: str = "BTC-USD",
@@ -69,7 +78,12 @@ def candles(
 ) -> dict:
     try:
         spec = get_interval(interval)
-        if since is None:
+        if is_binance_symbol(symbol):
+            if since is None:
+                series, source = load_binance_series(symbol, interval, days)
+            else:
+                series, source = load_binance_tail(symbol, interval, since)
+        elif since is None:
             if days is None:
                 series, source = load_series(symbol, interval)
             else:

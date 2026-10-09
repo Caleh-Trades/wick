@@ -24,7 +24,7 @@ import {
   formatStat,
   tone,
 } from "@/lib/format"
-import { MARKETS, fingerprint, marketById, ruleName, runColor } from "@/lib/runs"
+import { fingerprint, marketById, ruleName, runColor } from "@/lib/runs"
 import type { BacktestResult, Outcome, Run, SortKey, TapeCandle } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -63,7 +63,7 @@ export const Results = memo(function Results({
   onSort,
   drawToken,
 }: ResultsProps) {
-  const market = MARKETS.find((symbol) => symbol.id === result.symbol)
+  const market = marketById(result.symbol)
   const metrics = result.metrics
   const split = useSplit()
   const closed = result.trades.filter((trade) => trade.status === "closed").length

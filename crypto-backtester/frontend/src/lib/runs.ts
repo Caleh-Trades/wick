@@ -1,4 +1,5 @@
-import type { MarketId, RangeId, Run, RunParams, RuleId, TapeCandle, Timeframe } from "@/lib/types"
+import { getMarkets, marketName, normalizeSymbol } from "./markets.ts"
+import type { MarketId, RangeId, Run, RunParams, RuleId, TapeCandle, Timeframe } from "./types.ts"
 
 export const STORAGE_KEY = "wick-runs"
 export const MAX_RUNS = 5
@@ -20,18 +21,6 @@ export type RuleSpec = {
   summary: string
   params: ParamField[]
 }
-
-export const MARKETS: { id: MarketId; base: string; name: string }[] = [
-  { id: "BTC-USD", base: "BTC", name: "Bitcoin" },
-  { id: "ETH-USD", base: "ETH", name: "Ethereum" },
-  { id: "SOL-USD", base: "SOL", name: "Solana" },
-  { id: "XRP-USD", base: "XRP", name: "XRP" },
-  { id: "DOGE-USD", base: "DOGE", name: "Dogecoin" },
-  { id: "AVAX-USD", base: "AVAX", name: "Avalanche" },
-  { id: "LINK-USD", base: "LINK", name: "Chainlink" },
-  { id: "LTC-USD", base: "LTC", name: "Litecoin" },
-  { id: "ADA-USD", base: "ADA", name: "Cardano" },
-]
 
 const period = (key: string, label: string, min: number, max: number, fallback: number): ParamField => ({
   key,
@@ -242,7 +231,11 @@ export function normalizeRule(rule: string): RuleId {
 }
 
 export function marketById(symbol: string): { id: MarketId; base: string; name: string } | undefined {
-  return MARKETS.find((item) => item.id === symbol)
+  const id = normalizeSymbol(symbol)
+  if (!id) return undefined
+  const known = getMarkets().find((market) => market.id === id)
+  const base = known?.base ?? id.replace(/USDT$/, "")
+  return { id, base, name: marketName(base) }
 }
 
 export function defaultParams(): RunParams {
@@ -343,7 +336,7 @@ export function createRun(partial?: Partial<Run>, existing: Run[] = []): Run {
   return {
     id: crypto.randomUUID(),
     name: partial?.name ?? uniqueName(suggestedName(rule, params), existing),
-    symbol: partial?.symbol ?? "BTC-USD",
+    symbol: partial?.symbol ?? "BTCUSDT",
     rule,
     params,
     feeBps: partial?.feeBps ?? 10,
@@ -357,6 +350,11 @@ export function rangeDays(range: RangeId): number {
 
 export function phraseFor(interval: string): string {
   return TIMEFRAMES.find((item) => item.id === interval)?.phrase ?? interval
+}
+
+export function barsLabel(interval: string, count: number): string {
+  const label = TIMEFRAMES.find((item) => item.id === interval)?.label ?? interval
+  return `${count.toLocaleString("en-US")} ${label} bars`
 }
 
 export function windowNote(range: RangeId, tape: { interval: string; candles: { t: number }[] }): string | null {
@@ -428,7 +426,7 @@ function sanitizeRun(value: unknown): Run | null {
   if (!value || typeof value !== "object") return null
   const raw = value as Partial<Run>
   if (typeof raw.id !== "string" || !raw.id) return null
-  const symbol = marketById(String(raw.symbol))?.id ?? "BTC-USD"
+  const symbol = normalizeSymbol(String(raw.symbol ?? "")) ?? "BTCUSDT"
   const rule = normalizeRule(String(raw.rule ?? "sma_cross"))
   return {
     id: raw.id,

@@ -1,6 +1,12 @@
+import type { SpotMarket } from "@/lib/markets"
 import type { BacktestResult, Draft, MarketId, Meta, RangeId, Tape, TapeCandle, Timeframe } from "@/lib/types"
 
 const base = (import.meta.env.VITE_API_URL as string | undefined) ?? ""
+
+export async function fetchMarkets(): Promise<SpotMarket[]> {
+  const body = await request<{ markets: SpotMarket[] }>("/api/markets")
+  return Array.isArray(body.markets) ? body.markets : []
+}
 
 export async function fetchMeta(): Promise<Meta> {
   return request<Meta>("/api/meta")

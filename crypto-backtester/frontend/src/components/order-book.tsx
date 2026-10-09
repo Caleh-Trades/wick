@@ -1,125 +1,134 @@
-import { formatClock, formatPrice, formatSize } from "@/lib/format"
-import { depthScale, useBook, type BookStatus } from "@/lib/use-book"
+import { formatClock } from "@/lib/format"
+import { stepDecimals } from "@/lib/book"
+import { marketSpec } from "@/lib/markets"
+import { useLiveBook, type BookStatus } from "@/lib/use-book"
 import type { Level } from "@/lib/book"
 import { cn } from "@/lib/utils"
 
 export function OrderBook({ symbol }: { symbol: string | null }) {
-  const book = useBook(symbol)
-  const scale = depthScale([...book.asks, ...book.bids])
-  const bestAsk = book.asks.at(-1)?.price
-  const bestBid = book.bids[0]?.price
+  const book = useLiveBook(symbol)
+  const spec = symbol ? marketSpec(symbol) : undefined
+  const tick = spec?.tickSize ?? "0.01"
+  const step = spec?.stepSize ?? "0.00001"
+  const rows = [...book.asks, ...book.bids]
+  const scale = rows.reduce((max, level) => Math.max(max, level.total), 0)
+  const showLadder = book.status === "connected" && book.asks.length > 0 && book.bids.length > 0
 
   return (
-    <section className="bezel flex h-full min-h-0 flex-col p-3" aria-label="Order book">
+    <section className="bezel flex h-full min-h-0 flex-col overflow-hidden p-3" aria-label="Order book">
       <header className="mb-2 flex shrink-0 items-center justify-between gap-2">
         <h3 className="font-heading text-lg">Book</h3>
-        <BookStatusLine status={book.status} asOf={book.asOf} symbol={symbol} />
+        <p className="inline-flex items-center gap-1.5 font-mono text-[10px] tracking-wide text-muted-foreground uppercase" role="status">
+          <span
+            className="size-1.5 rounded-full"
+            style={{ background: book.status === "connected" ? "#3ee0a2" : book.status === "stale" ? "#ff5d73" : "#7f97a3" }}
+          />
+          <StatusLabel status={book.status} asOf={book.asOf} />
+        </p>
       </header>
 
-      {book.status === "unsupported" ? (
-        <p className="text-sm text-muted-foreground">The book is Coinbase spot for BTC-USD and ETH-USD.</p>
-      ) : (
-        <>
-          <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {showLadder ? (
+          <>
             <LevelHead />
-            {book.asks.length === 0 && book.bids.length === 0 ? (
-              <p className="px-1 py-6 text-sm text-muted-foreground">
-                {book.status === "stale" ? "No book arrived before the socket dropped." : "Waiting for the Coinbase book."}
-              </p>
-            ) : (
-              <>
-                {book.asks.map((level) => (
-                  <LevelRow
-                    key={`ask-${level.price}`}
-                    level={level}
-                    scale={scale}
-                    tone="ask"
-                    best={level.price === bestAsk}
-                  />
-                ))}
-                <div className="my-1 flex items-center justify-between gap-3 border-y border-border px-1 py-1.5 font-mono text-[11px] text-foreground">
-                  <span>
-                    <span className="text-muted-foreground">Spread </span>
-                    {book.spread == null ? "—" : formatPrice(book.spread)}
-                  </span>
-                  <span>
-                    <span className="text-muted-foreground">Mid </span>
-                    {book.mid == null ? "—" : formatPrice(book.mid)}
-                  </span>
-                </div>
-                {book.bids.map((level) => (
-                  <LevelRow
-                    key={`bid-${level.price}`}
-                    level={level}
-                    scale={scale}
-                    tone="bid"
-                    best={level.price === bestBid}
-                  />
-                ))}
-              </>
-            )}
-          </div>
+            {book.asks.map((level) => (
+              <LevelRow key={`ask-${level.priceKey}`} level={level} scale={scale} tone="ask" tick={tick} step={step} best={level === book.asks.at(-1)} />
+            ))}
+            <MidRow book={book} tick={tick} />
+            {book.bids.map((level) => (
+              <LevelRow key={`bid-${level.priceKey}`} level={level} scale={scale} tone="bid" tick={tick} step={step} best={level === book.bids[0]} />
+            ))}
+          </>
+        ) : (
+          <p className="px-1 py-6 text-sm text-muted-foreground">
+            {book.status === "stale"
+              ? book.asOf
+                ? `Book stale ${formatClock(new Date(book.asOf))} UTC.`
+                : "Book stale. No ladder yet."
+              : "Waiting for the book."}
+          </p>
+        )}
+      </div>
 
-          <div className="mt-3 shrink-0 border-t border-border pt-2">
-            <div className="mb-2 flex items-baseline justify-between gap-3 font-mono text-[11px]">
-              <span className="tracking-wide text-muted-foreground uppercase">60s delta</span>
-              <span className={book.delta > 0 ? "text-up" : book.delta < 0 ? "text-down" : "text-foreground"}>
-                {signedSize(book.delta)}
-              </span>
-            </div>
-            <div className="max-h-36 overflow-y-auto" aria-label="Trade tape">
-              <div className="mb-1 grid grid-cols-[3.6rem_4rem_minmax(0,1fr)_auto] gap-2 px-1 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
-                <span>Time</span>
-                <span>Side</span>
-                <span className="text-right">Price</span>
-                <span className="text-right">Size</span>
-              </div>
-              {book.prints.length === 0 ? (
-                <p className="px-1 py-2 text-sm text-muted-foreground">No prints yet.</p>
-              ) : (
-                book.prints.map((print) => (
-                  <div
-                    key={print.id}
-                      className={cn(
-                      "book-row grid grid-cols-[3.6rem_4rem_minmax(0,1fr)_auto] gap-2 border border-transparent px-1 py-0.5 font-mono text-[11px] transition-[border-color] duration-150",
-                      print.side === "buy" ? "text-up" : "text-down",
-                    )}
-                  >
-                    <span>{formatClock(new Date(print.t))}</span>
-                    <span>{print.side === "buy" ? "Buy lift" : "Sell hit"}</span>
-                    <span className="text-right">{formatPrice(print.price)}</span>
-                    <span className="text-right">{formatSize(print.size)}</span>
-                  </div>
-                ))
-              )}
-            </div>
+      <div className="mt-3 shrink-0 border-t border-border pt-2">
+        <DeltaRow delta={book.delta} buy={book.buy} sell={book.sell} step={step} />
+        <div className="mt-2 max-h-36 overflow-y-auto" aria-label="Trade tape">
+          <div className="mb-1 grid grid-cols-[3.6rem_4rem_minmax(0,1fr)_auto] gap-2 px-1 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
+            <span>Time</span>
+            <span>Side</span>
+            <span className="text-right">Price</span>
+            <span className="text-right">Size</span>
           </div>
-        </>
-      )}
+          {book.prints.length === 0 ? (
+            <p className="px-1 py-2 text-sm text-muted-foreground">No prints yet.</p>
+          ) : (
+            book.prints.map((print) => (
+              <div
+                key={print.id}
+                className={cn(
+                  "book-row grid grid-cols-[3.6rem_4rem_minmax(0,1fr)_auto] gap-2 border border-transparent px-1 py-0.5 font-mono text-[11px] transition-[border-color] duration-150",
+                  print.side === "buy" ? "text-up" : "text-down",
+                  book.freshIds.includes(print.id) && "tape-in",
+                )}
+              >
+                <span>{formatClock(new Date(print.t))}</span>
+                <span>{print.side === "buy" ? "Buy lift" : "Sell hit"}</span>
+                <span className="text-right">{formatStep(print.price, tick)}</span>
+                <span className="text-right">{formatStep(print.size, step)}</span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
     </section>
   )
 }
 
-function BookStatusLine({ status, asOf, symbol }: { status: BookStatus; asOf: number | null; symbol: string | null }) {
-  if (status === "unsupported") return null
-  const live = status === "live"
-  const label =
-    status === "live"
-      ? "Book live"
-      : status === "connecting"
-        ? "Book connecting"
-        : asOf
-          ? `Book stale ${formatClock(new Date(asOf))} UTC`
-          : "Book stale"
+function StatusLabel({ status, asOf }: { status: BookStatus; asOf: number | null }) {
+  if (status === "connected") return <span>Connected</span>
+  if (status === "stale") return <span>{asOf ? `Stale ${formatClock(new Date(asOf))} UTC` : "Stale"}</span>
+  return <span>Connecting</span>
+}
+
+function MidRow({ book, tick }: { book: ReturnType<typeof useLiveBook>; tick: string }) {
+  const last = book.last
   return (
-    <p className="inline-flex items-center gap-1.5 font-mono text-[10px] tracking-wide text-muted-foreground uppercase" role="status">
-      <span
-        className="size-1.5 rounded-full"
-        style={{ background: live ? "#3ee0a2" : status === "stale" ? "#ff5d73" : "#7f97a3" }}
-      />
-      <span>{symbol}</span>
-      <span>{label}</span>
-    </p>
+    <div className="my-1 grid grid-cols-3 gap-2 border-y border-border px-1 py-1.5 font-mono text-[11px]">
+      <span>
+        <span className="block text-[10px] tracking-wide text-muted-foreground uppercase">Last</span>
+        <span className={cn(last?.side === "sell" ? "text-down" : "text-up", last?.changed && (last.side === "sell" ? "last-tick-down" : "last-tick-up"))}>
+          {last ? formatStep(last.price, tick) : "—"}
+        </span>
+      </span>
+      <span className="text-center">
+        <span className="block text-[10px] tracking-wide text-muted-foreground uppercase">Spread</span>
+        <span className="text-muted-foreground">{book.spread == null ? "—" : formatStep(book.spread, tick)}</span>
+      </span>
+      <span className="text-right">
+        <span className="block text-[10px] tracking-wide text-muted-foreground uppercase">Mid</span>
+        <span>{book.mid == null ? "—" : formatStep(book.mid, tick)}</span>
+      </span>
+    </div>
+  )
+}
+
+function DeltaRow({ delta, buy, sell, step }: { delta: number; buy: number; sell: number; step: string }) {
+  const total = buy + sell
+  const sellWidth = total > 0 ? (sell / total) * 50 : 0
+  const buyWidth = total > 0 ? (buy / total) * 50 : 0
+  const marker = total > 0 ? 50 + (50 * (buy - sell)) / total : 50
+  return (
+    <div>
+      <div className="mb-1 flex items-baseline justify-between gap-2 font-mono text-[11px]">
+        <span className="tracking-wide text-muted-foreground uppercase">60s delta</span>
+        <span className={delta > 0 ? "text-up" : delta < 0 ? "text-down" : "text-foreground"}>{signedStep(delta, step)}</span>
+      </div>
+      <div className="relative h-2 bg-[#070b12]" aria-hidden="true">
+        <div className="absolute inset-y-0 right-1/2 bg-[#ff5d73]/70" style={{ width: `${sellWidth}%` }} />
+        <div className="absolute inset-y-0 left-1/2 bg-[#3ee0a2]/70" style={{ width: `${buyWidth}%` }} />
+        <div className="absolute -top-0.5 h-3 w-px bg-[#d7e6ea]" style={{ left: `${marker}%` }} />
+      </div>
+    </div>
   )
 }
 
@@ -128,7 +137,7 @@ function LevelHead() {
     <div className="grid grid-cols-[1fr_auto_auto] gap-2 px-1 pb-1 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
       <span>Price</span>
       <span className="w-16 text-right">Size</span>
-      <span className="w-16 text-right">Cum</span>
+      <span className="w-16 text-right">Total</span>
     </div>
   )
 }
@@ -137,40 +146,52 @@ function LevelRow({
   level,
   scale,
   tone,
+  tick,
+  step,
   best,
 }: {
   level: Level
   scale: number
   tone: "bid" | "ask"
+  tick: string
+  step: string
   best: boolean
 }) {
-  const width = scale > 0 ? Math.min(100, (level.size / scale) * 100) : 0
+  const width = scale > 0 ? Math.min(100, (level.total / scale) * 100) : 0
   return (
     <div
       className={cn(
         "book-row relative border border-transparent px-1 py-0.5 font-mono text-[11px] text-foreground transition-[border-color] duration-150",
         best && "border-[#39e7ff]",
+        level.changed && (tone === "bid" ? "book-flash-bid" : "book-flash-ask"),
       )}
     >
       <div
-        className="pointer-events-none absolute inset-y-0 left-0"
+        className="depth-bar pointer-events-none absolute inset-y-0 left-0"
         style={{
           width: `${width}%`,
           background: tone === "bid" ? "rgb(62 224 162 / 0.16)" : "rgb(255 93 115 / 0.16)",
         }}
       />
       <div className="relative grid grid-cols-[1fr_auto_auto] gap-2">
-        <span className={tone === "bid" ? "text-up" : "text-down"}>{formatPrice(level.price)}</span>
-        <span className="w-16 text-right">{formatSize(level.size)}</span>
-        <span className="w-16 text-right text-muted-foreground">{formatSize(level.cum)}</span>
+        <span className={tone === "bid" ? "text-up" : "text-down"}>{formatStep(level.price, tick)}</span>
+        <span className="w-16 text-right">{formatStep(level.size, step)}</span>
+        <span className="w-16 text-right text-muted-foreground">{formatStep(level.total, step)}</span>
       </div>
     </div>
   )
 }
 
-function signedSize(value: number): string {
-  if (!Number.isFinite(value)) return "—"
-  if (value === 0) return "0"
-  const body = formatSize(Math.abs(value))
+function formatStep(value: number, step: string): string {
+  const digits = stepDecimals(step)
+  return value.toLocaleString("en-US", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  })
+}
+
+function signedStep(value: number, step: string): string {
+  if (!Number.isFinite(value) || value === 0) return formatStep(0, step)
+  const body = formatStep(Math.abs(value), step)
   return value > 0 ? `+${body}` : `-${body}`
 }

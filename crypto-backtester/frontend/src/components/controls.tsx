@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import type { MarketId, RuleId, Run } from "@/lib/types"
-import { MARKETS, MAX_RUNS, RULES, runColor } from "@/lib/runs"
+import { MARKETS, MAX_RUNS, RULES, paramsForRule, runColor, runProblem } from "@/lib/runs"
 
 type ControlsProps = {
   idPrefix: string
@@ -46,7 +46,7 @@ export function Controls({
 }: ControlsProps) {
   const full = runs.length >= MAX_RUNS
   const rule = RULES.find((item) => item.id === selected.rule)
-  const fastSlowInvalid = selected.rule === "sma_cross" && selected.params.fast >= selected.params.slow
+  const problem = runProblem(selected)
 
   function patch(next: Partial<Run>) {
     onChange({ ...selected, ...next })
@@ -141,7 +141,10 @@ export function Controls({
       </Field>
 
       <Field label="Rule" htmlFor={`${idPrefix}-rule`}>
-        <Select value={selected.rule} onValueChange={(ruleId) => patch({ rule: ruleId as RuleId })}>
+        <Select
+          value={selected.rule}
+          onValueChange={(ruleId) => patch({ rule: ruleId as RuleId, params: paramsForRule(ruleId as RuleId, selected.params) })}
+        >
           <SelectTrigger id={`${idPrefix}-rule`} className="w-full">
             <SelectValue />
           </SelectTrigger>
@@ -156,59 +159,33 @@ export function Controls({
       </Field>
       {rule ? <p className="text-sm leading-relaxed text-muted-foreground">{rule.summary}</p> : null}
 
-      {selected.rule === "sma_cross" ? (
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Fast" htmlFor={`${idPrefix}-fast`}>
-            <Input
-              id={`${idPrefix}-fast`}
-              type="number"
-              inputMode="numeric"
-              min={2}
-              max={200}
-              step={1}
-              value={selected.params.fast}
-              onChange={(event) =>
-                patch({ params: { ...selected.params, fast: numberOr(event.target.value, selected.params.fast) } })
-              }
-            />
-          </Field>
-          <Field label="Slow" htmlFor={`${idPrefix}-slow`}>
-            <Input
-              id={`${idPrefix}-slow`}
-              type="number"
-              inputMode="numeric"
-              min={3}
-              max={400}
-              step={1}
-              value={selected.params.slow}
-              onChange={(event) =>
-                patch({ params: { ...selected.params, slow: numberOr(event.target.value, selected.params.slow) } })
-              }
-            />
-          </Field>
+      {rule && rule.params.length > 0 ? (
+        <div className={rule.params.length > 1 ? "grid grid-cols-2 gap-4" : "flex flex-col gap-4"}>
+          {rule.params.map((param) => (
+            <Field key={param.key} label={param.label} htmlFor={`${idPrefix}-${param.key}`}>
+              <Input
+                id={`${idPrefix}-${param.key}`}
+                type="number"
+                inputMode="decimal"
+                min={param.min}
+                max={param.max}
+                step={param.step}
+                value={selected.params[param.key] ?? param.default}
+                onChange={(event) =>
+                  patch({
+                    params: {
+                      ...selected.params,
+                      [param.key]: numberOr(event.target.value, selected.params[param.key] ?? param.default),
+                    },
+                  })
+                }
+              />
+            </Field>
+          ))}
         </div>
       ) : null}
 
-      {selected.rule === "rsi" ? (
-        <Field label="RSI length" htmlFor={`${idPrefix}-rsi`}>
-          <Input
-            id={`${idPrefix}-rsi`}
-            type="number"
-            inputMode="numeric"
-            min={2}
-            max={100}
-            step={1}
-            value={selected.params.rsi}
-            onChange={(event) =>
-              patch({ params: { ...selected.params, rsi: numberOr(event.target.value, selected.params.rsi) } })
-            }
-          />
-        </Field>
-      ) : null}
-
-      {fastSlowInvalid ? (
-        <p className="text-sm text-down">The fast period has to be shorter than the slow period.</p>
-      ) : null}
+      {problem ? <p className="text-sm text-down">{problem}</p> : null}
 
       <Field label="Fee (bps)" htmlFor={`${idPrefix}-fee`}>
         <Input
@@ -224,7 +201,7 @@ export function Controls({
       </Field>
 
       <div className="grid grid-cols-2 gap-2">
-        <Button type="submit" disabled={running || fastSlowInvalid}>
+        <Button type="submit" disabled={running || problem != null}>
           {running ? "Running" : "Run"}
         </Button>
         <Button type="button" variant="outline" disabled={running} onClick={onRunAll}>

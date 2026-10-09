@@ -107,15 +107,27 @@ export type TapeCandle = Candle & { t: number }
 
 export type Timeframe = "1m" | "5m" | "30m" | "1d"
 
-export type RuleId = "sma_cross" | "rsi" | "buy_hold"
+export type RuleId =
+  | "buy_hold"
+  | "sma_cross"
+  | "ema_cross"
+  | "rsi_reversion"
+  | "bollinger"
+  | "macd"
+  | "donchian"
 
-export type MarketId = "BTC-USD" | "ETH-USD"
+export type MarketId =
+  | "BTC-USD"
+  | "ETH-USD"
+  | "SOL-USD"
+  | "XRP-USD"
+  | "DOGE-USD"
+  | "AVAX-USD"
+  | "LINK-USD"
+  | "LTC-USD"
+  | "ADA-USD"
 
-export type RunParams = {
-  fast: number
-  slow: number
-  rsi: number
-}
+export type RunParams = Record<string, number>
 
 export type Run = {
   id: string

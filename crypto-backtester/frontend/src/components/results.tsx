@@ -26,7 +26,7 @@ import {
   sourceLabel,
   tone,
 } from "@/lib/format"
-import { MARKETS, TIMEFRAMES, fingerprint, runColor } from "@/lib/runs"
+import { MARKETS, TIMEFRAMES, fingerprint, marketById, runColor } from "@/lib/runs"
 import type { BacktestResult, Outcome, Run, SortKey, Timeframe } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -305,7 +305,7 @@ function Comparison({
                     <span>
                       <span className="block">{row.run.name}</span>
                       <span className="font-mono text-[10px] text-muted-foreground uppercase">
-                        {row.run.symbol === "ETH-USD" ? "ETH" : "BTC"}
+                        {marketById(row.run.symbol)?.base ?? row.run.symbol}
                         {row.run.hidden ? " · hidden" : ""}
                       </span>
                     </span>

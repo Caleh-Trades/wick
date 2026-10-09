@@ -1,6 +1,6 @@
 # Wick
 
-Wick is a local crypto strategy desk. It replays SMA crossover, RSI reversion, and buy and hold on spot Bitcoin and Ether, fills each signal on the next bar’s open, and lines each run up against buy and hold.
+Wick is a local crypto strategy desk. It replays classical rules on spot Bitcoin, Ether, and the other dollar markets, fills each signal on the next bar’s open, and lines each run up against buy and hold.
 
 Costs are part of the test. Fees and slippage are charged on the way in and the way out, and a long-only run will not quietly open shorts.
 
@@ -41,6 +41,4 @@ pytest
 - Win rate and profit factor on closed round trips
 - The trades themselves, including a position that is still open at the end of the window
 
-The desk keeps up to five runs in the browser. Each run is a name, a market, a rule, its periods, and a fee. Run walks the selected one. Run all walks every run on the tape already loaded for that market. Sharpe, win rate, and profit factor sort the comparison. A hidden run stays in the list and drops off the equity chart.
-
-The API still knows the wider rule set — EMA, Bollinger, MACD, and Donchian — for `POST /api/backtest`.
+The desk keeps up to five runs in the browser. Each run is a name, a market, a rule, its periods, and a fee. Markets are Bitcoin, Ether, Solana, XRP, Dogecoin, Avalanche, Chainlink, Litecoin, and Cardano. Rules are buy and hold, SMA crossover, EMA crossover, RSI reversion, Bollinger bounce, MACD cross, and Donchian breakout. Run walks the selected one. Run all walks every run on the tape already loaded for that market. Sharpe, win rate, and profit factor sort the comparison. A hidden run stays in the list and drops off the equity chart.

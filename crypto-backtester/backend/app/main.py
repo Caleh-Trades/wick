@@ -5,9 +5,11 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
+from fastapi import FastAPI, HTTPException, Query, Request
+
+from app.bot_access import acknowledge, authorize, check_ops, create_key, enqueue, list_keys, pending, revoke_key
 from app.binance_feed import (
     is_binance_symbol,
     list_usdt_markets,
@@ -55,6 +57,58 @@ app.add_middleware(
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "wick"}
+
+
+@app.get("/api/bot/keys")
+def bot_keys() -> dict:
+    return {"keys": list_keys()}
+
+
+@app.post("/api/bot/keys")
+def bot_key_create(body: dict) -> dict:
+    name = body.get("name") if isinstance(body, dict) else None
+    try:
+        return create_key(name if isinstance(name, str) else "")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.delete("/api/bot/keys/{key_id}")
+def bot_key_revoke(key_id: str) -> dict:
+    if not revoke_key(key_id):
+        raise HTTPException(status_code=404, detail="That key is already gone.")
+    return {"ok": True}
+
+
+@app.post("/api/bot/edit")
+def bot_edit(body: dict, request: Request) -> dict:
+    header = request.headers.get("authorization", "")
+    secret = header[7:].strip() if header.lower().startswith("bearer ") else ""
+    if not secret:
+        raise HTTPException(status_code=401, detail="Send the bot key as Authorization: Bearer wick_…")
+    record = authorize(secret)
+    if record is None:
+        raise HTTPException(status_code=401, detail="That bot key is not valid.")
+    try:
+        ops = check_ops(body.get("ops") if isinstance(body, dict) else None)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    edit = enqueue(str(record["id"]), ops)
+    return {"ok": True, **edit}
+
+
+@app.get("/api/bot/inbox")
+def bot_inbox() -> dict:
+    return {"edits": pending()}
+
+
+@app.post("/api/bot/inbox/ack")
+def bot_inbox_ack(body: dict) -> dict:
+    ids = body.get("ids") if isinstance(body, dict) else None
+    if not isinstance(ids, list) or not all(isinstance(item, str) for item in ids):
+        raise HTTPException(status_code=400, detail="Send the edit ids to drop.")
+    acknowledge(ids)
+    return {"ok": True}
 
 
 @app.get("/api/meta")

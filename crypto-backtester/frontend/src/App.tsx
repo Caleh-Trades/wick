@@ -18,6 +18,8 @@ import {
 import { Watchlist } from "@/components/watchlist"
 import { WorkspaceBar } from "@/components/workspace-bar"
 import { fetchCandles, mergeFunding } from "@/lib/api"
+import { ackBotEdits, fetchBotInbox } from "@/lib/bot-api"
+import { applyBotEdits } from "@/lib/bot-edits"
 import { computeBacktest } from "@/lib/compute"
 import { CHART_MAX, CHART_MIN, clampChart, loadPanes, savePanes, type PaneSizes } from "@/lib/panes"
 import {
@@ -208,6 +210,41 @@ export default function App() {
       }),
     )
   }, [])
+
+  useEffect(() => {
+    if (editing || setupOpen) return
+    let stop = false
+    const poll = async () => {
+      if (stop) return
+      try {
+        const edits = await fetchBotInbox()
+        if (stop || edits.length === 0) return
+        const current = workspaceRef.current
+        const ops = edits.flatMap((edit) => (Array.isArray(edit.ops) ? edit.ops : []))
+        const next = applyBotEdits(current, ops)
+        if (next !== current) {
+          workspaceRef.current = next
+          setWorkspace(next)
+          for (const slot of next.slots) {
+            const tape = tapesRef.current[tapeKey(slot)]
+            if (!tape) continue
+            const gen = (requestGen.current.get(slot.id) ?? 0) + 1
+            requestGen.current.set(slot.id, gen)
+            void stageRuns(slot, tape, gen, () => stop)
+          }
+        }
+        await ackBotEdits(edits.map((edit) => edit.id))
+      } catch {
+        /* the desk keeps working when the key service is down */
+      }
+    }
+    const timer = window.setInterval(() => void poll(), 2000)
+    void poll()
+    return () => {
+      stop = true
+      window.clearInterval(timer)
+    }
+  }, [editing, setupOpen])
 
   useEffect(() => {
     if (!active || setupOpen || editing || loadingKey === tapeKey(active)) return

@@ -9,6 +9,7 @@ dist/
 .DS_Store
 *.local
 crypto-backtester/backend/data/cache/
+crypto-backtester/backend/data/bot_access.json
 .env
 .env.*
 !.env.example

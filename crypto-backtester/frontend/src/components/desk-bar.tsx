@@ -1,3 +1,4 @@
+import { BotSettings } from "@/components/bot-settings"
 import { SymbolSelect } from "@/components/symbol-select"
 import { Button } from "@/components/ui/button"
 import { formatClock, formatDay, formatPrice } from "@/lib/format"
@@ -46,6 +47,7 @@ export function DeskBar({
         <div className="flex items-center gap-2">
           <CandleMark />
           <h1 className="font-mono text-sm tracking-[0.32em] text-[#c56a32] uppercase">Wick</h1>
+          <BotSettings />
         </div>
 
         <div className="flex shrink-0 gap-1" role="group" aria-label="Venue">

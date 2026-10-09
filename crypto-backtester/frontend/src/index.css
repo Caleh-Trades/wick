@@ -300,6 +300,12 @@ button:hover,
   to { transform: none; opacity: 1; }
 }
 
+@media (max-width: 1279px) {
+  .price-split {
+    flex-grow: 0.34 !important;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html,
   body,

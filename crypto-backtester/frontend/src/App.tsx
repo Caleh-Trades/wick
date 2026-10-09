@@ -493,7 +493,7 @@ export default function App() {
               {error}
             </div>
           ) : null}
-          <div className="flex min-h-0 min-w-0" style={{ flex: `${panes.chart} 1 0%` }}>
+          <div className="price-split flex min-h-0 min-w-0" style={{ flex: `${panes.chart} 1 0%` }}>
             {shown.map((slot) => (
               <div
                 key={slot.id}

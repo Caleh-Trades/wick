@@ -79,7 +79,7 @@ export const Results = memo(function Results({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
-      <div className="flex shrink-0 gap-1 overflow-x-auto" role="tablist" aria-label="Results">
+      <div className="flex shrink-0 gap-1 overflow-x-auto xl:hidden" role="tablist" aria-label="Results">
         {VIEWS.map((item) => (
           <Button
             key={item.id}
@@ -99,62 +99,14 @@ export const Results = memo(function Results({
         <p className="shrink-0 text-sm text-muted-foreground">This setup is newer than the last pass. Run it again to refresh.</p>
       ) : null}
 
-      {view === "equity" ? (
-        <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)_minmax(0,1fr)]">
+        <div className={cn("h-full min-h-0", view === "equity" ? "flex flex-col" : "hidden xl:flex xl:flex-col")}>
           <div className="min-h-0 flex-1">
             <EquityChart result={result} overlays={overlays} selectedId={selected.id} drawToken={drawToken} />
           </div>
-          <div className="bezel grid shrink-0 grid-cols-2 gap-x-6 gap-y-5 p-4 md:grid-cols-4">
-        <Metric label="Total return" value={formatPct(metrics.total_return_pct)} tone={tone(metrics.total_return_pct)} />
-        <Metric label="Buy and hold" value={formatPct(metrics.benchmark_return_pct)} tone={tone(metrics.benchmark_return_pct)} />
-        <Metric label="Excess return" value={formatPct(metrics.excess_return_pct)} tone={tone(metrics.excess_return_pct)} />
-        <Metric label="Max drawdown" value={formatPct(metrics.max_drawdown_pct)} tone={tone(metrics.max_drawdown_pct)} />
-        <Metric
-          label="Sharpe"
-          hint="Annualized return divided by volatility, scaled to this bar size. Crypto is marked on a 365-day year. Click to sort the comparison."
-          value={formatStat(metrics.sharpe)}
-          active={sortKey === "sharpe"}
-          dir={sortDir}
-          onSort={() => onSort("sharpe")}
-        />
-        <Metric
-          label="Win rate"
-          hint="Exits and liquidations. Click to sort the comparison."
-          value={formatPlainPct(metrics.win_rate_pct, 0)}
-          active={sortKey === "win_rate_pct"}
-          dir={sortDir}
-          onSort={() => onSort("win_rate_pct")}
-        />
-        <Metric
-          label="Profit factor"
-          hint="Gross profit divided by gross loss. Infinite when nothing lost money. Click to sort the comparison."
-          value={formatFactor(metrics.profit_factor, metrics.trades + metrics.liquidations, metrics.win_rate_pct)}
-          active={sortKey === "profit_factor"}
-          dir={sortDir}
-          onSort={() => onSort("profit_factor")}
-        />
-        <Metric label="Final equity" value={formatMoney(metrics.final_equity, 0)} />
-          </div>
-          <p className="shrink-0 font-mono text-xs text-muted-foreground">
-            In the market {formatPlainPct(metrics.exposure_pct, 0)}
-            {" · "}
-            CAGR {formatPct(metrics.cagr_pct)}
-            {" · "}
-            Sortino {formatStat(metrics.sortino)}
-            {" · "}
-            {metrics.trades} closed {metrics.trades === 1 ? "trade" : "trades"}
-            {liquidated ? ` · ${liquidated} liquidated` : ""}
-            {open ? ` · ${open} still open` : ""}
-            {result.assumptions.venue === "perp" ? ` · ${result.assumptions.leverage}×` : ""}
-            {" · "}
-            Risk {riskLabel(result.assumptions.risk_pct)}
-            {result.assumptions.funding_stale ? " · Funding stale" : ""}
-          </p>
         </div>
-      ) : null}
 
-      {view === "comparison" ? (
-        <div className="min-h-0 flex-1">
+        <div className={cn("h-full min-h-0", view === "comparison" ? "block" : "hidden xl:block")}>
           <Comparison
             rows={rows}
             venue={venue}
@@ -167,10 +119,8 @@ export const Results = memo(function Results({
             onSort={onSort}
           />
         </div>
-      ) : null}
 
-      {view === "trades" ? (
-      <div className="bezel flex min-h-0 flex-1 flex-col overflow-hidden p-4">
+        <div className={cn("bezel h-full min-h-0 flex-col overflow-hidden p-4", view === "trades" ? "flex" : "hidden xl:flex")}>
         <p className="mb-3 shrink-0 font-mono text-xs text-muted-foreground uppercase">
           {venue === "perp" ? "Binance perp" : "Binance spot"}
           {" · "}
@@ -229,8 +179,57 @@ export const Results = memo(function Results({
             </Table>
           </div>
         )}
+        </div>
       </div>
-      ) : null}
+
+      <div className={cn("shrink-0", view === "equity" ? "block" : "hidden xl:block")}>
+        <div className="bezel grid grid-cols-2 gap-x-6 gap-y-5 p-4 md:grid-cols-4 xl:grid-cols-8">
+          <Metric label="Total return" value={formatPct(metrics.total_return_pct)} tone={tone(metrics.total_return_pct)} />
+          <Metric label="Buy and hold" value={formatPct(metrics.benchmark_return_pct)} tone={tone(metrics.benchmark_return_pct)} />
+          <Metric label="Excess return" value={formatPct(metrics.excess_return_pct)} tone={tone(metrics.excess_return_pct)} />
+          <Metric label="Max drawdown" value={formatPct(metrics.max_drawdown_pct)} tone={tone(metrics.max_drawdown_pct)} />
+          <Metric
+            label="Sharpe"
+            hint="Annualized return divided by volatility, scaled to this bar size. Crypto is marked on a 365-day year. Click to sort the comparison."
+            value={formatStat(metrics.sharpe)}
+            active={sortKey === "sharpe"}
+            dir={sortDir}
+            onSort={() => onSort("sharpe")}
+          />
+          <Metric
+            label="Win rate"
+            hint="Exits and liquidations. Click to sort the comparison."
+            value={formatPlainPct(metrics.win_rate_pct, 0)}
+            active={sortKey === "win_rate_pct"}
+            dir={sortDir}
+            onSort={() => onSort("win_rate_pct")}
+          />
+          <Metric
+            label="Profit factor"
+            hint="Gross profit divided by gross loss. Infinite when nothing lost money. Click to sort the comparison."
+            value={formatFactor(metrics.profit_factor, metrics.trades + metrics.liquidations, metrics.win_rate_pct)}
+            active={sortKey === "profit_factor"}
+            dir={sortDir}
+            onSort={() => onSort("profit_factor")}
+          />
+          <Metric label="Final equity" value={formatMoney(metrics.final_equity, 0)} />
+        </div>
+        <p className="mt-2 font-mono text-xs text-muted-foreground">
+          In the market {formatPlainPct(metrics.exposure_pct, 0)}
+          {" · "}
+          CAGR {formatPct(metrics.cagr_pct)}
+          {" · "}
+          Sortino {formatStat(metrics.sortino)}
+          {" · "}
+          {metrics.trades} closed {metrics.trades === 1 ? "trade" : "trades"}
+          {liquidated ? ` · ${liquidated} liquidated` : ""}
+          {open ? ` · ${open} still open` : ""}
+          {result.assumptions.venue === "perp" ? ` · ${result.assumptions.leverage}×` : ""}
+          {" · "}
+          Risk {riskLabel(result.assumptions.risk_pct)}
+          {result.assumptions.funding_stale ? " · Funding stale" : ""}
+        </p>
+      </div>
     </div>
   )
 })

@@ -41,6 +41,7 @@ type ResultsProps = {
   onToggleHidden: (id: string) => void
   onRemove: (id: string) => void
   onSort: (key: SortKey) => void
+  drawToken: number
 }
 
 export const Results = memo(function Results({
@@ -57,6 +58,7 @@ export const Results = memo(function Results({
   onToggleHidden,
   onRemove,
   onSort,
+  drawToken,
 }: ResultsProps) {
   const market = MARKETS.find((symbol) => symbol.id === result.symbol)
   const metrics = result.metrics
@@ -97,11 +99,11 @@ export const Results = memo(function Results({
           onKeyDown={split.onKeyDown}
         />
         <div className="min-h-[11rem]" style={{ flex: `${1 - split.share} 1 0%` }}>
-          <EquityChart result={result} overlays={overlays} selectedId={selected.id} />
+          <EquityChart result={result} overlays={overlays} selectedId={selected.id} drawToken={drawToken} />
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-x-6 gap-y-5 md:grid-cols-4">
+      <div className="bezel grid grid-cols-2 gap-x-6 gap-y-5 p-4 md:grid-cols-4">
         <Metric label="Total return" value={formatPct(metrics.total_return_pct)} tone={tone(metrics.total_return_pct)} />
         <Metric label="Buy and hold" value={formatPct(metrics.benchmark_return_pct)} tone={tone(metrics.benchmark_return_pct)} />
         <Metric label="Excess return" value={formatPct(metrics.excess_return_pct)} tone={tone(metrics.excess_return_pct)} />
@@ -155,7 +157,7 @@ export const Results = memo(function Results({
         {open ? ` · ${open} still open` : ""}
       </p>
 
-      <div>
+      <div className="bezel p-4">
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
           <h3 className="font-heading text-2xl">Trades</h3>
           <p className="font-mono text-xs text-muted-foreground uppercase">
@@ -275,7 +277,7 @@ function Comparison({
   onSort: (key: SortKey) => void
 }) {
   return (
-    <div>
+    <div className="bezel p-4">
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
         <h3 className="font-heading text-2xl">Comparison</h3>
         <p className="font-mono text-xs text-muted-foreground uppercase">Same tape, each rule</p>

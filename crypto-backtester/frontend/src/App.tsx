@@ -50,6 +50,7 @@ export default function App() {
   const [editing, setEditing] = useState(false)
   const [sortKey, setSortKey] = useState<SortKey | null>(null)
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc")
+  const [drawToken, setDrawToken] = useState(0)
   const generation = useRef(0)
   const deskRef = useRef(desk)
   const tapesRef = useRef(tapes)
@@ -138,6 +139,7 @@ export default function App() {
           next[run.id] = remember(run, tape)
         }
         setOutcomes(next)
+        setDrawToken((token) => token + 1)
       } catch (reason: unknown) {
         if (gen !== generation.current) return
         setError(reason instanceof Error ? reason.message : "The tape didn't load.")
@@ -344,6 +346,7 @@ export default function App() {
       const tape = map[selected.symbol]
       if (!tape) throw new Error("The tape didn't load.")
       setOutcomes((prev) => ({ ...prev, [selected.id]: remember(selected, tape) }))
+      setDrawToken((token) => token + 1)
       setSetupOpen(false)
     } catch (reason: unknown) {
       setError(reason instanceof Error ? reason.message : "The backtest didn't run.")
@@ -378,6 +381,7 @@ export default function App() {
         next[run.id] = remember(run, tape)
       }
       setOutcomes(next)
+      setDrawToken((token) => token + 1)
       setSetupOpen(false)
     } catch (reason: unknown) {
       if (gen === generation.current) {
@@ -478,7 +482,7 @@ export default function App() {
 
         <section aria-busy={running || loading} className="min-w-0">
           {error ? (
-            <div role="alert" className="mb-6 border border-down/30 bg-down/10 px-4 py-3 text-sm text-down">
+            <div role="alert" className="bezel mb-6 px-4 py-3 text-sm text-down">
               {error}
             </div>
           ) : null}
@@ -511,6 +515,7 @@ export default function App() {
               onToggleHidden={toggleHidden}
               onRemove={removeRun}
               onSort={onSort}
+              drawToken={drawToken}
             />
           ) : null}
 
@@ -520,7 +525,7 @@ export default function App() {
         </section>
       </main>
 
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 p-3 backdrop-blur lg:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-[#0e1522]/90 p-3 lg:hidden">
         <Sheet
           open={setupOpen}
           onOpenChange={(open) => {
@@ -590,10 +595,10 @@ function LoadingCopy({ label }: { label: string }) {
   return (
     <div className="flex flex-col gap-4" aria-live="polite">
       <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">{label}</p>
-      <div className="h-72 animate-pulse bg-desk/90" />
+      <div className="bezel h-72" />
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         {Array.from({ length: 4 }, (_, index) => (
-          <div key={index} className="h-16 animate-pulse border-t border-border bg-muted/60" />
+          <div key={index} className="bezel h-16" />
         ))}
       </div>
     </div>

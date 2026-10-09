@@ -1,4 +1,4 @@
-import { memo, type ReactNode } from "react"
+import { memo, useLayoutEffect, useRef, type ReactNode } from "react"
 import {
   Area,
   CartesianGrid,
@@ -22,30 +22,68 @@ export type OverlaySeries = {
   equity: { time: string; equity: number }[]
 }
 
-const axisTick = { fill: "#8a8176", fontSize: 11, fontFamily: "IBM Plex Mono, ui-monospace, monospace" }
+const axisTick = { fill: "#7f97a3", fontSize: 11, fontFamily: "IBM Plex Mono, ui-monospace, monospace" }
+const plotGrid = "#1d3a4d"
 
 export const EquityChart = memo(function EquityChart({
   result,
   overlays,
   selectedId,
+  drawToken,
 }: {
   result: BacktestResult
   overlays: OverlaySeries[]
   selectedId: string
+  drawToken: number
 }) {
+  const plotRef = useRef<HTMLDivElement>(null)
   const rows = thinRows(overlayRows(result, overlays), 480)
   const drawdown = thinRows(result.equity, 480)
   const selectedSeries = overlays.find((series) => series.id === selectedId)
-  const fill = selectedSeries?.color ?? "#e4b15a"
   const headline = selectedSeries
     ? (rows.at(-1)?.[selectedId] as number | null | undefined)
     : result.metrics.final_equity
+
+  useLayoutEffect(() => {
+    const root = plotRef.current
+    if (!root || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
+    let frame = 0
+    let path: SVGPathElement | null = null
+    let animation: Animation | null = null
+    const start = () => {
+      const found = root.querySelector(".equity-selected .recharts-line-curve")
+      if (!(found instanceof SVGPathElement)) return false
+      const length = found.getTotalLength()
+      if (!Number.isFinite(length) || length < 2) return false
+      path = found
+      path.style.strokeDasharray = `${length}`
+      path.style.strokeDashoffset = `${length}`
+      animation = path.animate([{ strokeDashoffset: length }, { strokeDashoffset: 0 }], {
+        duration: 600,
+        easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+        fill: "forwards",
+      })
+      animation.onfinish = () => {
+        path?.style.removeProperty("stroke-dasharray")
+        path?.style.removeProperty("stroke-dashoffset")
+      }
+      return true
+    }
+    if (!start()) frame = requestAnimationFrame(start)
+    return () => {
+      cancelAnimationFrame(frame)
+      animation?.cancel()
+      path?.style.removeProperty("stroke-dasharray")
+      path?.style.removeProperty("stroke-dashoffset")
+    }
+  }, [drawToken])
+
   return (
-    <div className="flex h-full min-h-0 flex-col bg-desk px-4 py-4 text-desk-ink sm:px-6 sm:py-5">
+    <div className="bezel flex h-full min-h-0 flex-col px-4 py-4 text-foreground sm:px-6 sm:py-5">
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-[0.65rem] font-semibold tracking-[0.18em] text-bench uppercase">Equity</p>
-          <p className="font-mono text-2xl text-gold tabular-nums">
+          <p className="font-mono text-2xl text-[#39e7ff] tabular-nums">
             {formatMoney(typeof headline === "number" ? headline : result.metrics.final_equity, 0)}
           </p>
         </div>
@@ -58,16 +96,10 @@ export const EquityChart = memo(function EquityChart({
           <span className="text-bench">Buy and hold</span>
         </div>
       </div>
-      <div className="min-h-0 flex-1">
+      <div ref={plotRef} className="plot-solid min-h-0 flex-1">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-            <defs>
-              <linearGradient id="equity-fill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={fill} stopOpacity={0.35} />
-                <stop offset="100%" stopColor={fill} stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid vertical={false} stroke="rgba(243,239,230,0.08)" />
+            <CartesianGrid vertical={false} stroke={plotGrid} />
             <XAxis
               dataKey="time"
               tickFormatter={(value) => formatAxis(String(value), result.interval)}
@@ -99,36 +131,23 @@ export const EquityChart = memo(function EquityChart({
                 </ChartTip>
               )}
             />
-            {overlays.map((series) =>
-              series.id === selectedId ? (
-                <Area
-                  key={series.id}
-                  type="monotone"
-                  dataKey={series.id}
-                  stroke={series.color}
-                  strokeWidth={2}
-                  fill="url(#equity-fill)"
-                  dot={false}
-                  connectNulls
-                  isAnimationActive={false}
-                />
-              ) : (
-                <Line
-                  key={series.id}
-                  type="monotone"
-                  dataKey={series.id}
-                  stroke={series.color}
-                  strokeWidth={1.75}
-                  dot={false}
-                  connectNulls
-                  isAnimationActive={false}
-                />
-              ),
-            )}
+            {overlays.map((series) => (
+              <Line
+                key={series.id}
+                className={series.id === selectedId ? "equity-selected" : undefined}
+                type="monotone"
+                dataKey={series.id}
+                stroke={series.color}
+                strokeWidth={series.id === selectedId ? 2 : 1.5}
+                dot={false}
+                connectNulls
+                isAnimationActive={false}
+              />
+            ))}
             <Line
               type="monotone"
               dataKey="benchmark"
-              stroke="#a3988c"
+              stroke="#7f97a3"
               strokeWidth={1.5}
               strokeDasharray="4 4"
               dot={false}
@@ -138,7 +157,7 @@ export const EquityChart = memo(function EquityChart({
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      <div className="mt-2 h-16 shrink-0">
+      <div className="plot-solid mt-2 h-16 shrink-0">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={drawdown} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <XAxis dataKey="time" hide />
@@ -161,10 +180,10 @@ export const EquityChart = memo(function EquityChart({
             <Area
               type="monotone"
               dataKey="drawdown_pct"
-              stroke="#c46a5a"
+              stroke="#ff5d73"
               strokeWidth={1.5}
-              fill="#c46a5a"
-              fillOpacity={0.28}
+              fill="#ff5d73"
+              fillOpacity={0.16}
               dot={false}
               isAnimationActive={false}
             />
@@ -190,7 +209,7 @@ export const PriceChart = memo(function PriceChart({
   const rows = plotCandles(candles, trades, 360)
   const domain = priceDomain(candles)
   return (
-    <div data-price-summary="" className="flex h-full min-h-0 flex-col">
+    <div data-price-summary="" className="bezel flex h-full min-h-0 flex-col p-4">
       <div className="mb-2 flex shrink-0 flex-wrap items-end justify-between gap-3">
         <h3 className="font-heading text-2xl">Price</h3>
         <div className="flex items-center gap-4 font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
@@ -202,15 +221,15 @@ export const PriceChart = memo(function PriceChart({
           </Button>
         </div>
       </div>
-      <div className="min-h-0 flex-1">
+      <div className="plot-solid min-h-0 flex-1">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-            <CartesianGrid vertical={false} stroke="rgba(28,25,22,0.08)" />
+            <CartesianGrid vertical={false} stroke={plotGrid} />
             <XAxis
               dataKey="time"
               tickFormatter={(value) => formatAxis(String(value), interval)}
               minTickGap={36}
-              tick={{ ...axisTick, fill: "#6e675d" }}
+              tick={axisTick}
               axisLine={false}
               tickLine={false}
             />
@@ -219,14 +238,14 @@ export const PriceChart = memo(function PriceChart({
               domain={domain}
               allowDataOverflow
               tickFormatter={(value) => formatPrice(Number(value))}
-              tick={{ ...axisTick, fill: "#6e675d" }}
+              tick={axisTick}
               axisLine={false}
               tickLine={false}
               width={72}
             />
             <Tooltip
               content={({ active, payload, label }) => (
-                <ChartTip active={active} label={label} interval={interval} light>
+                <ChartTip active={active} label={label} interval={interval}>
                   <TipRow label="Close" value={priceOrDash(numberFrom(payload, "close"))} />
                 </ChartTip>
               )}
@@ -234,7 +253,7 @@ export const PriceChart = memo(function PriceChart({
             <Line
               type="monotone"
               dataKey="close"
-              stroke="#1c1916"
+              stroke="#d7e6ea"
               strokeWidth={1.5}
               dot={false}
               isAnimationActive={false}
@@ -242,14 +261,14 @@ export const PriceChart = memo(function PriceChart({
             <Line
               dataKey="entry"
               stroke="none"
-              dot={{ r: 3.5, fill: "#1b6b43", stroke: "#f7f3eb", strokeWidth: 1 }}
+              dot={{ r: 3.5, fill: "#3ee0a2", stroke: "#070b12", strokeWidth: 1 }}
               isAnimationActive={false}
               connectNulls={false}
             />
             <Line
               dataKey="exit"
               stroke="none"
-              dot={{ r: 3.5, fill: "#a33b32", stroke: "#f7f3eb", strokeWidth: 1 }}
+              dot={{ r: 3.5, fill: "#ff5d73", stroke: "#070b12", strokeWidth: 1 }}
               isAnimationActive={false}
               connectNulls={false}
             />
@@ -304,22 +323,18 @@ function ChartTip({
   active,
   label,
   interval,
-  light = false,
   children,
 }: {
   active?: boolean
   label?: string | number
   interval: string
-  light?: boolean
   children: ReactNode
 }) {
   if (!active || label == null) return null
   return (
     <div
       className={
-        light
-          ? "border border-border bg-popover px-3 py-2 text-xs shadow-sm"
-          : "bg-desk-ink px-3 py-2 text-xs text-desk"
+        "border border-border bg-[#0e1522] px-3 py-2 text-xs text-[#d7e6ea]"
       }
     >
       <div className="mb-1 font-mono text-[10px] tracking-wide uppercase opacity-70">

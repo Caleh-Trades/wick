@@ -40,11 +40,14 @@ export function DeskBar({
   const limited = tape ? historyLimited(range, tape) : false
 
   return (
-    <header className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur">
+    <header className="bezel sticky top-0 z-30">
+      <div className="scan-track" aria-hidden="true">
+        <span className="scan-line" />
+      </div>
       <div className="mx-auto flex max-w-[1440px] flex-wrap items-center gap-x-4 gap-y-3 px-4 py-3">
         <div className="flex items-center gap-2">
           <CandleMark />
-          <h1 className="font-heading text-3xl leading-none">Wick</h1>
+          <h1 className="font-mono text-sm tracking-[0.32em] text-[#39e7ff] uppercase">Wick</h1>
         </div>
 
         {symbol ? (
@@ -143,15 +146,27 @@ function LiveClock({ paused }: { paused: boolean }) {
     const timer = window.setInterval(() => setNow(new Date()), 1000)
     return () => window.clearInterval(timer)
   }, [paused])
-  if (paused) return <span>Paused</span>
-  return <span>Live {formatClock(now)} UTC</span>
+  if (paused) {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <span className="live-dot is-paused" />
+        Paused
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="live-dot" />
+      Live {formatClock(now)} UTC
+    </span>
+  )
 }
 
 function CandleMark() {
   return (
-    <svg viewBox="0 0 32 32" className="size-8 text-foreground" aria-hidden="true">
-      <line x1="16" y1="3" x2="16" y2="29" stroke="currentColor" strokeWidth="1.4" />
-      <rect x="11" y="9" width="10" height="14" fill="#c9852a" />
+    <svg viewBox="0 0 32 32" className="size-6 text-[#39e7ff]" aria-hidden="true">
+      <line x1="16" y1="4" x2="16" y2="28" stroke="currentColor" strokeWidth="1" />
+      <rect x="12" y="10" width="8" height="12" fill="none" stroke="currentColor" strokeWidth="1" />
     </svg>
   )
 }

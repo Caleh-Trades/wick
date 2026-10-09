@@ -10,7 +10,7 @@ import type { Metrics, TapeCandle, Trade } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const MIN_BARS = 20
-const axisTick = { fill: "#8a8176", fontSize: 11, fontFamily: "IBM Plex Mono, ui-monospace, monospace" }
+const axisTick = { fill: "#7f97a3", fontSize: 11, fontFamily: "IBM Plex Mono, ui-monospace, monospace" }
 
 type View = { start: number; end: number }
 type PlotBox = { left: number; top: number; width: number; height: number }
@@ -324,7 +324,7 @@ export const ResearchChart = memo(function ResearchChart({
       <div
         ref={panelRef}
         onTransitionEnd={onPanelTransitionEnd}
-        className="fixed flex origin-center flex-col overflow-hidden bg-desk px-4 py-4 text-desk-ink will-change-transform sm:px-6"
+        className="bezel plot-solid fixed flex origin-center flex-col overflow-hidden px-4 py-4 text-[#d7e6ea] will-change-transform sm:px-6"
         style={panelStyle}
       >
         <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
@@ -340,7 +340,7 @@ export const ResearchChart = memo(function ResearchChart({
               type="button"
               size="xs"
               variant="outline"
-              className="border-desk-ink/30 text-desk-ink normal-case tracking-normal hover:bg-desk-ink/10 hover:text-desk-ink"
+              className="normal-case tracking-normal"
               onClick={() => commit({ start: 0, end: Math.max(0, candles.length - 1) }, true)}
             >
               Reset
@@ -350,7 +350,6 @@ export const ResearchChart = memo(function ResearchChart({
               type="button"
               size="icon-xs"
               variant="outline"
-              className="border-desk-ink/30 text-desk-ink hover:bg-desk-ink/10 hover:text-desk-ink"
               aria-label="Close enlarged chart"
               onClick={beginClose}
             >
@@ -372,7 +371,7 @@ export const ResearchChart = memo(function ResearchChart({
           >
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={bars} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid vertical={false} stroke="rgba(243,239,230,0.08)" />
+                <CartesianGrid vertical={false} stroke="#1d3a4d" />
                 <XAxis
                   dataKey="time"
                   tickFormatter={(value) => formatAxis(String(value), interval)}
@@ -399,7 +398,7 @@ export const ResearchChart = memo(function ResearchChart({
             {plot ? <CandleLayer bars={bars} domain={domain} plot={plot} /> : null}
             {boxLeft && boxLeft.width > 0 ? (
               <div
-                className="pointer-events-none absolute border border-gold bg-gold/20"
+                className="pointer-events-none absolute border border-[#39e7ff] bg-[#39e7ff]/15"
                 style={{ left: boxLeft.left, top: boxLeft.top, width: boxLeft.width, height: boxLeft.height }}
               />
             ) : null}
@@ -419,14 +418,14 @@ export const ResearchChart = memo(function ResearchChart({
                 <Tooltip
                   content={({ active, payload, label }) =>
                     active ? (
-                      <div className="bg-desk-ink px-3 py-2 font-mono text-xs text-desk">
+                      <div className="border border-border bg-[#0e1522] px-3 py-2 font-mono text-xs text-[#d7e6ea]">
                         <div className="text-[10px] tracking-wide uppercase opacity-70">{label ? formatStamp(String(label), interval) : ""}</div>
                         <div>Volume {formatVolume(numberFrom(payload, "volume") ?? 0)}</div>
                       </div>
                     ) : null
                   }
                 />
-                <Bar dataKey="volume" fill="#a3988c" isAnimationActive={false} />
+                <Bar dataKey="volume" fill="#7f97a3" isAnimationActive={false} />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -458,7 +457,7 @@ function Stat({ label, value, toneName = "ink" }: { label: string; value: string
   return (
     <div className="border-t border-desk-ink/15 pt-2">
       <div className="text-[0.65rem] font-semibold tracking-[0.16em] text-bench uppercase">{label}</div>
-      <div className={cn("font-mono text-lg tabular-nums", toneName === "up" && "text-[#7dcea0]", toneName === "down" && "text-[#e7a090]")}>
+      <div className={cn("font-mono text-lg tabular-nums", toneName === "up" && "text-[#3ee0a2]", toneName === "down" && "text-[#ff5d73]")}>
         {value}
       </div>
     </div>
@@ -492,17 +491,17 @@ function CandleLayer({ bars, domain, plot }: { bars: PlotBar[]; domain: [number,
       downWicks += wick
       downBodies += body
     }
-    if (bar.entry != null) marks.push({ x: cx, y: y(bar.entry), fill: "#7dcea0" })
-    if (bar.exit != null) marks.push({ x: cx, y: y(bar.exit), fill: "#e7a090" })
+    if (bar.entry != null) marks.push({ x: cx, y: y(bar.entry), fill: "#3ee0a2" })
+    if (bar.exit != null) marks.push({ x: cx, y: y(bar.exit), fill: "#ff5d73" })
   }
   return (
     <svg className="pointer-events-none absolute" style={{ left: plot.left, top: plot.top, width: plot.width, height: plot.height }} aria-hidden="true">
-      <path d={upWicks} stroke="#7dcea0" strokeWidth={1} fill="none" />
-      <path d={downWicks} stroke="#d07a6a" strokeWidth={1} fill="none" />
-      <path d={upBodies} fill="#7dcea0" />
-      <path d={downBodies} fill="#d07a6a" />
+      <path d={upWicks} stroke="#3ee0a2" strokeWidth={1} fill="none" />
+      <path d={downWicks} stroke="#ff5d73" strokeWidth={1} fill="none" />
+      <path d={upBodies} fill="#3ee0a2" />
+      <path d={downBodies} fill="#ff5d73" />
       {marks.map((mark, index) => (
-        <circle key={index} cx={mark.x} cy={mark.y} r={3.5} fill={mark.fill} stroke="#1c1916" strokeWidth={1} />
+        <circle key={index} cx={mark.x} cy={mark.y} r={3.5} fill={mark.fill} stroke="#070b12" strokeWidth={1} />
       ))}
     </svg>
   )
@@ -522,7 +521,7 @@ function CandleTip({
   const bar = payload?.[0]?.payload
   if (!active || !bar || label == null) return null
   return (
-    <div className="bg-desk-ink px-3 py-2 font-mono text-xs text-desk">
+    <div className="border border-border bg-[#0e1522] px-3 py-2 font-mono text-xs text-[#d7e6ea]">
       <div className="mb-1 text-[10px] tracking-wide uppercase opacity-70">{formatStamp(String(label), interval)}</div>
       <div>O {formatPrice(bar.open)}</div>
       <div>H {formatPrice(bar.high)}</div>

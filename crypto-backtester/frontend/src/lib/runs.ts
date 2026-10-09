@@ -213,7 +213,7 @@ export const RANGES: { id: RangeId; label: string; days: number }[] = [
   { id: "All", label: "All", days: 0 },
 ]
 
-export const RUN_COLORS = ["#e4b15a", "#7dcea0", "#d07a6a", "#8eb4d4", "#c9a0dc"] as const
+export const RUN_COLORS = ["#39e7ff", "#3ee0a2", "#ffb086", "#c7b3ff", "#d7e6ea"] as const
 
 export type DeskState = {
   runs: Run[]

@@ -875,7 +875,7 @@ function readJson(key: string): unknown {
 }
 
 const DB_NAME = "wick-records"
-const DB_VERSION = 1
+const DB_VERSION = 2
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {

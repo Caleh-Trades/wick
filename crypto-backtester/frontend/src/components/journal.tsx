@@ -143,6 +143,7 @@ function TradesPanel({
   onRestore: (ids: { strategyId: string; runId: string }) => void
 }) {
   const [query, setQuery] = useState<TradeQuery>(emptyQuery)
+  const [loadedQuery, setLoadedQuery] = useState<TradeQuery>(emptyQuery)
   const [page, setPage] = useState<TradePage>(emptyPage)
   const [strategies, setStrategies] = useState<StrategyRecord[]>([])
   const [kept, setKept] = useState<KeptListRow[]>([])
@@ -162,11 +163,20 @@ function TradesPanel({
   useEffect(() => {
     let cancel = false
     const load = () => {
-      void searchTrades(query).then((next) => {
-        if (cancel) return
-        setPage(next)
-        setLoading(false)
-      })
+      setLoading(true)
+      void searchTrades(query)
+        .then((next) => {
+          if (cancel) return
+          setPage(next)
+          setLoadedQuery(query)
+          setLoading(false)
+          setError(null)
+        })
+        .catch((reason: unknown) => {
+          if (cancel) return
+          setLoading(false)
+          setError(reason instanceof Error ? reason.message : "The trades didn't load.")
+        })
       void listStrategies().then((next) => {
         if (!cancel) setStrategies(next)
       })
@@ -221,8 +231,8 @@ function TradesPanel({
   }
 
   const names = new Map(strategies.map((row) => [row.id, row.name]))
-  const fromRow = page.total === 0 ? 0 : query.page * PAGE_SIZE + 1
-  const toRow = Math.min(page.total, (query.page + 1) * PAGE_SIZE)
+  const fromRow = page.total === 0 ? 0 : loadedQuery.page * PAGE_SIZE + 1
+  const toRow = Math.min(page.total, (loadedQuery.page + 1) * PAGE_SIZE)
   const lastPage = Math.max(0, Math.ceil(page.total / PAGE_SIZE) - 1)
 
   return (
@@ -324,10 +334,10 @@ function TradesPanel({
           {loading ? "Loading…" : page.total === 0 ? "0 trades" : `${fromRow}–${toRow} of ${page.total}`}
         </p>
         <div className="ml-auto flex gap-1">
-          <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" disabled={query.page <= 0} onClick={() => patch({ page: query.page - 1 }, false)}>
+          <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" disabled={loading || query.page <= 0} onClick={() => patch({ page: query.page - 1 }, false)}>
             Previous
           </Button>
-          <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" disabled={query.page >= lastPage} onClick={() => patch({ page: query.page + 1 }, false)}>
+          <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" disabled={loading || query.page >= lastPage} onClick={() => patch({ page: query.page + 1 }, false)}>
             Next
           </Button>
         </div>

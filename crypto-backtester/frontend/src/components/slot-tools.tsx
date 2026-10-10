@@ -76,7 +76,9 @@ export function AlertControl({
   const tick = symbol ? marketSpec(symbol, venue)?.tickSize : undefined
   const priceLevel = reading.price != null ? formatPrice(reading.price, tick) : null
   const deltaLevel = reading.delta != null ? `60s ${formatCompact(reading.delta)}` : null
-  const watched = [reading.priceKind && priceLevel ? `${reading.priceKind} ${priceLevel}` : null, deltaLevel].filter(Boolean).join(" · ")
+  const watched = (reading.hot ? [priceLevel, deltaLevel] : [reading.priceKind && priceLevel ? `${reading.priceKind} ${priceLevel}` : null, deltaLevel])
+    .filter(Boolean)
+    .join(" · ")
   const status = reading.hot ? `fired ${reading.side}${watched ? ` · ${watched}` : ""}` : watched ? `idle · ${watched}` : "idle"
 
   useEffect(() => {
@@ -91,7 +93,7 @@ export function AlertControl({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Alert">
+    <div className="flex flex-nowrap items-center gap-1 overflow-x-auto" role="group" aria-label="Alert">
       {KINDS.map((item) => (
         <Button
           key={item.id}

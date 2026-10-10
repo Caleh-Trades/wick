@@ -451,6 +451,22 @@ button:hover,
   }
 }
 
+/* An iPad turned sideways is wider than 1024px, so the desktop rule would keep
+   Runs open. A coarse pointer still gets the Setup button. A mouse keeps the rail. */
+@media (min-width: 1024px) and ((hover: none) or (pointer: coarse)) {
+  .runs-rail {
+    display: none !important;
+  }
+
+  .setup-bar {
+    display: block !important;
+  }
+
+  .results-pane {
+    padding-bottom: 6rem !important;
+  }
+}
+
 /* Phone and tablet landscape is short. The wide layout otherwise locks to the
    screen, so a sideways window could not move. A tall desktop window stays put. */
 @media (max-height: 860px) {

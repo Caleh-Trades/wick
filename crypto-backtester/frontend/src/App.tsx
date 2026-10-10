@@ -760,7 +760,7 @@ export default function App() {
           ) : null}
           </div>
         </div>
-        <aside className="hidden w-72 shrink-0 overflow-y-auto border-l border-border lg:block">
+        <aside className="runs-rail hidden w-72 shrink-0 overflow-y-auto border-l border-border lg:block">
           <div className="p-3">
             {active && selected ? (
               <Controls
@@ -795,7 +795,7 @@ export default function App() {
         </aside>
       </div>
 
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-[#fffaf4]/90 p-3 lg:hidden">
+      <div className="setup-bar fixed inset-x-0 bottom-0 z-40 border-t border-border bg-[#fffaf4]/90 p-3 lg:hidden">
         <Sheet
           open={setupOpen}
           onOpenChange={(open) => {

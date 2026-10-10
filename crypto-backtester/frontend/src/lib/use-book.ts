@@ -349,6 +349,7 @@ function handleKraken(conn: BookConn, raw: string, product: string) {
   if (typeof payload.product_id === "string" && payload.product_id !== product) return
   if (feed === "ticker") {
     takeKrakenTicker(conn, payload)
+    publish(conn)
     return
   }
   if (feed === "trade_snapshot") {
@@ -356,10 +357,12 @@ function handleKraken(conn: BookConn, raw: string, product: string) {
     for (const row of trades) {
       if (row && typeof row === "object") takeKrakenTrade(conn, row as Record<string, unknown>)
     }
+    publish(conn)
     return
   }
   if (feed === "trade") {
     takeKrakenTrade(conn, payload)
+    publish(conn)
     return
   }
   if (feed === "book_snapshot") {
@@ -649,10 +652,12 @@ function handleFrame(conn: BookConn, raw: string, kind: "depth" | "tape") {
   if (typeof payload.s === "string" && payload.s !== conn.symbol) return
   if (payload.e === "24hrTicker") {
     takeTicker(conn, payload)
+    publish(conn)
     return
   }
   if (payload.e === "trade" || payload.e === "aggTrade") {
     takeTrade(conn, payload)
+    publish(conn)
     return
   }
   if (kind !== "depth" || conn.depthRefs <= 0) return
@@ -679,19 +684,28 @@ function republish() {
   }
 }
 
+function printedLast(conn: BookConn): LiveView["last"] {
+  const lastPrint = conn.prints[conn.prints.length - 1]
+  if (!lastPrint) return null
+  const changed = lastPrint.price !== conn.publishedPrice
+  conn.publishedPrice = lastPrint.price
+  return { price: lastPrint.price, side: lastPrint.side, changed }
+}
+
 function publish(conn: BookConn, notify = true) {
   const now = Date.now()
   const socketDown = conn.venue === "perp" && conn.socket?.readyState !== WebSocket.OPEN
   const quiet = conn.heardAt == null || now - conn.heardAt > STALE_MS || socketDown
   const flow = rollingFlow(conn.prints, now)
   const tape = conn.prints.slice(-TAPE_LENGTH).reverse()
-  const quoteFields = { quote: conn.quote, changePct: conn.changePct }
+  const last = printedLast(conn)
+  const quoteFields = { quote: conn.quote, changePct: conn.changePct, last }
   if (!conn.latest || !conn.accept || conn.depthRefs <= 0) {
-    if (conn.view.bids.length > 0 || conn.view.asks.length > 0 || conn.sawGood || conn.quote != null) {
+    if (conn.view.bids.length > 0 || conn.view.asks.length > 0 || conn.sawGood || conn.quote != null || last) {
       conn.view = {
         ...conn.view,
         ...quoteFields,
-        status: quiet ? "stale" : conn.view.bids.length > 0 ? "connected" : conn.quote != null ? "connected" : "stale",
+        status: quiet ? "stale" : conn.view.bids.length > 0 || conn.quote != null || last ? "connected" : "stale",
         heardAt: conn.heardAt,
         prints: tape,
         ...flow,
@@ -720,11 +734,8 @@ function publish(conn: BookConn, notify = true) {
   const nextSizes = new Map<string, number>()
   for (const level of ladder.bids) nextSizes.set(`bid:${level.priceKey}`, level.size)
   for (const level of ladder.asks) nextSizes.set(`ask:${level.priceKey}`, level.size)
-  const lastPrint = conn.prints[conn.prints.length - 1]
-  const priceChanged = lastPrint != null && lastPrint.price !== conn.publishedPrice
   const freshIds = tape.filter((print) => !conn.view.prints.some((row) => row.id === print.id)).map((print) => print.id)
   conn.sizes = nextSizes
-  if (lastPrint) conn.publishedPrice = lastPrint.price
   conn.sawGood = true
   conn.view = {
     symbol: conn.symbol,
@@ -736,7 +747,7 @@ function publish(conn: BookConn, notify = true) {
     asks: ladder.asks,
     spread: ladder.spread,
     mid: ladder.mid,
-    last: lastPrint ? { price: lastPrint.price, side: lastPrint.side, changed: priceChanged } : conn.view.last,
+    last,
     quote: conn.quote,
     changePct: conn.changePct,
     prints: tape,

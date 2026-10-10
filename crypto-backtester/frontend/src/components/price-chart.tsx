@@ -3,6 +3,7 @@ import { CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis
 
 import { QuotePrice } from "@/components/quote-price"
 import { Button } from "@/components/ui/button"
+import { liveMark } from "@/lib/book"
 import { formatAxis, formatPrice, formatStamp } from "@/lib/format"
 import { marketSpec } from "@/lib/markets"
 import { plotCandles, priceDomain, priceTicks, spotTrades, type PlotBar } from "@/lib/plot"
@@ -42,7 +43,7 @@ export const PriceChart = memo(function PriceChart({
 }) {
   const book = useBookView(symbol, venue)
   const formed = useFormingCandles(candles, interval, symbol, venue)
-  const livePrice = book.last?.price ?? book.quote
+  const livePrice = liveMark(book)?.price
   const windowed = useMemo(() => windowAround(formed, focusTime), [formed, focusTime])
   const includesTail = windowed.length > 0 && windowed[windowed.length - 1] === formed[formed.length - 1]
   const shown = useMemo(

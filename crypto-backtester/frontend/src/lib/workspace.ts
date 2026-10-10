@@ -21,6 +21,8 @@ export type Slot = {
   selectedId: string
   /** Live threshold. A hit appends a journal row and does not send an order. */
   alert: SlotAlert | null
+  /** 60-second book delta. A cross appends a journal row and does not send an order. */
+  deltaAlert: number | null
 }
 
 export type Workspace = {
@@ -45,6 +47,7 @@ export function createSlot(symbol: MarketId, venue: Venue, timeframe: Timeframe,
     runs: [run],
     selectedId: run.id,
     alert: null,
+    deltaAlert: null,
   }
 }
 
@@ -98,6 +101,7 @@ export function fromDesk(desk: DeskState): Workspace {
     runs,
     selectedId: runs.some((run) => run.id === desk.selectedId) ? desk.selectedId : runs[0]!.id,
     alert: null,
+    deltaAlert: null,
   }))
   if (slots.length === 0) return defaultWorkspace()
   const active = slots.find((slot) => slot.runs.some((run) => run.id === desk.selectedId)) ?? slots[0]!
@@ -136,7 +140,17 @@ function sanitizeSlot(value: unknown): Slot | null {
     }))
   if (cleaned.length === 0) return createSlot(symbol, venue, timeframe, range)
   const selectedId = cleaned.some((run) => run.id === raw.selectedId) ? String(raw.selectedId) : cleaned[0]!.id
-  return { id: raw.id, symbol, venue, timeframe, range, runs: cleaned, selectedId, alert: asAlert(raw.alert) }
+  return {
+    id: raw.id,
+    symbol,
+    venue,
+    timeframe,
+    range,
+    runs: cleaned,
+    selectedId,
+    alert: asAlert(raw.alert),
+    deltaAlert: asDeltaAlert(raw.deltaAlert),
+  }
 }
 
 function asAlert(value: unknown): SlotAlert | null {
@@ -146,4 +160,22 @@ function asAlert(value: unknown): SlotAlert | null {
   const number = Number(raw.value)
   if (!kind || !(number > 0)) return null
   return { kind, value: number }
+}
+
+export function asDeltaAlert(value: unknown): number | null {
+  const number = Number(value)
+  if (!Number.isFinite(number) || !(number > 0)) return null
+  return number
+}
+
+/** True once the last trade is through a price level. A missing trade stays quiet. */
+export function priceCrosses(price: number | null, alert: SlotAlert | null): boolean {
+  if (!alert || alert.kind === "delta" || price == null || !(price > 0)) return false
+  return alert.kind === "above" ? price >= alert.value : price <= alert.value
+}
+
+/** True once the 60-second buy-minus-sell is at least the armed size. */
+export function deltaCrosses(delta: number, threshold: number | null): boolean {
+  if (threshold == null || !(threshold > 0) || !Number.isFinite(delta)) return false
+  return Math.abs(delta) >= threshold
 }

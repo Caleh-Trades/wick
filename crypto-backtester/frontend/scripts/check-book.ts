@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 
-import { krakenProduct, projectLadder, rollingFlow, stepDecimals, streamNames, takerSide, type Print } from "../src/lib/book.ts"
+import { krakenProduct, liveMark, projectLadder, rollingFlow, stepDecimals, streamNames, takerSide, type Print } from "../src/lib/book.ts"
 import { formatBookSize, formatCompact, formatPrice } from "../src/lib/format.ts"
 import { mergeForming } from "../src/lib/forming.ts"
 import { missingBars, priceDomain, priceTicks, spotTrades } from "../src/lib/plot.ts"
@@ -40,6 +40,16 @@ assert.notEqual(formatBookSize(1500), formatBookSize(1500.001))
 assert.equal(first.bids[0]?.notional, 100)
 assert.equal(first.spread, 10)
 assert.equal(first.mid, 105)
+const traded = liveMark({ last: { price: 82842, side: "buy", changed: true }, quote: 82840, mid: 82840.02 })
+assert.equal(traded?.source, "trade")
+assert.equal(traded?.price, 82842)
+const quoted = liveMark({ last: null, quote: 82842, mid: 82840.02 })
+assert.equal(quoted?.source, "trade")
+assert.equal(quoted?.price, 82842)
+const midOnly = liveMark({ last: null, quote: null, mid: 82840.02 })
+assert.equal(midOnly?.source, "mid")
+assert.equal(midOnly?.price, 82840.02)
+assert.equal(liveMark({ last: null, quote: null, mid: null }), null)
 assert.equal(first.bids[0]?.changed, false)
 
 const sized = new Map<string, number>([

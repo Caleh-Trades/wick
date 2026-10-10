@@ -78,6 +78,32 @@ export function projectLadder(
   }
 }
 
+export type PriceMark = {
+  price: number
+  source: "trade" | "mid"
+  side: FlowSide | null
+  changed: boolean
+}
+
+/** Last trade if one has arrived, otherwise the mid. A missing book stays empty. */
+export function liveMark(book: {
+  last: { price: number; side: FlowSide; changed: boolean } | null
+  quote: number | null
+  mid: number | null
+}): PriceMark | null {
+  const last = book.last
+  if (last && Number.isFinite(last.price) && last.price > 0) {
+    return { price: last.price, source: "trade", side: last.side, changed: last.changed }
+  }
+  if (book.quote != null && Number.isFinite(book.quote) && book.quote > 0) {
+    return { price: book.quote, source: "trade", side: null, changed: false }
+  }
+  if (book.mid != null && Number.isFinite(book.mid) && book.mid > 0) {
+    return { price: book.mid, source: "mid", side: null, changed: false }
+  }
+  return null
+}
+
 export function rollingFlow(prints: Print[], now: number): { delta: number; buy: number; sell: number } {
   const cutoff = now - DELTA_WINDOW_MS
   let buy = 0

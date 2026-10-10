@@ -718,6 +718,7 @@ export default function App() {
                   candleClock={clocks[slot.id] ?? null}
                   showCaption={shown.length > 1}
                   alert={slot.alert}
+                  deltaAlert={slot.deltaAlert}
                   funding={tapes[tapeKey(slot)]?.funding}
                   fundingStale={tapes[tapeKey(slot)]?.fundingStale === true}
                   focusTime={slot.id === workspace.activeId ? (focusTrade?.entry_time ?? null) : null}
@@ -833,6 +834,8 @@ export default function App() {
                 onRun={(run) => void runSelected(run)}
                 onRunAll={(run) => void runAll(run)}
                 onEditing={setEditing}
+                deltaAlert={active.deltaAlert}
+                onDeltaAlert={(deltaAlert) => patchSlot(active.id, { deltaAlert })}
               />
             ) : (
               <EmptyRuns onAdd={addSlot} />
@@ -874,6 +877,8 @@ export default function App() {
                   onRun={(run) => void runSelected(run)}
                   onRunAll={(run) => void runAll(run)}
                   onEditing={setEditing}
+                  deltaAlert={active.deltaAlert}
+                  onDeltaAlert={(deltaAlert) => patchSlot(active.id, { deltaAlert })}
                 />
               ) : null}
             </div>

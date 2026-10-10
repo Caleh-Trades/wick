@@ -3,7 +3,9 @@ import { BotSettings } from "@/components/bot-settings"
 import type { AccountSession } from "@/lib/account"
 import { SymbolSelect } from "@/components/symbol-select"
 import { Button } from "@/components/ui/button"
+import { liveMark } from "@/lib/book"
 import { formatClock, formatDay, formatPrice } from "@/lib/format"
+import { useBookView } from "@/lib/use-book"
 import { missingBars } from "@/lib/plot"
 import { TIMEFRAMES, barsLabel, marketById, windowNote } from "@/lib/runs"
 import type { MarketId, RangeId, Tape, Timeframe, Venue } from "@/lib/types"
@@ -49,8 +51,11 @@ export function DeskBar({
 }: DeskBarProps) {
   const frame = TIMEFRAMES.find((item) => item.id === timeframe)
   const market = symbol ? marketById(symbol, venue) : undefined
+  const book = useBookView(symbol, venue)
+  const mark = symbol && book.symbol === symbol.toUpperCase() && book.venue === venue ? liveMark(book) : null
   const last = tape?.candles.at(-1)
   const first = tape?.candles[0]
+  const headerPrice = mark?.price ?? last?.close ?? null
   const limited = tape ? windowNote(range, tape) : null
   const gaps = tape ? missingBars(tape.candles, tape.seconds) : 0
 
@@ -135,7 +140,10 @@ export function DeskBar({
                 {formatDay(first.time)} – {formatDay(last.time)} UTC
               </span>
               {gaps > 0 ? <span>{gapLabel(gaps)}</span> : null}
-              <span className="text-foreground tabular-nums">{formatPrice(last.close, market?.tickSize)}</span>
+              <span className="text-foreground tabular-nums">
+                {mark?.source === "mid" ? "Mid " : ""}
+                {headerPrice == null ? "—" : formatPrice(headerPrice, market?.tickSize)}
+              </span>
               {limited ? <span>{limited}</span> : null}
             </>
           ) : (

@@ -2,11 +2,13 @@ import { useEffect, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { liveMark } from "@/lib/book"
 import { formatStamp } from "@/lib/format"
 import { logAlert } from "@/lib/journal"
 import { useBookView } from "@/lib/use-book"
 import type { FundingRate, Venue } from "@/lib/types"
-import type { AlertKind, SlotAlert } from "@/lib/workspace"
+import { deltaCrosses, priceCrosses, type AlertKind, type SlotAlert } from "@/lib/workspace"
+import { cn } from "@/lib/utils"
 
 const KINDS: { id: AlertKind; label: string }[] = [
   { id: "above", label: "Above" },
@@ -45,9 +47,29 @@ function latestRate(rates: FundingRate[] | null | undefined): FundingRate | null
   return Number.isFinite(best.rate) ? best : null
 }
 
-export function AlertControl({ alert, onChange }: { alert: SlotAlert | null; onChange: (next: SlotAlert | null) => void }) {
+export function AlertControl({
+  alert,
+  deltaAlert,
+  symbol,
+  venue,
+  onChange,
+}: {
+  alert: SlotAlert | null
+  deltaAlert: number | null
+  symbol: string | null
+  venue: Venue
+  onChange: (next: SlotAlert | null) => void
+}) {
   const [kind, setKind] = useState<AlertKind>(alert?.kind ?? "above")
   const [draft, setDraft] = useState(alert ? String(alert.value) : "")
+  const book = useBookView(symbol, venue)
+  const mark = symbol && book.symbol === symbol.toUpperCase() && book.venue === venue ? liveMark(book) : null
+  const trade = mark?.source === "trade" ? mark.price : null
+  const chartDelta = alert?.kind === "delta" ? alert.value : null
+  const heard = book.heardAt != null
+  const fired =
+    priceCrosses(trade, alert && alert.kind !== "delta" ? alert : null) ||
+    (heard && (deltaCrosses(book.delta, deltaAlert) || deltaCrosses(book.delta, chartDelta)))
 
   useEffect(() => {
     setKind(alert?.kind ?? "above")
@@ -88,6 +110,9 @@ export function AlertControl({ alert, onChange }: { alert: SlotAlert | null; onC
       <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={arm}>
         Arm
       </Button>
+      <span className={cn("font-mono text-[10px] tracking-wide normal-case", fired ? "text-foreground" : "text-muted-foreground")} role="status">
+        {fired ? "fired" : "idle"}
+      </span>
       {alert ? (
         <Button type="button" size="xs" variant="ghost" className="normal-case tracking-normal" onClick={() => onChange(null)}>
           Clear
@@ -97,32 +122,55 @@ export function AlertControl({ alert, onChange }: { alert: SlotAlert | null; onC
   )
 }
 
-export function AlertWatch({ symbol, venue, alert }: { symbol: string; venue: Venue; alert: SlotAlert | null }) {
+export function AlertWatch({
+  symbol,
+  venue,
+  alert,
+  deltaAlert,
+}: {
+  symbol: string
+  venue: Venue
+  alert: SlotAlert | null
+  deltaAlert: number | null
+}) {
   const book = useBookView(symbol || null, venue)
+  const mark = book.symbol === symbol.toUpperCase() && book.venue === venue ? liveMark(book) : null
+  const trade = mark?.source === "trade" ? mark.price : null
 
   useEffect(() => {
-    if (!alert || !symbol) return
-    const key = `${venue}:${symbol}:${alert.kind}:${alert.value}`
-    const price = book.last?.price ?? book.quote
-    let hot = false
-    let value = 0
-    if (alert.kind === "delta") {
-      if (book.heardAt == null) return
-      value = book.delta
-      hot = Math.abs(value) >= alert.value
-    } else {
-      if (price == null || !(price > 0)) return
-      value = price
-      hot = alert.kind === "above" ? price >= alert.value : price <= alert.value
+    if (!symbol) return
+    const checks: { key: string; hot: boolean; kind: AlertKind; value: number; threshold: number }[] = []
+    if (alert && alert.kind !== "delta") {
+      checks.push({
+        key: `${venue}:${symbol}:${alert.kind}:${alert.value}`,
+        hot: priceCrosses(trade, alert),
+        kind: alert.kind,
+        value: trade ?? 0,
+        threshold: alert.value,
+      })
     }
-    if (!hot) {
-      latched.delete(key)
-      return
+    const thresholds = new Set<number>()
+    if (alert?.kind === "delta") thresholds.add(alert.value)
+    if (deltaAlert != null && deltaAlert > 0) thresholds.add(deltaAlert)
+    for (const threshold of thresholds) {
+      checks.push({
+        key: `${venue}:${symbol}:delta:${threshold}`,
+        hot: book.heardAt != null && deltaCrosses(book.delta, threshold),
+        kind: "delta",
+        value: book.delta,
+        threshold,
+      })
     }
-    if (latched.has(key)) return
-    latched.add(key)
-    logAlert({ symbol, venue, alertKind: alert.kind, value, threshold: alert.value })
-  }, [alert, book.delta, book.heardAt, book.last, book.quote, symbol, venue])
+    for (const check of checks) {
+      if (!check.hot) {
+        latched.delete(check.key)
+        continue
+      }
+      if (latched.has(check.key)) continue
+      latched.add(check.key)
+      logAlert({ symbol, venue, alertKind: check.kind, value: check.value, threshold: check.threshold })
+    }
+  }, [alert, book.delta, book.heardAt, deltaAlert, symbol, trade, venue])
 
   return null
 }

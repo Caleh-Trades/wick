@@ -2,9 +2,20 @@ import assert from "node:assert/strict"
 
 import { editConcerns } from "../src/lib/bot-edits.ts"
 import { findKept, journalEntries, journalStats, keepRun, keptExport, keptRuns, logAlert, logTrade, logTradeOp, removeJournalEntry, removeKeptRun, setKeptNote, tradePnl } from "../src/lib/journal.ts"
-import { createSlot } from "../src/lib/workspace.ts"
+import { asDeltaAlert, createSlot, deltaCrosses, priceCrosses } from "../src/lib/workspace.ts"
 
 const slot = createSlot("BTCUSDT", "spot", "1d", "1Y")
+assert.equal(slot.deltaAlert, null)
+assert.equal(asDeltaAlert(undefined), null)
+assert.equal(asDeltaAlert(0), null)
+assert.equal(asDeltaAlert(1.5), 1.5)
+assert.equal(priceCrosses(82842, { kind: "above", value: 82800 }), true)
+assert.equal(priceCrosses(82842, { kind: "below", value: 82800 }), false)
+assert.equal(priceCrosses(null, { kind: "above", value: 1 }), false)
+assert.equal(deltaCrosses(3, 2), true)
+assert.equal(deltaCrosses(-3, 2), true)
+assert.equal(deltaCrosses(1, 2), false)
+assert.equal(deltaCrosses(4, null), false)
 const workspace = { slots: [slot], activeId: slot.id, pinnedId: null, enlarged: false }
 assert.equal(editConcerns(workspace, [{ op: "log-trade", symbol: "ETH", side: "sell", price: 1, size: 1 }]), true)
 

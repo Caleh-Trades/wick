@@ -1,4 +1,4 @@
-import { memo, useState } from "react"
+import { memo, useState, type ReactNode } from "react"
 import { Eye, EyeOff, Trash2 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -247,9 +247,19 @@ export function RunStrip({
         <Metric label="Recovery" hint="Bars from the worst-drawdown peak until equity reclaims it." value={recoveryLabel(metrics.recovery_bars)} dense />
         <Metric label="Final equity" value={formatMoney(metrics.final_equity, 0)} dense />
         <Metric
-          label="Monte Carlo"
+          label="MC 5% equity"
           hint="5th percentile ending equity. Each of 500 paths redraws the closed-trade returns with replacement and compounds them from the starting balance."
           value={monteCarlo == null ? "—" : formatMoney(monteCarlo, 0)}
+          aside={
+            <>
+              <span className="text-[11px] font-normal text-muted-foreground normal-case">
+                {closedReturns.length} {closedReturns.length === 1 ? "trade" : "trades"}
+              </span>
+              {closedReturns.length < 10 ? (
+                <span className="text-[10px] font-normal text-muted-foreground/70 normal-case">thin sample</span>
+              ) : null}
+            </>
+          }
           dense
         />
         {result.assumptions.venue === "perp" ? (
@@ -321,13 +331,16 @@ function recoveryLabel(bars: number | null | undefined): string {
 }
 
 function WindowTable({ result }: { result: BacktestResult }) {
+  const windows = result.walk_forward ?? []
   const rows: { name: string; slice: SampleSlice | null }[] = [
     { name: "In-sample", slice: result.in_sample ?? null },
     { name: "Holdout", slice: result.holdout ?? null },
-    ...(result.walk_forward ?? []).map((slice, index) => ({ name: `Window ${index + 1}`, slice })),
+    { name: "Window 1", slice: windows[0] ?? null },
+    { name: "Window 2", slice: windows[1] ?? null },
+    { name: "Window 3", slice: windows[2] ?? null },
   ]
   return (
-    <table className="mb-3 w-full border-collapse text-left" aria-label="Walk-forward windows">
+    <table className="mb-3 w-full shrink-0 border-collapse text-left" aria-label="Walk-forward windows">
       <thead className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
         <tr className="border-b border-border">
           <th className="py-1 pr-2 font-medium">Window</th>
@@ -560,6 +573,7 @@ function Metric({
   dir = "desc",
   onSort,
   dense = false,
+  aside,
 }: {
   label: string
   value: string
@@ -569,6 +583,7 @@ function Metric({
   dir?: "asc" | "desc"
   onSort?: () => void
   dense?: boolean
+  aside?: ReactNode
 }) {
   const labelNode = (
     <div className="text-[0.6rem] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
@@ -599,15 +614,9 @@ function Metric({
       ) : (
         labelNode
       )}
-      <div
-        className={cn(
-          "font-mono tabular-nums",
-          dense ? "text-sm" : "mt-1 text-xl",
-          toneName === "up" && "text-up",
-          toneName === "down" && "text-down",
-        )}
-      >
-        {value}
+      <div className={cn("flex items-baseline gap-2 font-mono whitespace-nowrap tabular-nums", dense ? "text-sm" : "mt-1 text-xl")}>
+        <span className={cn(toneName === "up" && "text-up", toneName === "down" && "text-down")}>{value}</span>
+        {aside}
       </div>
     </div>
   )

@@ -17,6 +17,7 @@ export function MarketPane({
   candleClock,
   showCaption,
   alert,
+  deltaAlert,
   funding,
   fundingStale,
   focusTime,
@@ -38,6 +39,7 @@ export function MarketPane({
   candleClock: Date | null
   showCaption: boolean
   alert: SlotAlert | null
+  deltaAlert: number | null
   funding?: FundingRate[] | null
   fundingStale?: boolean
   focusTime?: string | null
@@ -75,8 +77,8 @@ export function MarketPane({
           </p>
         ) : null}
         {venue === "perp" && symbol ? <FundingQuote rates={funding} stale={fundingStale === true} /> : null}
-        <AlertControl alert={alert} onChange={onAlert} />
-        {symbol ? <AlertWatch symbol={symbol} venue={venue} alert={alert} /> : null}
+        <AlertControl alert={alert} deltaAlert={deltaAlert} symbol={symbol} venue={venue} onChange={onAlert} />
+        {symbol ? <AlertWatch symbol={symbol} venue={venue} alert={alert} deltaAlert={deltaAlert} /> : null}
       </div>
       <div ref={rowRef} className="chart-book-row flex min-h-0 flex-1 items-stretch">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">

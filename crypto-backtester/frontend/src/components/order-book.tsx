@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react"
 import { formatBookSize, formatClock, formatCompact, formatPrice } from "@/lib/format"
 import { marketSpec } from "@/lib/markets"
 import { useLiveBook, type BookStatus, type LiveView } from "@/lib/use-book"
-import type { Level } from "@/lib/book"
+import { liveMark, type Level } from "@/lib/book"
 import type { Venue } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -102,13 +102,20 @@ function StatusLabel({ status, heardAt }: { status: BookStatus; heardAt: number 
 }
 
 function MidRow({ book, tick }: { book: LiveView; tick?: string }) {
-  const last = book.last
+  const mark = liveMark(book)
+  const trade = mark?.source === "trade"
   return (
     <div className="my-1 grid grid-cols-3 gap-2 border-y border-border px-1 py-1.5 font-mono text-[11px]">
       <span>
-        <span className="block text-[10px] tracking-wide text-muted-foreground uppercase">Last</span>
-        <span className={cn(last?.side === "sell" ? "text-down" : "text-up", last?.changed && (last.side === "sell" ? "last-tick-down" : "last-tick-up"))}>
-          {last ? formatPrice(last.price, tick) : "—"}
+        <span className="block text-[10px] tracking-wide text-muted-foreground uppercase">{trade || !mark ? "Last" : "Mid"}</span>
+        <span
+          className={cn(
+            trade && mark.side === "sell" && "text-down",
+            trade && mark.side === "buy" && "text-up",
+            trade && mark.changed && (mark.side === "sell" ? "last-tick-down" : "last-tick-up"),
+          )}
+        >
+          {mark ? formatPrice(mark.price, tick) : "—"}
         </span>
       </span>
       <span className="text-center">

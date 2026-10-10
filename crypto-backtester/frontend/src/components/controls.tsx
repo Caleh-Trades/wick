@@ -33,6 +33,8 @@ type ControlsProps = {
   onRun: (run: Run) => void
   onRunAll: (run: Run) => void
   onEditing: (editing: boolean) => void
+  deltaAlert: number | null
+  onDeltaAlert: (value: number | null) => void
 }
 
 export function Controls({
@@ -50,6 +52,8 @@ export function Controls({
   onRun,
   onRunAll,
   onEditing,
+  deltaAlert,
+  onDeltaAlert,
 }: ControlsProps) {
   const full = runs.length >= MAX_RUNS
   const rule = RULES.find((item) => item.id === selected.rule)
@@ -271,6 +275,16 @@ export function Controls({
           onValue={(slippageBps) => patch({ slippageBps })}
         />
       </div>
+
+      <DecimalField
+        id={`${idPrefix}-delta`}
+        label="60s delta"
+        value={deltaAlert ?? 0}
+        min={0}
+        max={1_000_000_000}
+        onValue={(value) => onDeltaAlert(value > 0 ? value : null)}
+        hint={<p className="text-xs leading-relaxed text-muted-foreground">The book fires when 60-second buy-minus-sell crosses this size. Zero stays idle.</p>}
+      />
 
       {venue === "perp" ? (
         <Button

@@ -155,7 +155,7 @@ export const Results = memo(function Results({
                   {formatStamp(trade.entry_time, result.interval)} {formatPrice(trade.entry_price, market?.tickSize)}
                 </p>
                 <p className="font-mono text-[11px] leading-relaxed break-words text-muted-foreground">
-                  → {trade.status === "open" || !trade.exit_time ? "Marked" : formatStamp(trade.exit_time, result.interval)}{" "}
+                  → {trade.status === "open" || !trade.exit_time ? "Open" : formatStamp(trade.exit_time, result.interval)}{" "}
                   {trade.exit_price == null ? "—" : formatPrice(trade.exit_price, market?.tickSize)}
                 </p>
                 <p className="mt-0.5 flex justify-between gap-2 font-mono text-[11px] tabular-nums">
@@ -218,7 +218,7 @@ export function RunStrip({
         />
         <Metric
           label="Win rate"
-          hint="Exits and liquidations. Click to sort the comparison."
+          hint="Closed trades and liquidations. An open trade stays out. Click to sort the comparison."
           value={formatPlainPct(metrics.win_rate_pct, 0)}
           active={sortKey === "win_rate_pct"}
           dir={sortDir}
@@ -227,7 +227,7 @@ export function RunStrip({
         />
         <Metric
           label="Profit factor"
-          hint="Gross wins divided by gross losses, including the open trade. An em dash when nothing lost money. Click to sort the comparison."
+          hint="Gross wins divided by gross losses on closed trades. An open trade stays out. An em dash when nothing lost money. Click to sort the comparison."
           value={formatFactor(metrics.profit_factor)}
           active={sortKey === "profit_factor"}
           dir={sortDir}
@@ -236,7 +236,7 @@ export function RunStrip({
         />
         <Metric
           label="Expectancy"
-          hint="Average trade return: win rate times the average win, minus loss rate times the average loss. The open trade is included."
+          hint="Average closed-trade return: win rate times the average win, minus loss rate times the average loss. An open trade stays out."
           value={formatPct(metrics.expectancy)}
           tone={tone(metrics.expectancy)}
           dense

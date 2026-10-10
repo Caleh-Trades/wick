@@ -85,7 +85,7 @@ export type PriceMark = {
   changed: boolean
 }
 
-/** Last trade if one has arrived, otherwise the mid. A missing book stays empty. */
+/** Last trade if one has printed. Otherwise the mid, once. The 24h ticker is not a trade. */
 export function liveMark(book: {
   last: { price: number; side: FlowSide; changed: boolean } | null
   quote: number | null
@@ -94,9 +94,6 @@ export function liveMark(book: {
   const last = book.last
   if (last && Number.isFinite(last.price) && last.price > 0) {
     return { price: last.price, source: "trade", side: last.side, changed: last.changed }
-  }
-  if (book.quote != null && Number.isFinite(book.quote) && book.quote > 0) {
-    return { price: book.quote, source: "trade", side: null, changed: false }
   }
   if (book.mid != null && Number.isFinite(book.mid) && book.mid > 0) {
     return { price: book.mid, source: "mid", side: null, changed: false }

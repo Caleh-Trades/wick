@@ -57,7 +57,9 @@ assert.equal(
   crossed.walk_forward.reduce((sum, slice) => sum + slice.trades, 0),
   crossed.metrics.trades,
 )
-assert.ok(held.metrics.expectancy != null && held.metrics.expectancy > 0)
+assert.equal(held.metrics.expectancy, null)
+assert.equal(held.metrics.profit_factor, null)
+assert.equal(held.metrics.win_rate_pct, null)
 assert.equal(held.metrics.expectancy, tradeExpectancy(held.trades))
 assert.ok(crossed.metrics.expectancy != null)
 assert.equal(crossed.metrics.expectancy, tradeExpectancy(crossed.trades))
@@ -197,23 +199,19 @@ assert.deepEqual(
 assert.equal(profitFactor([{ pnl: 10 }, { pnl: 4 }]), null)
 assert.equal(profitFactor([]), null)
 const expectancyTrades = [
-  { pnl: -1382.79, return_pct: -13.8279 },
-  { pnl: -227.72, return_pct: -2.2772 },
-  { pnl: 71.2, return_pct: 0.712 },
-  { pnl: 2249.15, return_pct: 22.4915 },
+  { pnl: -1382.79, return_pct: -13.8279, status: "closed" },
+  { pnl: -227.72, return_pct: -2.2772, status: "closed" },
+  { pnl: 71.2, return_pct: 0.712, status: "closed" },
+  { pnl: 2249.15, return_pct: 22.4915, status: "open" },
 ]
 const withOpen = tradeExpectancy(expectancyTrades)
 const closedExpectancy = tradeExpectancy(expectancyTrades.slice(0, 3))
-const avgWin = (0.712 + 22.4915) / 2
-const avgLoss = (13.8279 + 2.2772) / 2
-assert.ok(withOpen != null && Math.abs(withOpen - (0.5 * avgWin - 0.5 * avgLoss)) < 1e-9)
-assert.ok(withOpen > 0)
-assert.ok(closedExpectancy != null && closedExpectancy < -5 && closedExpectancy > -5.3)
+assert.ok(withOpen != null && withOpen < -5 && withOpen > -5.3)
+assert.ok(closedExpectancy != null && Math.abs(withOpen - closedExpectancy) < 1e-9)
 const openWinner = profitFactor(expectancyTrades)
-assert.ok(openWinner != null && openWinner > 1)
-assert.ok(Math.abs(openWinner - (71.2 + 2249.15) / (1382.79 + 227.72)) < 1e-9)
 const closedOnly = profitFactor([{ pnl: -1382.79 }, { pnl: -227.72 }, { pnl: 71.2 }])
-assert.ok(closedOnly != null && closedOnly < 0.05)
+assert.ok(openWinner != null && closedOnly != null && Math.abs(openWinner - closedOnly) < 1e-9)
+assert.ok(closedOnly < 0.05)
 
 assert.equal(monteCarloEquity([], 10_000), null)
 assert.equal(monteCarloEquity([0, 0], 10_000), 10_000)

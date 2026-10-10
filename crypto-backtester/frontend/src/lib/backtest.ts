@@ -476,11 +476,12 @@ function measure(
   }
 }
 
-/** Gross winning pnl divided by gross losing pnl. Open trades count. No losses is null. */
-export function profitFactor(trades: Array<{ pnl: number }>): number | null {
+/** Gross winning pnl divided by gross losing pnl. An open trade stays out. No losses is null. */
+export function profitFactor(trades: Array<{ pnl: number; status?: string }>): number | null {
   let grossWin = 0
   let grossLoss = 0
   for (const trade of trades) {
+    if (trade.status === "open") continue
     if (trade.pnl > 0) grossWin += trade.pnl
     else if (trade.pnl < 0) grossLoss -= trade.pnl
   }
@@ -523,9 +524,15 @@ function mulberry32(seed: number) {
   }
 }
 
-/** Average trade return: (win rate × avg win) − (loss rate × avg loss). Open trades count. */
-export function tradeExpectancy(trades: Array<{ pnl: number; return_pct: number }>): number | null {
-  const sampled = trades.filter((trade) => Number.isFinite(trade.pnl) && Number.isFinite(trade.return_pct) && trade.pnl !== 0)
+/** Average trade return: (win rate × avg win) − (loss rate × avg loss). An open trade stays out. */
+export function tradeExpectancy(trades: Array<{ pnl: number; return_pct: number; status?: string }>): number | null {
+  const sampled = trades.filter(
+    (trade) =>
+      trade.status !== "open" &&
+      Number.isFinite(trade.pnl) &&
+      Number.isFinite(trade.return_pct) &&
+      trade.pnl !== 0,
+  )
   if (sampled.length === 0) return null
   const wins = sampled.filter((trade) => trade.pnl > 0)
   const losses = sampled.filter((trade) => trade.pnl < 0)

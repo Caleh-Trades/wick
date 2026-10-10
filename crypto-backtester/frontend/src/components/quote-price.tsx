@@ -22,7 +22,7 @@ export function QuotePrice({ symbol, venue, close }: { symbol: string | null; ve
         trade && mark.changed && (mark.side === "sell" ? "last-tick-down" : "last-tick-up"),
       )}
     >
-      {mid ? <span className="mr-1 align-baseline text-[10px] tracking-wide text-muted-foreground uppercase">Mid</span> : null}
+      {mid ? <span className="align-baseline text-[10px] tracking-wide text-muted-foreground uppercase">MID </span> : null}
       {formatPrice(price, tick)}
     </span>
   )

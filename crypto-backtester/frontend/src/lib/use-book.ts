@@ -382,18 +382,18 @@ function handleKraken(conn: BookConn, raw: string, product: string) {
 
 function takeKrakenTicker(conn: BookConn, payload: Record<string, unknown>) {
   const last = Number(payload.last)
-  const change = Number(payload.change)
+  const open = Number(payload.open)
   if (Number.isFinite(last) && last > 0) conn.quote = last
-  if (Number.isFinite(last) && last > 0 && Number.isFinite(change)) {
-    const base = last - change
-    if (base !== 0) conn.changePct = (change / base) * 100
+  if (Number.isFinite(last) && last > 0 && Number.isFinite(open) && open > 0) {
+    conn.changePct = ((last - open) / open) * 100
   }
 }
 
 function takeKrakenTrade(conn: BookConn, payload: Record<string, unknown>) {
   const price = Number(payload.price)
-  const size = Number(payload.qty)
-  const t = Number(payload.time)
+  const size = Number(payload.qty ?? payload.size)
+  let t = Number(payload.time)
+  if (Number.isFinite(t) && t > 0 && t < 1e12) t *= 1000
   if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(size) || size <= 0 || !Number.isFinite(t)) return
   const id = payload.uid == null ? `${t}|${price}|${size}` : String(payload.uid)
   if (conn.seen.has(id)) return

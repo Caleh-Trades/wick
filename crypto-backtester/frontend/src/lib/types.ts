@@ -66,7 +66,7 @@ export type Metrics = {
   sortino: number | null
   win_rate_pct: number | null
   profit_factor: number | null
-  /** Win rate times average winning return, minus loss rate times average losing return. Open trades count. */
+  /** Win rate times average winning return, minus loss rate times average losing return. An open trade stays out. */
   expectancy: number | null
   /** Bars from the worst-drawdown peak until equity reclaims it. Null if it never does. */
   recovery_bars: number | null

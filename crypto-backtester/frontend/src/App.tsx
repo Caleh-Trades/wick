@@ -625,7 +625,14 @@ export default function App() {
         onAdd={addSlot}
       />
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <Watchlist slots={workspace.slots} activeId={workspace.activeId} onFocus={focusSlot} onOpen={openSymbol} />
+        <Watchlist
+          slots={workspace.slots}
+          activeId={workspace.activeId}
+          width={panes.slots}
+          onWidth={(slots) => setPanes((current) => ({ ...current, slots }))}
+          onFocus={focusSlot}
+          onOpen={openSymbol}
+        />
         <div className="desk-column flex min-h-0 min-w-0 flex-1 flex-col">
           {error ? (
             <div role="alert" className="bezel mx-3 mt-3 shrink-0 px-4 py-3 text-sm text-down">

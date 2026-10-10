@@ -1,21 +1,26 @@
 import { formatPrice } from "@/lib/format"
 import { useFavourites } from "@/lib/favourites"
+import { SLOTS_MAX, SLOTS_MIN, clampSlots } from "@/lib/panes"
 import { marketById } from "@/lib/runs"
 import { marketSpec } from "@/lib/markets"
 import { holdBook, useBookView } from "@/lib/use-book"
 import type { Slot } from "@/lib/workspace"
 import type { MarketId, Venue } from "@/lib/types"
 import { cn } from "@/lib/utils"
-import { useEffect } from "react"
+import { useEffect, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react"
 
 export function Watchlist({
   slots,
   activeId,
+  width,
+  onWidth,
   onFocus,
   onOpen,
 }: {
   slots: Slot[]
   activeId: string
+  width: number
+  onWidth: (width: number) => void
   onFocus: (id: string) => void
   onOpen: (symbol: MarketId, venue: Venue) => void
 }) {
@@ -31,7 +36,11 @@ export function Watchlist({
   }, [extra.join("|")])
 
   return (
-    <aside className="flex w-full shrink-0 flex-row overflow-x-auto border-b border-border bg-[#fffaf4] max-lg:max-h-28 lg:h-full lg:w-[200px] lg:flex-col lg:overflow-y-auto lg:border-r lg:border-b-0" aria-label="Watchlist">
+    <aside
+      className="relative flex w-full shrink-0 flex-row overflow-x-auto border-b border-border bg-[#fffaf4] max-lg:max-h-28 lg:h-full lg:w-(--slots-width) lg:flex-col lg:overflow-y-auto lg:overflow-x-hidden lg:border-r lg:border-b-0"
+      style={{ "--slots-width": `${width}px` } as CSSProperties}
+      aria-label="Watchlist"
+    >
       <p className="px-2 pt-2 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">Slots</p>
       <ul className="flex min-h-0 flex-1 lg:block lg:overflow-y-auto">
         {slots.map((slot) => (
@@ -60,6 +69,21 @@ export function Watchlist({
           </li>
         ))}
       </ul>
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize the slots"
+        aria-valuemin={SLOTS_MIN}
+        aria-valuemax={SLOTS_MAX}
+        aria-valuenow={Math.round(width)}
+        tabIndex={0}
+        className="absolute inset-y-0 right-0 z-10 hidden w-3 cursor-col-resize lg:block"
+        onPointerDown={(event) => dragSlots(event, width, onWidth)}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowLeft") onWidth(clampSlots(width - 16))
+          if (event.key === "ArrowRight") onWidth(clampSlots(width + 16))
+        }}
+      />
     </aside>
   )
 }
@@ -86,20 +110,33 @@ function QuoteRow({
   return (
     <button
       type="button"
-      className={cn("flex w-full flex-col gap-0.5 px-2 py-1.5 text-left", active && "bg-[#f6e4d2]")}
+      className={cn("flex w-full min-w-0 flex-col gap-0.5 overflow-hidden px-2 py-1.5 text-left", active && "bg-[#f6e4d2]")}
       onClick={onClick}
     >
-      <span className="flex items-baseline justify-between gap-2">
-        <span className="font-mono text-xs">{market?.base ?? symbol.replace(/USDT$/, "")}</span>
-        <span className="font-mono text-[10px] text-muted-foreground uppercase">{label}</span>
+      <span className="flex min-w-0 items-baseline justify-between gap-2">
+        <span className="min-w-0 truncate font-mono text-xs">{market?.base ?? symbol.replace(/USDT$/, "")}</span>
+        <span className="shrink-0 font-mono text-[10px] text-muted-foreground uppercase">{label}</span>
       </span>
-      <span className="flex items-baseline justify-between gap-2 font-mono text-[11px] tabular-nums">
-        <span>{price == null ? "—" : formatPrice(price, tick)}</span>
-        <span className={change == null ? "text-muted-foreground" : change > 0 ? "text-up" : change < 0 ? "text-down" : "text-muted-foreground"}>
+      <span className="flex min-w-0 items-baseline justify-between gap-2 font-mono text-[11px] tabular-nums">
+        <span className="min-w-0 truncate">{price == null ? "—" : formatPrice(price, tick)}</span>
+        <span className={cn("shrink-0", change == null ? "text-muted-foreground" : change > 0 ? "text-up" : change < 0 ? "text-down" : "text-muted-foreground")}>
           {change == null ? "—" : `${change > 0 ? "+" : ""}${change.toFixed(2)}%`}
           {stale ? " · stale" : ""}
         </span>
       </span>
     </button>
   )
+}
+
+function dragSlots(event: ReactPointerEvent<HTMLDivElement>, width: number, onWidth: (width: number) => void) {
+  event.currentTarget.setPointerCapture(event.pointerId)
+  const startX = event.clientX
+  const start = width
+  const move = (ev: PointerEvent) => onWidth(clampSlots(start + (ev.clientX - startX)))
+  const end = () => {
+    window.removeEventListener("pointermove", move)
+    window.removeEventListener("pointerup", end)
+  }
+  window.addEventListener("pointermove", move)
+  window.addEventListener("pointerup", end)
 }

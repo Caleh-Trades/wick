@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { Trash2 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -360,7 +360,7 @@ function WorkingPanel({
           <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
             <div className="flex min-w-0 flex-1 flex-col gap-1">
               <Label htmlFor="working-open-note">Why it is working</Label>
-              <Input id="working-open-note" value={openNote} maxLength={280} placeholder="Holds the trend after the last two weeks" onChange={(event) => setOpenNote(event.target.value)} />
+              <GrowingNote id="working-open-note" value={openNote} placeholder="Holds the trend after the last two weeks" onChange={setOpenNote} />
             </div>
             <Button type="submit" className="shrink-0">
               Save the open strategy
@@ -516,7 +516,7 @@ function WorkingPanel({
           ) : null}
           <div className="col-span-2 flex flex-col gap-1">
             <Label htmlFor="working-note">Why it is working</Label>
-            <Input id="working-note" value={note} maxLength={280} placeholder="Why this setup" onChange={(event) => setNote(event.target.value)} />
+            <GrowingNote id="working-note" value={note} placeholder="Why this setup" onChange={setNote} />
           </div>
         </div>
         {spec ? <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{spec.summary}</p> : null}
@@ -564,13 +564,12 @@ function WorkingRow({ row, onOpen }: { row: WorkingStrategy; onOpen: (row: Worki
           {label} · {row.timeframe} · {row.range}
           {fields ? ` · ${fields}` : ""}
         </p>
-        <Input
-          aria-label={`Note for ${row.name}`}
+        <GrowingNote
+          label={`Note for ${row.name}`}
           value={row.note}
-          maxLength={280}
           placeholder="Why this one is working"
-          className="mt-2 h-8"
-          onChange={(event) => setWorkingNote(row.id, event.target.value)}
+          className="mt-2"
+          onChange={(value) => setWorkingNote(row.id, value)}
         />
       </div>
       <div className="flex shrink-0 gap-1">
@@ -582,6 +581,46 @@ function WorkingRow({ row, onOpen }: { row: WorkingStrategy; onOpen: (row: Worki
         </Button>
       </div>
     </li>
+  )
+}
+
+function GrowingNote({
+  id,
+  label,
+  value,
+  placeholder,
+  className,
+  onChange,
+}: {
+  id?: string
+  label?: string
+  value: string
+  placeholder: string
+  className?: string
+  onChange: (value: string) => void
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null)
+  useLayoutEffect(() => {
+    const node = ref.current
+    if (!node) return
+    node.style.height = "auto"
+    node.style.height = `${node.scrollHeight + 2}px`
+  }, [value])
+  return (
+    <textarea
+      ref={ref}
+      id={id}
+      aria-label={label}
+      value={value}
+      maxLength={280}
+      rows={1}
+      placeholder={placeholder}
+      className={cn(
+        "w-full min-w-0 resize-none overflow-hidden border-0 border-b border-b-input bg-transparent py-1 text-sm leading-relaxed break-words whitespace-pre-wrap outline-none placeholder:text-muted-foreground focus-visible:border-b-ring",
+        className,
+      )}
+      onChange={(event) => onChange(event.target.value)}
+    />
   )
 }
 
@@ -666,13 +705,12 @@ function KeptRow({ row, onRestore }: { row: KeptRun; onRestore: (kept: KeptRun) 
           {row.name} · {ruleName(row.rule)}
           {row.combo.length > 0 ? ` + ${row.combo.map((item) => ruleName(item.rule)).join(" + ")}` : ""} · {row.timeframe} · {row.range}
         </p>
-        <Input
-          aria-label={`Note for ${row.name}`}
+        <GrowingNote
+          label={`Note for ${row.name}`}
           value={row.note}
-          maxLength={280}
           placeholder="Note on this run"
-          className="mt-2 h-8"
-          onChange={(event) => setKeptNote(row.id, event.target.value)}
+          className="mt-2"
+          onChange={(value) => setKeptNote(row.id, value)}
         />
         <p className="mt-1 flex flex-wrap gap-x-3 font-mono text-[11px] tabular-nums text-muted-foreground">
           <span className={cn(moneyTone(row.metrics.total_return_pct) === "up" && "text-up", moneyTone(row.metrics.total_return_pct) === "down" && "text-down")}>

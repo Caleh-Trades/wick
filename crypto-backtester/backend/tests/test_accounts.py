@@ -101,3 +101,39 @@ def test_two_devices_share_one_desk(monkeypatch, tmp_path):
     assert closed.status_code == 401
     still = second.get("/api/accounts/desk", headers={"Authorization": f"Bearer {other['token']}"})
     assert still.status_code == 200
+
+
+def test_a_run_does_not_keep_its_candles_or_trades(monkeypatch, tmp_path):
+    monkeypatch.setenv("WICK_ACCOUNT_STORE", str(tmp_path / "accounts.json"))
+    client = TestClient(app)
+    created = client.post(
+        "/api/accounts",
+        json={
+            "name": "Tape desk",
+            "password": "correct-horse",
+            "desk": {
+                "strategies": [{"id": "s1", "name": "SMA 20/50", "symbol": "BTCUSDT"}],
+                "runs": [
+                    {
+                        "id": "r1",
+                        "strategyId": "s1",
+                        "range": "1Y",
+                        "metrics": {"total_return_pct": 4.1},
+                        "createdAt": "2026-04-01T00:00:00Z",
+                        "candles": [{"t": 1, "close": 100}],
+                        "trades": [{"pnl": 10}],
+                        "equity": [{"equity": 1}],
+                    }
+                ],
+                "trades": [{"id": "t1", "strategyId": "s1", "runId": "r1", "symbol": "BTCUSDT"}],
+            },
+        },
+    )
+    assert created.status_code == 200
+    run = created.json()["desk"]["runs"][0]
+    assert run["strategyId"] == "s1"
+    assert "candles" not in run
+    assert "trades" not in run
+    assert "equity" not in run
+    assert created.json()["desk"]["trades"][0]["runId"] == "r1"
+    assert created.json()["desk"]["strategies"][0]["name"] == "SMA 20/50"

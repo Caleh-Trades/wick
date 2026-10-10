@@ -1,13 +1,10 @@
 import { replaceFavourites } from "@/lib/favourites"
-import { replaceJournal, replaceKept, replaceWorking } from "@/lib/journal"
 import { loadPanes, type PaneSizes } from "@/lib/panes"
+import { dumpBook, replaceBook } from "@/lib/records"
 import { loadWorkspace, type Workspace } from "@/lib/workspace"
 
 const SESSION_KEY = "wick-account"
 const WORKSPACE_KEY = "wick-runs"
-const JOURNAL_KEY = "wick-journal"
-const KEPT_KEY = "wick-kept"
-const WORKING_KEY = "wick-working"
 const FAVOURITES_KEY = "wick-favourites"
 const PANES_KEY = "wick-panes"
 
@@ -24,6 +21,9 @@ export type DeskBlob = {
   journal: unknown
   kept: unknown
   working: unknown
+  strategies: unknown
+  runs: unknown
+  trades: unknown
   favourites: unknown
   panes: unknown
 }
@@ -53,23 +53,32 @@ export function clearSession(): void {
   localStorage.removeItem(SESSION_KEY)
 }
 
-export function captureDesk(): DeskBlob {
+export async function captureDesk(): Promise<DeskBlob> {
+  const book = await dumpBook()
   return {
     workspace: readStored(WORKSPACE_KEY),
-    journal: readStored(JOURNAL_KEY) ?? [],
-    kept: readStored(KEPT_KEY) ?? [],
-    working: readStored(WORKING_KEY) ?? [],
+    journal: [],
+    kept: [],
+    working: [],
+    strategies: book.strategies,
+    runs: book.runs,
+    trades: book.trades,
     favourites: readStored(FAVOURITES_KEY) ?? [],
     panes: readStored(PANES_KEY),
   }
 }
 
-export function applyDesk(desk: DeskBlob): { workspace: Workspace; panes: PaneSizes } {
+export async function applyDesk(desk: DeskBlob): Promise<{ workspace: Workspace; panes: PaneSizes }> {
   const workspace = outboundWorkspace(desk.workspace)
   if (workspace) localStorage.setItem(WORKSPACE_KEY, JSON.stringify(workspace))
-  replaceJournal(desk.journal)
-  replaceKept(desk.kept)
-  replaceWorking(desk.working)
+  await replaceBook({
+    strategies: desk.strategies,
+    runs: desk.runs,
+    trades: desk.trades,
+    journal: desk.journal,
+    kept: desk.kept,
+    working: desk.working,
+  })
   replaceFavourites(desk.favourites)
   if (desk.panes && typeof desk.panes === "object") localStorage.setItem(PANES_KEY, JSON.stringify(desk.panes))
   return { workspace: loadWorkspace(), panes: loadPanes() }

@@ -1,288 +1,39 @@
-import { tradeExpectancy } from "./backtest.ts"
-import type { BotOp } from "./bot-edits.ts"
 import { normalizeSymbol } from "./markets.ts"
-import { isRange, isTimeframe, isVenue, normalizeCombo, normalizeRule, ruleName, ruleParams } from "./runs.ts"
+import { isVenue } from "./runs.ts"
 import type { AlertKind } from "./workspace.ts"
-import type { RunParams, SampleSlice, Trade, Venue } from "./types.ts"
+import type { Venue } from "./types.ts"
 
-const KEY = "wick-journal"
-const KEPT_KEY = "wick-kept"
-const WORKING_KEY = "wick-working"
-const MAX_ENTRIES = 200
-const MAX_KEPT = 40
-const MAX_WORKING = 40
-const MAX_STRATEGY = 48
-
-export type JournalSide = "buy" | "sell"
+const KEY = "wick-alerts"
 
 export type JournalEntry = {
   id: string
   time: string
   symbol: string
   venue: Venue
-  kind: "trade" | "alert"
-  side: JournalSide
+  kind: "alert"
+  side: "buy"
   price: number
   size: number
   strategy: string
-  exitPrice: number | null
+  exitPrice: null
   note: string
-  /** Set when kind is alert. The value that crossed the threshold. */
-  alertKind: AlertKind | null
-}
-
-export type KeptMetrics = {
-  total_return_pct: number
-  cagr_pct: number | null
-  max_drawdown_pct: number
-  sharpe: number | null
-  win_rate_pct: number | null
-  profit_factor: number | null
-  expectancy: number | null
-  trades: number
-  final_equity: number
-}
-
-export type KeptRun = {
-  id: string
-  time: string
-  name: string
-  symbol: string
-  venue: Venue
-  timeframe: string
-  range: string
-  rule: string
-  params: RunParams
-  combo: { rule: string; params: RunParams }[]
-  feeBps: number
-  slippageBps: number
-  capital: number
-  leverage: number
-  riskPct: number
-  allowShort: boolean
-  metrics: KeptMetrics
-  note: string
-  fundingPaid: number
-  inSample: SampleSlice | null
-  holdout: SampleSlice | null
-  walkForward: SampleSlice[]
-  trades: Trade[]
-}
-
-/** A strategy worth keeping: the setup, without a stored backtest. */
-export type WorkingStrategy = {
-  id: string
-  time: string
-  name: string
-  symbol: string
-  venue: Venue
-  timeframe: string
-  range: string
-  rule: string
-  params: RunParams
-  combo: { rule: string; params: RunParams }[]
-  feeBps: number
-  slippageBps: number
-  capital: number
-  leverage: number
-  riskPct: number
-  allowShort: boolean
-  note: string
-}
-
-export type StrategyStat = {
-  name: string
-  trades: number
-  wins: number
-  pnl: number
-}
-
-export type JournalStats = {
-  pnl: number
-  winRate: number | null
-  closed: number
-  open: number
-  profitFactor: number | null
-  average: number | null
-  strategies: StrategyStat[]
+  alertKind: AlertKind
 }
 
 type Listener = () => void
 
 const listeners = new Set<Listener>()
-let entries: JournalEntry[] | null = null
+let alerts: JournalEntry[] | null = null
 
-export function journalEntries(): JournalEntry[] {
-  if (entries) return entries
-  entries = load()
-  return entries
+export function alertEntries(): JournalEntry[] {
+  if (alerts) return alerts
+  alerts = load()
+  return alerts
 }
 
-export function watchJournal(listener: Listener): () => void {
+export function watchAlerts(listener: Listener): () => void {
   listeners.add(listener)
   return () => listeners.delete(listener)
-}
-
-export function tradePnl(entry: Pick<JournalEntry, "side" | "price" | "size" | "exitPrice">): number | null {
-  if (entry.exitPrice == null || !(entry.exitPrice > 0)) return null
-  const move = entry.side === "buy" ? entry.exitPrice - entry.price : entry.price - entry.exitPrice
-  return move * entry.size
-}
-
-export function journalStats(rows: JournalEntry[]): JournalStats {
-  let pnl = 0
-  let closed = 0
-  let wins = 0
-  let grossWin = 0
-  let grossLoss = 0
-  const trades = rows.filter((entry) => entry.kind !== "alert")
-  const byStrategy = new Map<string, StrategyStat>()
-  for (const entry of trades) {
-    const trade = tradePnl(entry)
-    if (trade == null) continue
-    closed += 1
-    pnl += trade
-    if (trade > 0) {
-      wins += 1
-      grossWin += trade
-    } else if (trade < 0) grossLoss += Math.abs(trade)
-    const name = entry.strategy.trim() || "No strategy"
-    const row = byStrategy.get(name) ?? { name, trades: 0, wins: 0, pnl: 0 }
-    row.trades += 1
-    if (trade > 0) row.wins += 1
-    row.pnl += trade
-    byStrategy.set(name, row)
-  }
-  return {
-    pnl,
-    winRate: closed ? (wins / closed) * 100 : null,
-    closed,
-    open: trades.length - closed,
-    profitFactor: grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? Number.POSITIVE_INFINITY : null,
-    average: closed ? pnl / closed : null,
-    strategies: [...byStrategy.values()].sort((left, right) => right.pnl - left.pnl || right.trades - left.trades),
-  }
-}
-
-export function logTrade(input: {
-  symbol: string
-  side: string
-  price: number
-  size: number
-  venue?: string
-  strategy?: string
-  exitPrice?: number | null
-  note?: string
-  time?: string
-}): JournalEntry | null {
-  const entry = entryFromFields(input)
-  if (!entry) return null
-  commit([entry, ...journalEntries()])
-  return entry
-}
-
-export function logTradeOp(op: BotOp): boolean {
-  return (
-    logTrade({
-      symbol: typeof op.symbol === "string" ? op.symbol : "",
-      side: typeof op.side === "string" ? op.side : "",
-      price: Number(op.price),
-      size: Number(op.size),
-      venue: typeof op.venue === "string" ? op.venue : "spot",
-      strategy: typeof op.strategy === "string" ? op.strategy : "",
-      exitPrice: exitFromOp(op),
-      note: typeof op.note === "string" ? op.note : "",
-      time: typeof op.time === "string" ? op.time : undefined,
-    }) != null
-  )
-}
-
-export function removeJournalEntry(id: string): void {
-  commit(journalEntries().filter((entry) => entry.id !== id))
-}
-
-export function replaceJournal(raw: unknown): void {
-  const list = Array.isArray(raw) ? raw.map(sanitize).filter((entry) => entry != null).slice(0, MAX_ENTRIES) : []
-  commit(list)
-}
-
-function exitFromOp(op: BotOp): number | null {
-  const raw = op.exitPrice ?? op.exit
-  if (raw == null || raw === "") return null
-  const number = Number(raw)
-  return number > 0 ? number : null
-}
-
-function commit(next: JournalEntry[]): void {
-  entries = next.slice(0, MAX_ENTRIES)
-  try {
-    localStorage.setItem(KEY, JSON.stringify(entries))
-  } catch {
-    /* the journal still shows for this visit */
-  }
-  for (const listener of listeners) listener()
-}
-
-function load(): JournalEntry[] {
-  try {
-    const raw = localStorage.getItem(KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw) as unknown
-    if (!Array.isArray(parsed)) return []
-    return parsed.map(sanitize).filter((entry) => entry != null).slice(0, MAX_ENTRIES)
-  } catch {
-    return []
-  }
-}
-
-function sanitize(value: unknown): JournalEntry | null {
-  if (!value || typeof value !== "object") return null
-  const raw = value as Partial<JournalEntry>
-  if (raw.kind === "alert") return alertFromStored(raw)
-  return entryFromFields({
-    symbol: typeof raw.symbol === "string" ? raw.symbol : "",
-    side: typeof raw.side === "string" ? raw.side : "",
-    price: Number(raw.price),
-    size: Number(raw.size),
-    venue: typeof raw.venue === "string" ? raw.venue : "spot",
-    strategy: typeof raw.strategy === "string" ? raw.strategy : "",
-    exitPrice: raw.exitPrice,
-    note: typeof raw.note === "string" ? raw.note : "",
-    time: typeof raw.time === "string" ? raw.time : undefined,
-    id: typeof raw.id === "string" ? raw.id : undefined,
-  })
-}
-
-function entryFromFields(input: {
-  symbol: string
-  side: string
-  price: number
-  size: number
-  venue?: string
-  strategy?: string
-  exitPrice?: number | null
-  note?: string
-  time?: string
-  id?: string
-}): JournalEntry | null {
-  const symbol = asSymbol(input.symbol)
-  const side = asSide(input.side)
-  if (!symbol || !side || !(input.price > 0) || !(input.size > 0)) return null
-  const time = input.time && !Number.isNaN(Date.parse(input.time)) ? new Date(input.time).toISOString() : new Date().toISOString()
-  return {
-    id: input.id && input.id.trim() ? input.id : crypto.randomUUID(),
-    time,
-    symbol,
-    side,
-    venue: asVenue(input.venue),
-    price: input.price,
-    size: input.size,
-    strategy: asStrategy(input.strategy),
-    exitPrice: asExit(input.exitPrice),
-    note: (input.note ?? "").trim().slice(0, 280),
-    kind: "trade",
-    alertKind: null,
-  }
 }
 
 export function logAlert(input: {
@@ -300,7 +51,7 @@ export function logAlert(input: {
     id: crypto.randomUUID(),
     time,
     symbol,
-    venue: asVenue(input.venue),
+    venue: isVenue(input.venue) ? input.venue : "spot",
     kind: "alert",
     side: "buy",
     price: input.value,
@@ -310,8 +61,58 @@ export function logAlert(input: {
     note: alertNote(input.alertKind, input.value, input.threshold),
     alertKind: input.alertKind,
   }
-  commit([entry, ...journalEntries()])
+  commit([entry, ...alertEntries()].slice(0, 80))
   return entry
+}
+
+export function removeAlert(id: string): void {
+  commit(alertEntries().filter((entry) => entry.id !== id))
+}
+
+function commit(next: JournalEntry[]): void {
+  alerts = next
+  try {
+    localStorage.setItem(KEY, JSON.stringify(alerts))
+  } catch {
+    /* the alerts still show for this visit */
+  }
+  for (const listener of listeners) listener()
+}
+
+function load(): JournalEntry[] {
+  try {
+    const raw = localStorage.getItem(KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.map(sanitize).filter((entry) => entry != null).slice(0, 80)
+  } catch {
+    return []
+  }
+}
+
+function sanitize(value: unknown): JournalEntry | null {
+  if (!value || typeof value !== "object") return null
+  const raw = value as Partial<JournalEntry>
+  const symbol = asSymbol(typeof raw.symbol === "string" ? raw.symbol : "")
+  const alertKind = raw.alertKind === "above" || raw.alertKind === "below" || raw.alertKind === "delta" ? raw.alertKind : null
+  const price = Number(raw.price)
+  if (!symbol || !alertKind || !Number.isFinite(price)) return null
+  const time = typeof raw.time === "string" && !Number.isNaN(Date.parse(raw.time)) ? new Date(raw.time).toISOString() : new Date().toISOString()
+  return {
+    id: typeof raw.id === "string" && raw.id.trim() ? raw.id : crypto.randomUUID(),
+    time,
+    symbol,
+    venue: isVenue(raw.venue) ? raw.venue : "spot",
+    kind: "alert",
+    side: "buy",
+    price,
+    size: 0,
+    strategy: "",
+    exitPrice: null,
+    note: typeof raw.note === "string" ? raw.note.trim().slice(0, 280) : "",
+    alertKind,
+  }
 }
 
 function alertNote(kind: AlertKind, value: number, threshold: number): string {
@@ -337,458 +138,4 @@ function asSymbol(value: string): string | null {
   const withQuote = normalizeSymbol(`${trimmed}USDT`)
   if (!withQuote || withQuote === "USDT") return null
   return withQuote
-}
-
-function asSide(value: string): JournalSide | null {
-  const side = value.trim().toLowerCase()
-  if (side === "buy" || side === "long") return "buy"
-  if (side === "sell" || side === "short") return "sell"
-  return null
-}
-
-function asStrategy(value: string | undefined): string {
-  const trimmed = (value ?? "").trim()
-  if (!trimmed) return ""
-  return ruleName(trimmed).slice(0, MAX_STRATEGY)
-}
-
-function asExit(value: number | null | undefined): number | null {
-  if (value == null) return null
-  const number = Number(value)
-  return number > 0 ? number : null
-}
-
-function alertFromStored(raw: Partial<JournalEntry>): JournalEntry | null {
-  const symbol = asSymbol(typeof raw.symbol === "string" ? raw.symbol : "")
-  const alertKind = raw.alertKind === "above" || raw.alertKind === "below" || raw.alertKind === "delta" ? raw.alertKind : null
-  const price = Number(raw.price)
-  if (!symbol || !alertKind || !Number.isFinite(price)) return null
-  const time = typeof raw.time === "string" && !Number.isNaN(Date.parse(raw.time)) ? new Date(raw.time).toISOString() : new Date().toISOString()
-  return {
-    id: typeof raw.id === "string" && raw.id.trim() ? raw.id : crypto.randomUUID(),
-    time,
-    symbol,
-    venue: asVenue(typeof raw.venue === "string" ? raw.venue : "spot"),
-    kind: "alert",
-    side: "buy",
-    price,
-    size: 0,
-    strategy: "",
-    exitPrice: null,
-    note: typeof raw.note === "string" ? raw.note.trim().slice(0, 280) : "",
-    alertKind,
-  }
-}
-
-function asVenue(value: string | undefined): Venue {
-  return isVenue(value) ? value : "spot"
-}
-
-const keptListeners = new Set<Listener>()
-let kept: KeptRun[] | null = null
-
-export function keptRuns(): KeptRun[] {
-  if (kept) return kept
-  kept = loadKept()
-  return kept
-}
-
-export function watchKept(listener: Listener): () => void {
-  keptListeners.add(listener)
-  return () => keptListeners.delete(listener)
-}
-
-export function keepRun(input: Omit<KeptRun, "id" | "time"> & { id?: string; time?: string }): KeptRun | null {
-  const row = sanitizeKept(input)
-  if (!row) return null
-  const next = [row, ...keptRuns().filter((item) => item.id !== row.id)]
-  commitKept(next)
-  return row
-}
-
-export function removeKeptRun(id: string): void {
-  commitKept(keptRuns().filter((item) => item.id !== id))
-}
-
-export function replaceKept(raw: unknown): void {
-  const list = Array.isArray(raw) ? raw.map(sanitizeKept).filter((row) => row != null).slice(0, MAX_KEPT) : []
-  commitKept(list)
-}
-
-function commitKept(next: KeptRun[]): void {
-  kept = next.slice(0, MAX_KEPT)
-  try {
-    localStorage.setItem(KEPT_KEY, JSON.stringify(kept))
-  } catch {
-    /* the list still shows for this visit */
-  }
-  for (const listener of keptListeners) listener()
-}
-
-function loadKept(): KeptRun[] {
-  try {
-    const raw = localStorage.getItem(KEPT_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw) as unknown
-    if (!Array.isArray(parsed)) return []
-    return parsed.map(sanitizeKept).filter((row) => row != null).slice(0, MAX_KEPT)
-  } catch {
-    return []
-  }
-}
-
-function sanitizeKept(value: unknown): KeptRun | null {
-  if (!value || typeof value !== "object") return null
-  const raw = value as Partial<KeptRun>
-  const symbol = asSymbol(typeof raw.symbol === "string" ? raw.symbol : "")
-  const venue = asVenue(typeof raw.venue === "string" ? raw.venue : "")
-  const timeframe = typeof raw.timeframe === "string" && isTimeframe(raw.timeframe) ? raw.timeframe : null
-  const range = typeof raw.range === "string" && isRange(raw.range) ? raw.range : null
-  const rule = typeof raw.rule === "string" ? normalizeRule(raw.rule) : null
-  const metrics = asMetrics(raw.metrics)
-  if (!symbol || !timeframe || !range || !rule || !metrics) return null
-  const time = typeof raw.time === "string" && !Number.isNaN(Date.parse(raw.time)) ? new Date(raw.time).toISOString() : new Date().toISOString()
-  return {
-    id: typeof raw.id === "string" && raw.id.trim() ? raw.id : crypto.randomUUID(),
-    time,
-    name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim().slice(0, 48) : ruleName(rule),
-    symbol,
-    venue,
-    timeframe,
-    range,
-    rule,
-    params: asParams(raw.params),
-    combo: asCombo(raw.combo, rule),
-    feeBps: clampKept(raw.feeBps, 0, 1000, 10),
-    slippageBps: clampKept(raw.slippageBps, 0, 1000, 5),
-    capital: clampKept(raw.capital, 1, 1_000_000_000, 10_000),
-    leverage: clampKept(raw.leverage, 1, 20, venue === "perp" ? 3 : 1),
-    riskPct: clampKept(raw.riskPct, 0.1, 5, 1),
-    allowShort: venue === "perp" && raw.allowShort !== false,
-    metrics,
-    note: typeof raw.note === "string" ? raw.note.trim().slice(0, 280) : "",
-    fundingPaid: Number.isFinite(Number(raw.fundingPaid)) ? Number(raw.fundingPaid) : 0,
-    inSample: asSlice(raw.inSample),
-    holdout: asSlice(raw.holdout),
-    walkForward: asWindows(raw.walkForward),
-    trades: asTrades(raw.trades),
-  }
-}
-
-export function setKeptNote(id: string, note: string): void {
-  const next = keptRuns().map((row) => (row.id === id ? { ...row, note: note.slice(0, 280) } : row))
-  commitKept(next)
-}
-
-export type KeptExport = {
-  symbol: string
-  market: Venue
-  timeframe: string
-  range: string
-  rule: string
-  params: RunParams
-  risk_pct: number
-  fee: number
-  slippage_bps: number
-  metrics: KeptMetrics
-  walk_forward: SampleSlice[]
-  trades: Trade[]
-  in_sample: SampleSlice | null
-  holdout: SampleSlice | null
-  note: string
-  funding_paid: number
-}
-
-export function keptExpectancy(row: Pick<KeptRun, "trades" | "metrics">): number | null {
-  if (row.trades.length > 0) return tradeExpectancy(row.trades)
-  return row.metrics.expectancy
-}
-
-export function keptExport(row: KeptRun): KeptExport {
-  return {
-    symbol: row.symbol,
-    market: row.venue,
-    timeframe: row.timeframe,
-    range: row.range,
-    rule: row.rule,
-    params: row.params,
-    risk_pct: row.riskPct,
-    fee: row.feeBps,
-    slippage_bps: row.slippageBps,
-    metrics: { ...row.metrics, expectancy: keptExpectancy(row) },
-    walk_forward: row.walkForward,
-    trades: row.trades,
-    in_sample: row.inSample,
-    holdout: row.holdout,
-    note: row.note,
-    funding_paid: row.fundingPaid,
-  }
-}
-
-/** Newest kept copy of this setup, if the desk has stored one. */
-export function findKept(match: { symbol: string; venue: Venue; timeframe: string; range: string; rule: string; params: RunParams }): KeptRun | null {
-  const rule = normalizeRule(match.rule)
-  return (
-    keptRuns().find(
-      (row) =>
-        row.symbol === match.symbol &&
-        row.venue === match.venue &&
-        row.timeframe === match.timeframe &&
-        row.range === match.range &&
-        row.rule === rule &&
-        sameParams(row.params, match.params),
-    ) ?? null
-  )
-}
-
-export function downloadExport(payload: KeptExport): void {
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement("a")
-  anchor.href = url
-  anchor.download = `wick-${payload.symbol}-${payload.market}.json`
-  anchor.click()
-  URL.revokeObjectURL(url)
-}
-
-export function downloadKept(row: KeptRun): void {
-  downloadExport(keptExport(row))
-}
-
-export function tradesCsv(trades: Trade[]): string {
-  const lines = trades.map((trade) =>
-    [
-      csvCell(trade.entry_time),
-      csvCell(trade.exit_time ?? ""),
-      trade.side,
-      trade.return_pct,
-      trade.pnl,
-      trade.fee_paid ?? "",
-      trade.slippage_paid ?? "",
-      trade.bars_held,
-    ].join(","),
-  )
-  return ["entry,exit,side,return,pnl,fee,slippage,bars", ...lines].join("\n")
-}
-
-export function downloadTradesCsv(symbol: string, trades: Trade[]): void {
-  const blob = new Blob([tradesCsv(trades)], { type: "text/csv" })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement("a")
-  anchor.href = url
-  anchor.download = `wick-${symbol}-trades.csv`
-  anchor.click()
-  URL.revokeObjectURL(url)
-}
-
-function csvCell(value: string): string {
-  if (/[",\n]/.test(value)) return `"${value.replaceAll('"', '""')}"`
-  return value
-}
-
-function sameParams(left: RunParams, right: RunParams): boolean {
-  const keys = new Set([...Object.keys(left), ...Object.keys(right)])
-  for (const key of keys) {
-    if (left[key] !== right[key]) return false
-  }
-  return true
-}
-
-function asWindows(value: unknown): SampleSlice[] {
-  if (!Array.isArray(value)) return []
-  const windows: SampleSlice[] = []
-  for (const item of value) {
-    const slice = asSlice(item)
-    if (slice) windows.push(slice)
-    if (windows.length >= 3) break
-  }
-  return windows
-}
-
-function asSlice(value: unknown): SampleSlice | null {
-  if (!value || typeof value !== "object") return null
-  const raw = value as Partial<SampleSlice>
-  const total = Number(raw.total_return_pct)
-  const drawdown = Number(raw.max_drawdown_pct)
-  const trades = Number(raw.trades)
-  if (!Number.isFinite(total) || !Number.isFinite(drawdown) || !Number.isFinite(trades)) return null
-  return {
-    total_return_pct: total,
-    max_drawdown_pct: drawdown,
-    sharpe: finiteOrNull(raw.sharpe),
-    trades,
-  }
-}
-
-function asTrades(value: unknown): Trade[] {
-  if (!Array.isArray(value)) return []
-  const trades: Trade[] = []
-  for (const item of value) {
-    if (!item || typeof item !== "object") continue
-    const raw = item as Partial<Trade>
-    const side = raw.side === "short" ? "short" : raw.side === "long" ? "long" : null
-    const status = raw.status === "open" || raw.status === "closed" || raw.status === "liquidated" ? raw.status : null
-    const entry = Number(raw.entry_price)
-    const quantity = Number(raw.quantity)
-    if (!side || !status || !Number.isFinite(entry) || !Number.isFinite(quantity)) continue
-    trades.push({
-      entry_time: typeof raw.entry_time === "string" ? raw.entry_time : "",
-      exit_time: typeof raw.exit_time === "string" ? raw.exit_time : null,
-      side,
-      entry_price: entry,
-      exit_price: raw.exit_price == null ? null : finiteOrNull(raw.exit_price),
-      quantity,
-      pnl: Number.isFinite(Number(raw.pnl)) ? Number(raw.pnl) : 0,
-      return_pct: Number.isFinite(Number(raw.return_pct)) ? Number(raw.return_pct) : 0,
-      bars_held: Number.isFinite(Number(raw.bars_held)) ? Number(raw.bars_held) : 0,
-      status,
-      funding_paid: Number.isFinite(Number(raw.funding_paid)) ? Number(raw.funding_paid) : 0,
-      fee_paid: Number.isFinite(Number(raw.fee_paid)) ? Number(raw.fee_paid) : undefined,
-      slippage_paid: Number.isFinite(Number(raw.slippage_paid)) ? Number(raw.slippage_paid) : undefined,
-    })
-    if (trades.length >= 500) break
-  }
-  return trades
-}
-
-function asMetrics(value: unknown): KeptMetrics | null {
-  if (!value || typeof value !== "object") return null
-  const raw = value as Partial<KeptMetrics>
-  const total = Number(raw.total_return_pct)
-  const drawdown = Number(raw.max_drawdown_pct)
-  const equity = Number(raw.final_equity)
-  const trades = Number(raw.trades)
-  if (!Number.isFinite(total) || !Number.isFinite(drawdown) || !Number.isFinite(equity) || !Number.isFinite(trades)) return null
-  return {
-    total_return_pct: total,
-    cagr_pct: finiteOrNull(raw.cagr_pct),
-    max_drawdown_pct: drawdown,
-    sharpe: finiteOrNull(raw.sharpe),
-    win_rate_pct: finiteOrNull(raw.win_rate_pct),
-    profit_factor: finiteOrNull(raw.profit_factor),
-    expectancy: finiteOrNull(raw.expectancy),
-    trades,
-    final_equity: equity,
-  }
-}
-
-function finiteOrNull(value: unknown): number | null {
-  if (value == null) return null
-  const number = Number(value)
-  return Number.isFinite(number) ? number : null
-}
-
-function asParams(value: unknown): RunParams {
-  if (!value || typeof value !== "object") return {}
-  const params: RunParams = {}
-  for (const [key, item] of Object.entries(value)) {
-    const number = Number(item)
-    if (Number.isFinite(number)) params[key] = number
-  }
-  return params
-}
-
-function asCombo(value: unknown, primary: string): { rule: string; params: RunParams }[] {
-  if (!Array.isArray(value)) return []
-  const combo: { rule: string; params: RunParams }[] = []
-  for (const item of value) {
-    if (!item || typeof item !== "object") continue
-    const rule = normalizeRule(String((item as { rule?: unknown }).rule ?? ""))
-    if (!rule || rule === primary || combo.some((row) => row.rule === rule)) continue
-    combo.push({ rule, params: asParams((item as { params?: unknown }).params) })
-  }
-  return combo
-}
-
-function clampKept(value: unknown, min: number, max: number, fallback: number): number {
-  const number = Number(value)
-  if (!Number.isFinite(number)) return fallback
-  return Math.min(max, Math.max(min, number))
-}
-
-const workingListeners = new Set<Listener>()
-let workingRows: WorkingStrategy[] | null = null
-
-export function workingStrategies(): WorkingStrategy[] {
-  if (workingRows) return workingRows
-  workingRows = loadWorking()
-  return workingRows
-}
-
-export function watchWorking(listener: Listener): () => void {
-  workingListeners.add(listener)
-  return () => workingListeners.delete(listener)
-}
-
-export function saveWorking(input: Omit<WorkingStrategy, "id" | "time"> & { id?: string; time?: string }): WorkingStrategy | null {
-  const row = sanitizeWorking(input)
-  if (!row) return null
-  commitWorking([row, ...workingStrategies().filter((item) => item.id !== row.id)])
-  return row
-}
-
-export function removeWorking(id: string): void {
-  commitWorking(workingStrategies().filter((item) => item.id !== id))
-}
-
-export function setWorkingNote(id: string, note: string): void {
-  commitWorking(workingStrategies().map((row) => (row.id === id ? { ...row, note: note.slice(0, 280) } : row)))
-}
-
-export function replaceWorking(raw: unknown): void {
-  const list = Array.isArray(raw) ? raw.map(sanitizeWorking).filter((row) => row != null).slice(0, MAX_WORKING) : []
-  commitWorking(list)
-}
-
-function commitWorking(next: WorkingStrategy[]): void {
-  workingRows = next.slice(0, MAX_WORKING)
-  try {
-    localStorage.setItem(WORKING_KEY, JSON.stringify(workingRows))
-  } catch {
-    /* the list still shows for this visit */
-  }
-  for (const listener of workingListeners) listener()
-}
-
-function loadWorking(): WorkingStrategy[] {
-  try {
-    const raw = localStorage.getItem(WORKING_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw) as unknown
-    if (!Array.isArray(parsed)) return []
-    return parsed.map(sanitizeWorking).filter((row) => row != null).slice(0, MAX_WORKING)
-  } catch {
-    return []
-  }
-}
-
-function sanitizeWorking(value: unknown): WorkingStrategy | null {
-  if (!value || typeof value !== "object") return null
-  const raw = value as Partial<WorkingStrategy>
-  const symbol = asSymbol(typeof raw.symbol === "string" ? raw.symbol : "")
-  const venue = asVenue(typeof raw.venue === "string" ? raw.venue : "")
-  const timeframe = typeof raw.timeframe === "string" && isTimeframe(raw.timeframe) ? raw.timeframe : null
-  const range = typeof raw.range === "string" && isRange(raw.range) ? raw.range : null
-  const rule = typeof raw.rule === "string" ? normalizeRule(raw.rule) : null
-  if (!symbol || !timeframe || !range || !rule) return null
-  const time = typeof raw.time === "string" && !Number.isNaN(Date.parse(raw.time)) ? new Date(raw.time).toISOString() : new Date().toISOString()
-  return {
-    id: typeof raw.id === "string" && raw.id.trim() ? raw.id : crypto.randomUUID(),
-    time,
-    name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim().slice(0, 48) : ruleName(rule),
-    symbol,
-    venue,
-    timeframe,
-    range,
-    rule,
-    params: ruleParams(rule, asParams(raw.params)),
-    combo: normalizeCombo(raw.combo, rule).map((item) => ({ rule: item.rule, params: item.params })),
-    feeBps: clampKept(raw.feeBps, 0, 1000, 10),
-    slippageBps: clampKept(raw.slippageBps, 0, 1000, 5),
-    capital: clampKept(raw.capital, 1, 1_000_000_000, 10_000),
-    leverage: venue === "perp" ? clampKept(raw.leverage, 1, 20, 3) : 1,
-    riskPct: clampKept(raw.riskPct, 0.1, 5, 1),
-    allowShort: venue === "perp" && raw.allowShort !== false,
-    note: typeof raw.note === "string" ? raw.note.trim().slice(0, 280) : "",
-  }
 }

@@ -17,7 +17,6 @@ import {
   tone,
 } from "@/lib/format"
 import { holdoutWarn, monteCarloEquity, windowTradesLabel } from "@/lib/backtest"
-import { downloadTradesCsv } from "@/lib/journal"
 import { clampRisk, fingerprint, marketById, runColor, strategyLabel } from "@/lib/runs"
 import type { BacktestResult, Outcome, Run, SampleSlice, SortKey, Trade, Venue } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -184,6 +183,7 @@ export function RunStrip({
   onSort,
   onKeep,
   onExport,
+  onExportTrades,
 }: {
   result: BacktestResult
   sortKey: SortKey | null
@@ -191,6 +191,7 @@ export function RunStrip({
   onSort: (key: SortKey) => void
   onKeep: (note: string) => void
   onExport: (note: string) => void
+  onExportTrades: () => void
 }) {
   const metrics = result.metrics
   const trades = result.assumptions.venue === "spot" ? result.trades.filter((trade) => trade.side !== "short") : result.trades
@@ -227,7 +228,7 @@ export function RunStrip({
         />
         <Metric
           label="Profit factor"
-          hint="Gross wins divided by gross losses on closed trades. An open trade stays out. An em dash when nothing lost money. Click to sort the comparison."
+          hint="Gross winning return divided by gross losing return, on the same closed trades as expectancy. An open trade stays out. An em dash when nothing lost money. Click to sort the comparison."
           value={formatFactor(metrics.profit_factor)}
           active={sortKey === "profit_factor"}
           dir={sortDir}
@@ -308,7 +309,7 @@ export function RunStrip({
         <Button type="button" size="xs" variant="outline" className="shrink-0 normal-case tracking-normal" onClick={() => onExport(note)}>
           Export JSON
         </Button>
-        <Button type="button" size="xs" variant="outline" className="shrink-0 normal-case tracking-normal" onClick={() => downloadTradesCsv(result.symbol, trades)}>
+        <Button type="button" size="xs" variant="outline" className="shrink-0 normal-case tracking-normal" onClick={onExportTrades}>
           Export trades CSV
         </Button>
         <Button

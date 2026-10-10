@@ -1,8 +1,30 @@
 import assert from "node:assert/strict"
 
 import { editConcerns } from "../src/lib/bot-edits.ts"
-import { findKept, journalEntries, journalStats, keepRun, keptExport, keptRuns, logAlert, logTrade, logTradeOp, removeJournalEntry, removeKeptRun, removeWorking, replaceWorking, saveWorking, setKeptNote, setWorkingNote, tradePnl, tradesCsv, workingStrategies } from "../src/lib/journal.ts"
+import { alertEntries, logAlert, removeAlert } from "../src/lib/journal.ts"
+import {
+  PAGE_SIZE,
+  dumpBook,
+  emptyQuery,
+  findRun,
+  keepDeskRun,
+  listStrategies,
+  logBookTrade,
+  logTradeOp,
+  matchingTrades,
+  removeRun,
+  removeStrategy,
+  replaceBook,
+  resetBookForTests,
+  saveStrategy,
+  searchTrades,
+  setRunNote,
+  setStrategyNote,
+  tradesCsv,
+  tradesForRun,
+} from "../src/lib/records.ts"
 import { armReading, asDeltaAlert, createSlot, deltaCrosses, priceCrosses } from "../src/lib/workspace.ts"
+import type { RunMetrics, Trade } from "../src/lib/types.ts"
 
 const slot = createSlot("BTCUSDT", "spot", "1d", "1Y")
 assert.equal(slot.deltaAlert, null)
@@ -27,70 +49,40 @@ assert.equal(bought.hot, true)
 assert.equal(bought.side, "buy")
 const sold = armReading({ alert: null, deltaAlert: 1.5, trade: 100, delta: -2, heard: true })
 assert.equal(sold.side, "sell")
-const csv = tradesCsv([
-  {
-    entry_time: "2026-01-01T00:00:00Z",
-    exit_time: "2026-01-02T00:00:00Z",
-    side: "long",
-    entry_price: 1,
-    exit_price: 2,
-    quantity: 1,
-    pnl: 3.5,
-    return_pct: 1.2,
-    bars_held: 4,
-    status: "closed",
-    funding_paid: 0,
-    fee_paid: 0.1,
-    slippage_paid: 0.2,
-  },
-])
-assert.equal(csv.split("\n")[0], "entry,exit,side,return,pnl,fee,slippage,bars")
-assert.match(csv, /2026-01-01T00:00:00Z,2026-01-02T00:00:00Z,long,1.2,3.5,0.1,0.2,4/)
 const workspace = { slots: [slot], activeId: slot.id, pinnedId: null, enlarged: false }
 assert.equal(editConcerns(workspace, [{ op: "log-trade", symbol: "ETH", side: "sell", price: 1, size: 1 }]), true)
 
-const entry = logTrade({ symbol: "BTC", side: "long", price: 100, size: 0.25, note: "breakout", strategy: "sma_cross", exitPrice: 110 })
-assert.ok(entry)
-assert.equal(entry?.symbol, "BTCUSDT")
-assert.equal(entry?.side, "buy")
-assert.equal(entry?.venue, "spot")
-assert.equal(entry?.strategy, "SMA crossover")
-assert.equal(entry?.exitPrice, 110)
-assert.equal(tradePnl(entry!), 2.5)
-assert.equal(journalEntries()[0]?.note, "breakout")
+resetBookForTests()
 
-const short = logTrade({ symbol: "ETH", side: "short", price: 200, size: 1, exitPrice: 180, strategy: "fade the open" })
-assert.equal(tradePnl(short!), 20)
-assert.equal(short?.strategy, "fade the open")
+const metrics = (total: number, trades: number, equity: number): RunMetrics => ({
+  total_return_pct: total,
+  cagr_pct: null,
+  max_drawdown_pct: -6,
+  sharpe: 0.1,
+  win_rate_pct: 40,
+  profit_factor: null,
+  expectancy: null,
+  trades,
+  final_equity: equity,
+})
 
-const open = logTrade({ symbol: "SOL", side: "buy", price: 50, size: 2 })
-assert.equal(open?.exitPrice, null)
-assert.equal(open?.strategy, "")
-assert.equal(tradePnl(open!), null)
+const closedTrade = (entry: string, exit: string, pnl: number, ret: number): Trade => ({
+  entry_time: entry,
+  exit_time: exit,
+  side: "long",
+  entry_price: 100,
+  exit_price: 100,
+  quantity: 1,
+  pnl,
+  return_pct: ret,
+  bars_held: 1,
+  status: "closed",
+  funding_paid: 0,
+  fee_paid: 1,
+  slippage_paid: 0.2,
+})
 
-const scratched = logTrade({ symbol: "BTC", side: "buy", price: 10, size: 1, exitPrice: -1 })
-assert.equal(scratched?.exitPrice, null)
-
-const stats = journalStats(journalEntries())
-assert.equal(stats.closed, 2)
-assert.equal(stats.open, 2)
-assert.equal(stats.pnl, 22.5)
-assert.equal(stats.winRate, 100)
-assert.equal(stats.profitFactor, Number.POSITIVE_INFINITY)
-assert.equal(stats.strategies[0]?.name, "fade the open")
-assert.equal(stats.strategies.some((row) => row.name === "No strategy"), false)
-
-assert.equal(logTrade({ symbol: "", side: "buy", price: 1, size: 1 }), null)
-assert.equal(
-  logTradeOp({ op: "log-trade", symbol: "ETHFI", side: "short", price: 0.68, size: 20, note: "fade", strategy: "supertrend", exit: 0.6 }),
-  true,
-)
-assert.equal(journalEntries()[0]?.side, "sell")
-assert.equal(journalEntries()[0]?.symbol, "ETHFIUSDT")
-assert.equal(journalEntries()[0]?.strategy, "Supertrend")
-assert.equal(tradePnl(journalEntries()[0]!), (0.68 - 0.6) * 20)
-
-const kept = keepRun({
+const quoted = await keepDeskRun({
   name: "SMA 20/50",
   symbol: "BTC",
   venue: "spot",
@@ -99,119 +91,166 @@ const kept = keepRun({
   rule: "sma_cross",
   params: { fast: 20, slow: 50 },
   combo: [],
-  feeBps: 10,
+  fee: 10,
+  slippage: 5,
   capital: 10_000,
   leverage: 1,
-  riskPct: 100,
+  risk: 100,
   allowShort: false,
-  metrics: {
-    total_return_pct: -12.5,
-    cagr_pct: -8,
-    max_drawdown_pct: -20,
-    sharpe: 0.2,
-    win_rate_pct: 40,
-    profit_factor: 0.8,
-    trades: 4,
-    final_equity: 8750,
-  },
-})
-assert.equal(kept?.symbol, "BTCUSDT")
-assert.equal(kept?.venue, "spot")
-assert.equal(kept?.allowShort, false)
-assert.equal(keptRuns()[0]?.rule, "sma_cross")
-assert.equal(keptRuns()[0]?.metrics.trades, 4)
-assert.equal(kept?.note, "")
-assert.equal(kept?.fundingPaid, 0)
-assert.equal(kept?.inSample, null)
-assert.equal(kept?.holdout, null)
-assert.deepEqual(kept?.trades, [])
-if (kept) {
-  setKeptNote(kept.id, "skip the wick")
-  assert.equal(keptRuns()[0]?.note, "skip the wick")
-  const exported = keptExport(keptRuns()[0]!)
-  assert.equal(exported.symbol, "BTCUSDT")
-  assert.equal(exported.market, "spot")
-  assert.equal(exported.timeframe, "1d")
-  assert.equal(exported.rule, "sma_cross")
-  assert.equal(exported.fee, 10)
-  assert.deepEqual(exported.params, { fast: 20, slow: 50 })
-  assert.equal(exported.metrics.trades, 4)
-  assert.equal(exported.in_sample, null)
-  assert.equal(exported.holdout, null)
-  assert.deepEqual(exported.trades, [])
-  assert.equal(exported.note, "skip the wick")
-  assert.equal(exported.funding_paid, 0)
-  assert.equal(exported.range, "1Y")
-  assert.equal(exported.risk_pct, 5)
-  assert.equal(exported.slippage_bps, 5)
-  assert.deepEqual(exported.walk_forward, [])
-  assert.equal("order" in exported, false)
-  assert.equal(findKept({ symbol: "BTCUSDT", venue: "spot", timeframe: "1d", range: "1Y", rule: "sma_cross", params: { fast: 20, slow: 50 } })?.id, kept.id)
-  assert.equal(findKept({ symbol: "BTCUSDT", venue: "spot", timeframe: "1d", range: "1Y", rule: "sma_cross", params: { fast: 10, slow: 50 } }), null)
-}
-const rich = keepRun({
-  name: "Funded",
-  symbol: "ETH",
-  venue: "perp",
-  timeframe: "1h",
-  range: "1M",
-  rule: "sma_cross",
-  params: { fast: 10, slow: 30 },
-  combo: [],
-  feeBps: 4,
-  capital: 10_000,
-  leverage: 3,
-  riskPct: 100,
-  allowShort: true,
-  note: "holdout faded",
-  fundingPaid: 12.5,
-  inSample: { total_return_pct: 4, max_drawdown_pct: -2, sharpe: 0.4, trades: 3 },
-  holdout: { total_return_pct: -1, max_drawdown_pct: -6, sharpe: null, trades: 1 },
-  walkForward: [
-    { total_return_pct: 2, max_drawdown_pct: -1, sharpe: 0.2, trades: 1 },
-    { total_return_pct: 1, max_drawdown_pct: -3, sharpe: 0.1, trades: 1 },
-    { total_return_pct: 0, max_drawdown_pct: -2, sharpe: null, trades: 1 },
-  ],
+  note: "skip the wick",
+  metrics: metrics(4.1, 3, 10410),
   trades: [
+    closedTrade("2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z", -5000, -13.8),
+    closedTrade("2026-02-01T00:00:00Z", "2026-02-02T00:00:00Z", -400, -2.6),
+    closedTrade("2026-03-01T00:00:00Z", "2026-03-02T00:00:00Z", 10, 0.8),
     {
-      entry_time: "2026-01-01T00:00:00Z",
-      exit_time: "2026-01-02T00:00:00Z",
+      entry_time: "2026-04-01T00:00:00Z",
+      exit_time: null,
       side: "long",
       entry_price: 100,
-      exit_price: 110,
+      exit_price: null,
       quantity: 1,
-      pnl: 9,
-      return_pct: 9,
-      bars_held: 24,
-      status: "closed",
-      funding_paid: 12.5,
+      pnl: 9000,
+      return_pct: 40,
+      bars_held: 1,
+      status: "open",
+      funding_paid: 0,
     },
   ],
-  metrics: {
-    total_return_pct: 3,
-    cagr_pct: 1,
-    max_drawdown_pct: -6,
-    sharpe: 0.1,
-    win_rate_pct: 50,
-    profit_factor: 1.1,
-    trades: 4,
-    final_equity: 10300,
-  },
 })
-assert.equal(rich?.fundingPaid, 12.5)
-assert.equal(rich?.inSample?.trades, 3)
-assert.equal(rich?.holdout?.sharpe, null)
-assert.equal(keptExport(rich!).trades[0]?.funding_paid, 12.5)
-assert.equal(keptExport(rich!).market, "perp")
-assert.equal(keptExport(rich!).walk_forward.length, 3)
-assert.equal(keptExport(rich!).range, "1M")
-if (rich) removeKeptRun(rich.id)
-if (kept) removeKeptRun(kept.id)
+assert.ok(quoted)
+assert.equal("trades" in quoted.run, false)
+assert.equal("candles" in quoted.run, false)
+assert.equal("equity" in quoted.run, false)
+assert.equal(quoted.strategy.symbol, "BTCUSDT")
+assert.equal(quoted.strategy.risk, 5)
+assert.equal(quoted.run.strategyId, quoted.strategy.id)
+assert.equal(quoted.run.range, "1Y")
+assert.equal(quoted.run.note, "skip the wick")
+const linked = await tradesForRun(quoted.run.id)
+assert.equal(linked.length, 4)
+assert.ok(linked.every((trade) => trade.runId === quoted.run.id && trade.strategyId === quoted.strategy.id))
+assert.equal(linked.filter((trade) => trade.exitTime == null).length, 1)
+const page = await searchTrades(emptyQuery())
+assert.equal(page.rows.length, 4)
+assert.equal(page.total, 4)
+assert.equal(page.closed, 3)
+assert.equal(page.open, 1)
+const quotedFactor = 0.8 / (13.8 + 2.6)
+assert.ok(page.profitFactor != null && Math.abs(page.profitFactor - quotedFactor) < 1e-12)
+assert.ok(page.profitFactor < 1)
+assert.ok(page.expectancy != null && Math.abs(page.expectancy - -5.2) < 1e-9)
+await setRunNote(quoted.run.id, "still the wick")
+const found = await findRun({ symbol: "BTCUSDT", market: "spot", timeframe: "1d", range: "1Y", rule: "sma_cross", params: { fast: 20, slow: 50 } })
+assert.equal(found?.run.id, quoted.run.id)
+assert.equal(found?.run.note, "still the wick")
+assert.equal(await findRun({ symbol: "BTCUSDT", market: "spot", timeframe: "1d", range: "1Y", rule: "sma_cross", params: { fast: 10, slow: 50 } }), null)
 
-const stacked = keepRun({
+const closedOnly = await searchTrades({ ...emptyQuery(), state: "closed" })
+assert.equal(closedOnly.total, 3)
+assert.equal(closedOnly.rows.length, 3)
+assert.ok(closedOnly.rows.every((trade) => trade.exitTime != null))
+assert.equal(closedOnly.profitFactor, page.profitFactor)
+assert.equal(closedOnly.expectancy, page.expectancy)
+
+resetBookForTests()
+for (let index = 0; index < 120; index += 1) {
+  const logged = await logBookTrade({
+    symbol: index % 2 === 0 ? "BTC" : "ETH",
+    side: index % 3 === 0 ? "short" : "long",
+    entryPrice: 100,
+    exitPrice: index % 5 === 0 ? null : 110,
+    size: 1,
+    entryTime: new Date(Date.UTC(2024, 0, 1, 0, index)).toISOString(),
+    source: "desk",
+  })
+  assert.ok(logged)
+}
+const first = await searchTrades(emptyQuery(0))
+assert.equal(PAGE_SIZE, 50)
+assert.equal(first.rows.length, 50)
+assert.equal(first.total, 120)
+assert.ok(first.rows[0]!.entryTime > first.rows[49]!.entryTime)
+const third = await searchTrades({ ...emptyQuery(), page: 2 })
+assert.equal(third.rows.length, 20)
+assert.equal(third.total, 120)
+const btc = await searchTrades({ ...emptyQuery(), symbol: "BTC" })
+assert.equal(btc.total, 60)
+assert.equal(btc.rows.length, 50)
+assert.ok(btc.rows.every((trade) => trade.symbol === "BTCUSDT"))
+const shorts = await searchTrades({ ...emptyQuery(), side: "short", state: "open" })
+assert.ok(shorts.total > 0)
+assert.ok(shorts.rows.every((trade) => trade.side === "short" && trade.exitTime == null))
+assert.ok(shorts.rows.length <= PAGE_SIZE)
+const csv = tradesCsv(await matchingTrades({ ...emptyQuery(), symbol: "ETH", side: "long", state: "closed" }))
+assert.equal(csv.split("\n")[0], "entry,exit,side,return,pnl,fee,slippage,size,symbol,note,source")
+assert.ok(csv.includes("ETHUSDT"))
+assert.equal(csv.includes("BTCUSDT"), false)
+
+resetBookForTests()
+assert.equal(
+  await logTradeOp({ op: "log-trade", symbol: "ETHFI", side: "short", price: 0.68, size: 20, note: "fade", strategy: "supertrend", exit: 0.6 }),
+  true,
+)
+const botPage = await searchTrades(emptyQuery())
+assert.equal(botPage.total, 1)
+assert.equal(botPage.rows.length, 1)
+assert.equal(botPage.rows[0]?.source, "bot")
+assert.equal(botPage.rows[0]?.symbol, "ETHFIUSDT")
+assert.equal(botPage.rows[0]?.side, "short")
+assert.equal(botPage.rows[0]?.note, "fade")
+assert.equal((await listStrategies()).some((row) => row.rule === "supertrend"), true)
+
+const before = (await searchTrades(emptyQuery())).total
+const alert = logAlert({ symbol: "BTC", venue: "perp", alertKind: "above", value: 82000.5, threshold: 80000 })
+assert.equal(alert?.kind, "alert")
+assert.equal(alert?.symbol, "BTCUSDT")
+assert.match(alert?.note ?? "", /82,000\.5/)
+assert.equal((await searchTrades(emptyQuery())).total, before)
+assert.equal(alertEntries()[0]?.id, alert?.id)
+if (alert) removeAlert(alert.id)
+assert.equal(alertEntries().some((entry) => entry.id === alert?.id), false)
+
+resetBookForTests()
+await replaceBook({
+  kept: [
+    {
+      id: "old-kept",
+      name: "Funded",
+      symbol: "ETH",
+      venue: "perp",
+      timeframe: "1h",
+      range: "1M",
+      rule: "sma_cross",
+      params: { fast: 10, slow: 30 },
+      feeBps: 4,
+      slippageBps: 2,
+      capital: 10_000,
+      leverage: 3,
+      riskPct: 1,
+      allowShort: true,
+      note: "holdout faded",
+      candles: [{ t: 1, close: 100 }],
+      trades: [closedTrade("2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z", 9, 9)],
+      metrics: metrics(3, 1, 10300),
+    },
+  ],
+  journal: [{ id: "row", kind: "trade", symbol: "SOL", side: "buy", price: 50, size: 2, note: "open idea" }],
+})
+const migrated = await dumpBook()
+assert.equal(migrated.runs.length, 1)
+assert.equal("candles" in migrated.runs[0]!, false)
+assert.equal("trades" in migrated.runs[0]!, false)
+assert.equal(migrated.runs[0]?.note, "holdout faded")
+assert.equal(migrated.trades.filter((trade) => trade.runId === migrated.runs[0]?.id).length, 1)
+assert.equal(migrated.trades.some((trade) => trade.symbol === "SOLUSDT" && trade.exitTime == null), true)
+assert.equal(migrated.strategies.find((row) => row.symbol === "ETHUSDT")?.market, "perp")
+assert.equal(migrated.strategies.find((row) => row.symbol === "ETHUSDT")?.leverage, 3)
+
+const stacked = await saveStrategy({
   name: "Stack",
   symbol: "BTC",
-  venue: "spot",
+  market: "spot",
   timeframe: "1d",
   range: "1Y",
   rule: "sma_cross",
@@ -223,96 +262,60 @@ const stacked = keepRun({
     { rule: "supertrend", params: {} },
     { rule: "sma_cross", params: {} },
   ],
-  feeBps: 10,
-  capital: 10_000,
-  leverage: 1,
-  riskPct: 1,
-  allowShort: false,
-  metrics: {
-    total_return_pct: 0,
-    cagr_pct: 0,
-    max_drawdown_pct: 0,
-    sharpe: 0,
-    win_rate_pct: 0,
-    profit_factor: null,
-    trades: 0,
-    final_equity: 10_000,
-  },
+  fee: 10,
+  slippage: 5,
+  risk: 1,
+  note: "holds the 1h trend",
 })
 assert.deepEqual(
   stacked?.combo.map((item) => item.rule),
   ["ema_cross", "donchian", "macd", "supertrend"],
 )
-assert.deepEqual(
-  keptRuns()
-    .find((row) => row.id === stacked?.id)
-    ?.combo.map((item) => item.rule),
-  ["ema_cross", "donchian", "macd", "supertrend"],
-)
-if (stacked) removeKeptRun(stacked.id)
-assert.equal(keptRuns().length, 0)
+assert.equal(stacked?.allowShort, false)
+await setStrategyNote(stacked!.id, "still holding")
+assert.equal((await listStrategies()).find((row) => row.id === stacked?.id)?.note, "still holding")
+assert.equal(await removeStrategy(stacked!.id), true)
 
-const before = journalStats(journalEntries())
-const alert = logAlert({ symbol: "BTC", venue: "perp", alertKind: "above", value: 82000.5, threshold: 80000 })
-assert.equal(alert?.kind, "alert")
-assert.equal(alert?.symbol, "BTCUSDT")
-assert.equal(alert?.alertKind, "above")
-assert.match(alert?.note ?? "", /82,000\.5/)
-const after = journalStats(journalEntries())
-assert.equal(after.closed, before.closed)
-assert.equal(after.open, before.open)
-assert.equal(after.pnl, before.pnl)
-if (alert) removeJournalEntry(alert.id)
-assert.equal(keptRuns().length, 0)
-
-for (const row of [...journalEntries()]) removeJournalEntry(row.id)
-assert.equal(journalEntries().length, 0)
-
-const working = saveWorking({
+const working = await saveStrategy({
   name: "ETHFI trend",
   symbol: "ETHFI",
-  venue: "spot",
+  market: "spot",
   timeframe: "1h",
   range: "3M",
   rule: "supertrend",
   params: { atr: 10, mult: 3 },
-  combo: [
-    { rule: "ema_cross", params: { fast: 12, slow: 26 } },
-    { rule: "supertrend", params: {} },
-  ],
-  feeBps: 8,
-  slippageBps: 2,
+  combo: [{ rule: "ema_cross", params: { fast: 12, slow: 26 } }, { rule: "supertrend", params: {} }],
+  fee: 8,
+  slippage: 2,
   capital: 25_000,
   leverage: 5,
-  riskPct: 1,
+  risk: 1,
   allowShort: true,
   note: "holds the 1h trend",
 })
 assert.equal(working?.symbol, "ETHFIUSDT")
-assert.equal(working?.venue, "spot")
+assert.equal(working?.market, "spot")
 assert.equal(working?.allowShort, false)
 assert.equal(working?.leverage, 1)
-assert.equal(working?.rule, "supertrend")
 assert.equal(working?.params.atr, 10)
-assert.deepEqual(
-  working?.combo.map((item) => item.rule),
-  ["ema_cross"],
-)
-assert.equal(workingStrategies()[0]?.note, "holds the 1h trend")
-assert.equal(saveWorking({ ...working!, symbol: "", rule: "sma_cross" }), null)
-assert.equal(saveWorking({ ...working!, timeframe: "2h" }), null)
-if (working) {
-  setWorkingNote(working.id, "still holding")
-  assert.equal(workingStrategies()[0]?.note, "still holding")
-}
-replaceWorking([{ id: "work-2", name: "Fade", symbol: "SOL", venue: "perp", timeframe: "15m", range: "1M", rule: "rsi_reversion", params: { period: 14 }, note: "oversold bounce" }])
-assert.equal(workingStrategies().length, 1)
-assert.equal(workingStrategies()[0]?.symbol, "SOLUSDT")
-assert.equal(workingStrategies()[0]?.venue, "perp")
-assert.equal(workingStrategies()[0]?.allowShort, true)
-assert.equal(workingStrategies()[0]?.leverage, 3)
-replaceWorking("nope")
-assert.equal(workingStrategies().length, 0)
-if (working) removeWorking(working.id)
+assert.deepEqual(working?.combo.map((item) => item.rule), ["ema_cross"])
+assert.equal(await saveStrategy({ ...working!, symbol: "", rule: "sma_cross" }), null)
+assert.equal(await saveStrategy({ ...working!, timeframe: "2h" }), null)
+
+await replaceBook({
+  strategies: [{ id: "work-2", name: "Fade", symbol: "SOL", market: "perp", timeframe: "15m", range: "1M", rule: "rsi_reversion", params: { period: 14 }, note: "oversold bounce" }],
+  runs: [],
+  trades: [],
+})
+const replaced = await listStrategies()
+assert.equal(replaced.length, 1)
+assert.equal(replaced[0]?.symbol, "SOLUSDT")
+assert.equal(replaced[0]?.market, "perp")
+assert.equal(replaced[0]?.allowShort, true)
+assert.equal(replaced[0]?.leverage, 3)
+await replaceBook({ strategies: "nope", runs: [], trades: [] })
+assert.equal((await listStrategies()).length, 0)
+
+if (quoted) await removeRun(quoted.run.id)
 
 console.log("journal ok")

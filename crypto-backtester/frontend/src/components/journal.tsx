@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { Trash2 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -7,13 +7,54 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { formatMoney, formatPct, formatPlainPct, formatPrice, formatSize, formatStamp, formatStat } from "@/lib/format"
-import { downloadKept, journalEntries, journalStats, keptExpectancy, keptRuns, logTrade, removeJournalEntry, removeKeptRun, removeWorking, saveWorking, setKeptNote, setWorkingNote, tradePnl, watchJournal, watchKept, watchWorking, workingStrategies, type JournalEntry, type JournalSide, type KeptRun, type WorkingStrategy } from "@/lib/journal"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { formatFactor, formatMoney, formatPct, formatPlainPct, formatPrice, formatSize, formatStamp } from "@/lib/format"
+import { alertEntries, removeAlert, watchAlerts, type JournalEntry } from "@/lib/journal"
+import {
+  PAGE_SIZE,
+  emptyPage,
+  emptyQuery,
+  exportFiltered,
+  exportFilteredCsv,
+  exportRunFile,
+  listRuns,
+  listStrategies,
+  logBookTrade,
+  removeRun,
+  removeStrategy,
+  removeTrade,
+  saveStrategy,
+  searchTrades,
+  setRunNote,
+  setStrategyNote,
+  watchBook,
+  type KeptListRow,
+  type StrategyRecord,
+  type TradePage,
+  type TradeQuery,
+  type TradeRecord,
+  type TradeSide,
+} from "@/lib/records"
 import { RANGES, RULES, TIMEFRAMES, isRange, isTimeframe, normalizeRule, paramsForRule, ruleById, ruleName, ruleParams, strategyLabel, suggestedName } from "@/lib/runs"
 import type { RangeId, RuleId, RunParams, Timeframe, Venue } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-export type WorkingDraft = Omit<WorkingStrategy, "id" | "time" | "note">
+export type WorkingDraft = {
+  name: string
+  symbol: string
+  venue: Venue
+  timeframe: string
+  range: string
+  rule: string
+  params: RunParams
+  combo: { rule: string; params: RunParams }[]
+  feeBps: number
+  slippageBps: number
+  capital: number
+  leverage: number
+  riskPct: number
+  allowShort: boolean
+}
 
 function workingDraftKey(draft: WorkingDraft | null): string {
   if (!draft) return "none"
@@ -45,55 +86,10 @@ export function JournalPage({
   symbol: string
   venue: Venue
   draft: WorkingDraft | null
-  onRestore: (kept: KeptRun) => void
-  onOpenWorking: (row: WorkingStrategy) => void
+  onRestore: (ids: { strategyId: string; runId: string }) => void
+  onOpenWorking: (strategyId: string) => void
 }) {
   const [tab, setTab] = useState<"trades" | "working">("trades")
-  const [entries, setEntries] = useState(journalEntries)
-  const [kept, setKept] = useState(keptRuns)
-  const [market, setMarket] = useState(symbol)
-  const [side, setSide] = useState<JournalSide>("buy")
-  const [strategy, setStrategy] = useState("none")
-  const [price, setPrice] = useState("")
-  const [exitPrice, setExitPrice] = useState("")
-  const [size, setSize] = useState("")
-  const [note, setNote] = useState("")
-  const [error, setError] = useState<string | null>(null)
-  const stats = useMemo(() => journalStats(entries), [entries])
-
-  useEffect(() => watchJournal(() => setEntries(journalEntries())), [])
-  useEffect(() => watchKept(() => setKept(keptRuns())), [])
-  useEffect(() => setMarket(symbol), [symbol])
-
-  function submit() {
-    const exitRaw = exitPrice.trim()
-    let exit: number | null = null
-    if (exitRaw) {
-      exit = Number(exitRaw)
-      if (!(exit > 0)) {
-        setError("Exit price has to be above zero, or leave it blank while the trade is open.")
-        return
-      }
-    }
-    const logged = logTrade({
-      symbol: market,
-      side,
-      price: Number(price),
-      size: Number(size),
-      venue,
-      strategy: strategy === "none" ? "" : strategy,
-      exitPrice: exit,
-      note,
-    })
-    if (!logged) {
-      setError("A trade needs a symbol, an entry price, and a size.")
-      return
-    }
-    setError(null)
-    setExitPrice("")
-    setSize("")
-    setNote("")
-  }
 
   return (
     <div className="desk-stack lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
@@ -123,142 +119,365 @@ export function JournalPage({
           </div>
           <p className="mt-3 max-w-2xl text-sm text-muted-foreground">
             {tab === "trades"
-              ? "Round trips you took, or a bot logged. P&L is the exit minus the entry, times size, and flipped for a sell. A blank exit stays open."
-              : "Strategies that are working. Save the one on the desk, or write the rule, the market, and why it is holding up. Opening a row puts that setup on a slot."}
+              ? "Trades from the desk and the bot, newest first. A blank exit is still open. Filters apply to the table and to both exports."
+              : "Strategies stored on their own. Save the one on the desk, or write the rule, the market, and why it is holding up. Opening a row puts that setup on a slot."}
           </p>
         </div>
-
         {tab === "working" ? (
           <WorkingPanel key={workingDraftKey(draft)} symbol={symbol} venue={venue} draft={draft} onOpen={onOpenWorking} />
         ) : (
-        <>
-        <section className="bezel grid grid-cols-2 gap-px overflow-hidden sm:grid-cols-3 lg:grid-cols-6" aria-label="Journal totals">
-          <Stat label="P&L" value={signedMoney(stats.pnl)} toneName={moneyTone(stats.pnl)} />
-          <Stat label="Win rate" value={stats.closed ? formatPlainPct(stats.winRate, 0) : "—"} />
-          <Stat label="Closed" value={String(stats.closed)} />
-          <Stat label="Open" value={String(stats.open)} />
-          <Stat label="Profit factor" value={formatFactor(stats.profitFactor)} />
-          <Stat label="Average trade" value={stats.average == null ? "—" : signedMoney(stats.average)} toneName={stats.average == null ? "ink" : moneyTone(stats.average)} />
-        </section>
-
-        <section aria-label="Kept runs">
-          <p className="font-mono text-[11px] tracking-wide text-muted-foreground uppercase">Kept runs</p>
-          {kept.length === 0 ? (
-            <p className="mt-2 text-sm text-muted-foreground">Keep a run from the desk. A note stays on that run, and Export downloads it. Reopening restores the slot.</p>
-          ) : (
-            <ul className="mt-2 flex flex-col gap-2">
-              {kept.map((row) => (
-                <KeptRow key={row.id} row={row} onRestore={onRestore} />
-              ))}
-            </ul>
-          )}
-        </section>
-
-        {stats.strategies.length > 0 ? (
-          <section aria-label="By strategy">
-            <p className="font-mono text-[11px] tracking-wide text-muted-foreground uppercase">By strategy</p>
-            <ul className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {stats.strategies.map((row) => (
-                <li key={row.name} className="bezel px-3 py-2">
-                  <p className="text-sm">{row.name}</p>
-                  <p className="mt-1 flex flex-wrap gap-x-3 font-mono text-[11px] text-muted-foreground tabular-nums">
-                    <span>
-                      {row.trades} closed · {row.trades ? Math.round((row.wins / row.trades) * 100) : 0}% wins
-                    </span>
-                    <span className={cn(moneyTone(row.pnl) === "up" && "text-up", moneyTone(row.pnl) === "down" && "text-down")}>{signedMoney(row.pnl)}</span>
-                  </p>
-                </li>
-              ))}
-            </ul>
-          </section>
-        ) : null}
-
-        <form
-          className="bezel p-3"
-          noValidate
-          onSubmit={(event) => {
-            event.preventDefault()
-            submit()
-          }}
-        >
-          <p className="font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
-            Log a trade · {venue === "perp" ? "Kraken perp" : "Binance spot"}
-          </p>
-          <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <div className="flex flex-col gap-1">
-              <Label htmlFor="journal-symbol">Symbol</Label>
-              <Input id="journal-symbol" value={market} maxLength={20} onChange={(event) => setMarket(event.target.value)} />
-            </div>
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Side</span>
-              <div className="flex gap-1" role="group" aria-label="Side">
-                {(["buy", "sell"] as const).map((item) => (
-                  <Button
-                    key={item}
-                    type="button"
-                    size="xs"
-                    variant={side === item ? "default" : "outline"}
-                    className="normal-case tracking-normal"
-                    aria-pressed={side === item}
-                    onClick={() => setSide(item)}
-                  >
-                    {item === "buy" ? "Buy" : "Sell"}
-                  </Button>
-                ))}
-              </div>
-            </div>
-            <div className="col-span-2 flex flex-col gap-1">
-              <Label htmlFor="journal-strategy">Strategy</Label>
-              <Select value={strategy} onValueChange={setStrategy}>
-                <SelectTrigger id="journal-strategy" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No strategy</SelectItem>
-                  {RULES.map((rule) => (
-                    <SelectItem key={rule.id} value={rule.id}>
-                      {rule.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1">
-              <Label htmlFor="journal-price">Entry</Label>
-              <Input id="journal-price" inputMode="decimal" value={price} onChange={(event) => setPrice(event.target.value)} />
-            </div>
-            <div className="flex flex-col gap-1">
-              <Label htmlFor="journal-exit">Exit</Label>
-              <Input id="journal-exit" inputMode="decimal" value={exitPrice} placeholder="Open" onChange={(event) => setExitPrice(event.target.value)} />
-            </div>
-            <div className="flex flex-col gap-1">
-              <Label htmlFor="journal-size">Size</Label>
-              <Input id="journal-size" inputMode="decimal" value={size} onChange={(event) => setSize(event.target.value)} />
-            </div>
-            <div className="flex flex-col gap-1">
-              <Label htmlFor="journal-note">Note</Label>
-              <Input id="journal-note" value={note} maxLength={280} placeholder="Why this trade" onChange={(event) => setNote(event.target.value)} />
-            </div>
-          </div>
-          <div className="mt-3 flex flex-wrap items-center gap-3">
-            <Button type="submit">Log trade</Button>
-            {error ? <p className="text-sm text-down">{error}</p> : null}
-          </div>
-        </form>
-
-        {entries.length === 0 ? (
-          <p className="bezel px-4 py-8 text-sm text-muted-foreground">No trades yet. Log one above, or let a bot send it with log-trade.</p>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {entries.map((entry) => (
-              <TradeRow key={entry.id} entry={entry} />
-            ))}
-          </ul>
-        )}
-        </>
+          <TradesPanel symbol={symbol} venue={venue} onRestore={onRestore} />
         )}
       </div>
     </div>
+  )
+}
+
+function TradesPanel({
+  symbol,
+  venue,
+  onRestore,
+}: {
+  symbol: string
+  venue: Venue
+  onRestore: (ids: { strategyId: string; runId: string }) => void
+}) {
+  const [query, setQuery] = useState<TradeQuery>(emptyQuery)
+  const [page, setPage] = useState<TradePage>(emptyPage)
+  const [strategies, setStrategies] = useState<StrategyRecord[]>([])
+  const [kept, setKept] = useState<KeptListRow[]>([])
+  const [alerts, setAlerts] = useState(alertEntries)
+  const [market, setMarket] = useState(symbol)
+  const [side, setSide] = useState<TradeSide>("long")
+  const [strategy, setStrategy] = useState("none")
+  const [price, setPrice] = useState("")
+  const [exitPrice, setExitPrice] = useState("")
+  const [size, setSize] = useState("")
+  const [note, setNote] = useState("")
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => setMarket(symbol), [symbol])
+
+  useEffect(() => {
+    let cancel = false
+    const load = () => {
+      void searchTrades(query).then((next) => {
+        if (cancel) return
+        setPage(next)
+        setLoading(false)
+      })
+      void listStrategies().then((next) => {
+        if (!cancel) setStrategies(next)
+      })
+      void listRuns().then((next) => {
+        if (!cancel) setKept(next)
+      })
+    }
+    load()
+    const stop = watchBook(load)
+    return () => {
+      cancel = true
+      stop()
+    }
+  }, [query])
+
+  useEffect(() => watchAlerts(() => setAlerts(alertEntries())), [])
+
+  function patch(partial: Partial<TradeQuery>, resetPage = true) {
+    setQuery((current) => ({ ...current, ...partial, page: resetPage ? 0 : (partial.page ?? current.page) }))
+  }
+
+  async function submit() {
+    const exitRaw = exitPrice.trim()
+    let exit: number | null = null
+    if (exitRaw) {
+      exit = Number(exitRaw)
+      if (!(exit > 0)) {
+        setError("Exit price has to be above zero, or leave it blank while the trade is open.")
+        return
+      }
+    }
+    const logged = await logBookTrade({
+      symbol: market,
+      side,
+      entryPrice: Number(price),
+      size: Number(size),
+      venue,
+      strategyName: strategy === "none" ? "" : ruleName(strategy),
+      rule: strategy === "none" ? "" : strategy,
+      exitPrice: exit,
+      note,
+      source: "desk",
+    })
+    if (!logged) {
+      setError("A trade needs a symbol, an entry price, and a size.")
+      return
+    }
+    setError(null)
+    setExitPrice("")
+    setSize("")
+    setNote("")
+  }
+
+  const names = new Map(strategies.map((row) => [row.id, row.name]))
+  const fromRow = page.total === 0 ? 0 : query.page * PAGE_SIZE + 1
+  const toRow = Math.min(page.total, (query.page + 1) * PAGE_SIZE)
+  const lastPage = Math.max(0, Math.ceil(page.total / PAGE_SIZE) - 1)
+
+  return (
+    <>
+      <section className="bezel grid grid-cols-2 gap-px overflow-hidden sm:grid-cols-3 lg:grid-cols-5" aria-label="Filtered totals">
+        <Stat label="Trades" value={String(page.total)} />
+        <Stat label="Closed" value={String(page.closed)} />
+        <Stat label="Open" value={String(page.open)} />
+        <Stat label="Profit factor" value={formatFactor(page.profitFactor)} />
+        <Stat
+          label="Expectancy"
+          value={formatPct(page.expectancy)}
+          toneName={page.expectancy == null ? "ink" : moneyTone(page.expectancy)}
+        />
+      </section>
+
+      <section aria-label="Kept runs">
+        <p className="font-mono text-[11px] tracking-wide text-muted-foreground uppercase">Kept runs</p>
+        {kept.length === 0 ? (
+          <p className="mt-2 text-sm text-muted-foreground">Keep a run from the desk. The list shows the strategy, the symbol, the return, and the note. Reopening loads that strategy and that run.</p>
+        ) : (
+          <ul className="mt-2 flex flex-col gap-2">
+            {kept.map((row) => (
+              <KeptRow key={row.run.id} row={row} onRestore={onRestore} />
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <form
+        className="bezel grid grid-cols-2 gap-3 p-3 lg:grid-cols-6"
+        aria-label="Trade filters"
+        onSubmit={(event) => event.preventDefault()}
+      >
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="filter-symbol">Symbol</Label>
+          <Input id="filter-symbol" value={query.symbol} maxLength={20} onChange={(event) => patch({ symbol: event.target.value })} />
+        </div>
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="filter-strategy">Strategy</Label>
+          <Select value={query.strategyId || "all"} onValueChange={(value) => patch({ strategyId: value === "all" ? "" : value })}>
+            <SelectTrigger id="filter-strategy" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All strategies</SelectItem>
+              {strategies.map((row) => (
+                <SelectItem key={row.id} value={row.id}>
+                  {row.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="filter-side">Side</Label>
+          <Select value={query.side || "all"} onValueChange={(value) => patch({ side: value === "long" || value === "short" ? value : "" })}>
+            <SelectTrigger id="filter-side" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Both</SelectItem>
+              <SelectItem value="long">Long</SelectItem>
+              <SelectItem value="short">Short</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="filter-from">From</Label>
+          <Input id="filter-from" type="date" value={query.from} onChange={(event) => patch({ from: event.target.value })} />
+        </div>
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="filter-to">To</Label>
+          <Input id="filter-to" type="date" value={query.to} onChange={(event) => patch({ to: event.target.value })} />
+        </div>
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="filter-state">Open or closed</Label>
+          <Select value={query.state || "all"} onValueChange={(value) => patch({ state: value === "open" || value === "closed" ? value : "" })}>
+            <SelectTrigger id="filter-state" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Open and closed</SelectItem>
+              <SelectItem value="open">Open</SelectItem>
+              <SelectItem value="closed">Closed</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </form>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={() => void exportFiltered(query)}>
+          Export JSON
+        </Button>
+        <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={() => void exportFilteredCsv(query)}>
+          Export trades CSV
+        </Button>
+        <p className="font-mono text-[11px] text-muted-foreground tabular-nums">
+          {loading ? "Loading…" : page.total === 0 ? "0 trades" : `${fromRow}–${toRow} of ${page.total}`}
+        </p>
+        <div className="ml-auto flex gap-1">
+          <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" disabled={query.page <= 0} onClick={() => patch({ page: query.page - 1 }, false)}>
+            Previous
+          </Button>
+          <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" disabled={query.page >= lastPage} onClick={() => patch({ page: query.page + 1 }, false)}>
+            Next
+          </Button>
+        </div>
+      </div>
+
+      {loading ? (
+        <p className="bezel px-4 py-8 text-sm text-muted-foreground">Loading trades.</p>
+      ) : page.rows.length === 0 ? (
+        <p className="bezel px-4 py-8 text-sm text-muted-foreground">No trades match. Log one below, or let a bot send it with log-trade.</p>
+      ) : (
+        <div className="bezel overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Entry</TableHead>
+                <TableHead>Symbol</TableHead>
+                <TableHead>Side</TableHead>
+                <TableHead>Strategy</TableHead>
+                <TableHead className="text-right">Entry</TableHead>
+                <TableHead className="text-right">Exit</TableHead>
+                <TableHead className="text-right">Size</TableHead>
+                <TableHead className="text-right">Return</TableHead>
+                <TableHead className="text-right">P&L</TableHead>
+                <TableHead>Source</TableHead>
+                <TableHead className="w-8" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {page.rows.map((trade) => (
+                <TradeTableRow key={trade.id} trade={trade} strategyName={names.get(trade.strategyId) ?? ""} />
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+
+      <form
+        className="bezel p-3"
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault()
+          void submit()
+        }}
+      >
+        <p className="font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
+          Log a trade · {venue === "perp" ? "Kraken perp" : "Binance spot"}
+        </p>
+        <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="journal-symbol">Symbol</Label>
+            <Input id="journal-symbol" value={market} maxLength={20} onChange={(event) => setMarket(event.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Side</span>
+            <div className="flex gap-1" role="group" aria-label="Side">
+              {(["long", "short"] as const).map((item) => (
+                <Button
+                  key={item}
+                  type="button"
+                  size="xs"
+                  variant={side === item ? "default" : "outline"}
+                  className="normal-case tracking-normal"
+                  aria-pressed={side === item}
+                  onClick={() => setSide(item)}
+                >
+                  {item === "long" ? "Long" : "Short"}
+                </Button>
+              ))}
+            </div>
+          </div>
+          <div className="col-span-2 flex flex-col gap-1">
+            <Label htmlFor="journal-strategy">Strategy</Label>
+            <Select value={strategy} onValueChange={setStrategy}>
+              <SelectTrigger id="journal-strategy" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No strategy</SelectItem>
+                {RULES.map((rule) => (
+                  <SelectItem key={rule.id} value={rule.id}>
+                    {rule.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="journal-price">Entry</Label>
+            <Input id="journal-price" inputMode="decimal" value={price} onChange={(event) => setPrice(event.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="journal-exit">Exit</Label>
+            <Input id="journal-exit" inputMode="decimal" value={exitPrice} placeholder="Open" onChange={(event) => setExitPrice(event.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="journal-size">Size</Label>
+            <Input id="journal-size" inputMode="decimal" value={size} onChange={(event) => setSize(event.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="journal-note">Note</Label>
+            <Input id="journal-note" value={note} maxLength={280} placeholder="Why this trade" onChange={(event) => setNote(event.target.value)} />
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <Button type="submit">Log trade</Button>
+          {error ? <p className="text-sm text-down">{error}</p> : null}
+        </div>
+      </form>
+
+      {alerts.length > 0 ? (
+        <section aria-label="Alerts">
+          <p className="font-mono text-[11px] tracking-wide text-muted-foreground uppercase">Alerts</p>
+          <ul className="mt-2 flex flex-col gap-2">
+            {alerts.map((entry) => (
+              <AlertRow key={entry.id} entry={entry} />
+            ))}
+          </ul>
+        </section>
+      ) : null}
+    </>
+  )
+}
+
+function TradeTableRow({ trade, strategyName }: { trade: TradeRecord; strategyName: string }) {
+  const base = trade.symbol.replace(/USDT$/, "")
+  const open = trade.exitTime == null
+  return (
+    <TableRow>
+      <TableCell className="font-mono text-xs whitespace-nowrap text-muted-foreground">{formatStamp(trade.entryTime, "1m")}</TableCell>
+      <TableCell>{base}</TableCell>
+      <TableCell>
+        <Badge variant={trade.side === "long" ? "default" : "secondary"}>{trade.side === "long" ? "Long" : "Short"}</Badge>
+      </TableCell>
+      <TableCell className="max-w-40 truncate">{strategyName}</TableCell>
+      <TableCell className="text-right font-mono text-xs tabular-nums">{formatPrice(trade.entryPrice)}</TableCell>
+      <TableCell className="text-right font-mono text-xs tabular-nums">{open || trade.exitPrice == null ? "Open" : formatPrice(trade.exitPrice)}</TableCell>
+      <TableCell className="text-right font-mono text-xs tabular-nums">{formatSize(trade.size)}</TableCell>
+      <TableCell className={cn("text-right font-mono text-xs tabular-nums", trade.returnPct != null && moneyTone(trade.returnPct) === "up" && "text-up", trade.returnPct != null && moneyTone(trade.returnPct) === "down" && "text-down")}>
+        {open ? "—" : formatPlainPct(trade.returnPct, 1)}
+      </TableCell>
+      <TableCell className={cn("text-right font-mono text-xs tabular-nums", trade.pnl != null && moneyTone(trade.pnl) === "up" && "text-up", trade.pnl != null && moneyTone(trade.pnl) === "down" && "text-down")}>
+        {open || trade.pnl == null ? "—" : signedMoney(trade.pnl)}
+      </TableCell>
+      <TableCell className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">{trade.source}</TableCell>
+      <TableCell>
+        <Button type="button" variant="ghost" size="icon-xs" aria-label={`Remove ${base} ${trade.side}`} onClick={() => void removeTrade(trade.id)}>
+          <Trash2 />
+        </Button>
+      </TableCell>
+    </TableRow>
   )
 }
 
@@ -271,9 +490,9 @@ function WorkingPanel({
   symbol: string
   venue: Venue
   draft: WorkingDraft | null
-  onOpen: (row: WorkingStrategy) => void
+  onOpen: (strategyId: string) => void
 }) {
-  const [rows, setRows] = useState(workingStrategies)
+  const [rows, setRows] = useState<StrategyRecord[]>([])
   const [name, setName] = useState(draft?.name ?? "SMA 20/50")
   const [nameTouched, setNameTouched] = useState(false)
   const [market, setMarket] = useState(draft?.symbol ?? symbol)
@@ -294,7 +513,20 @@ function WorkingPanel({
   const [error, setError] = useState<string | null>(null)
   const spec = ruleById(rule)
 
-  useEffect(() => watchWorking(() => setRows(workingStrategies())), [])
+  useEffect(() => {
+    let cancel = false
+    const load = () => {
+      void listStrategies().then((next) => {
+        if (!cancel) setRows(next)
+      })
+    }
+    load()
+    const stop = watchBook(load)
+    return () => {
+      cancel = true
+      stop()
+    }
+  }, [])
 
   function chooseRule(next: string) {
     const picked = normalizeRule(next)
@@ -305,21 +537,21 @@ function WorkingPanel({
     if (!nameTouched) setName(suggestedName(picked, nextParams))
   }
 
-  function submit() {
-    const saved = saveWorking({
+  async function submit() {
+    const saved = await saveStrategy({
       name,
       symbol: market,
-      venue: marketVenue,
+      market: marketVenue,
       timeframe,
       range,
       rule,
       params,
       combo,
-      feeBps: Number(feeBps),
-      slippageBps: Number(slippageBps),
+      fee: Number(feeBps),
+      slippage: Number(slippageBps),
       capital: Number(capital),
       leverage: marketVenue === "perp" ? Number(leverage) : 1,
-      riskPct: Number(riskPct),
+      risk: Number(riskPct),
       allowShort: marketVenue === "perp" && allowShort,
       note,
     })
@@ -331,9 +563,25 @@ function WorkingPanel({
     setNote("")
   }
 
-  function saveOpen() {
+  async function saveOpen() {
     if (!draft) return
-    const saved = saveWorking({ ...draft, note: openNote })
+    const saved = await saveStrategy({
+      name: draft.name,
+      symbol: draft.symbol,
+      market: draft.venue,
+      timeframe: draft.timeframe,
+      range: draft.range,
+      rule: draft.rule,
+      params: draft.params,
+      combo: draft.combo,
+      fee: draft.feeBps,
+      slippage: draft.slippageBps,
+      capital: draft.capital,
+      leverage: draft.venue === "perp" ? draft.leverage : 1,
+      risk: draft.riskPct,
+      allowShort: draft.venue === "perp" && draft.allowShort,
+      note: openNote,
+    })
     if (!saved) {
       setError("The open strategy needs a symbol and a bar size Wick already uses.")
       return
@@ -350,7 +598,7 @@ function WorkingPanel({
           noValidate
           onSubmit={(event) => {
             event.preventDefault()
-            saveOpen()
+            void saveOpen()
           }}
         >
           <p className="font-mono text-[11px] tracking-wide text-muted-foreground uppercase">Open on the desk</p>
@@ -374,7 +622,7 @@ function WorkingPanel({
         noValidate
         onSubmit={(event) => {
           event.preventDefault()
-          submit()
+          void submit()
         }}
       >
         <p className="font-mono text-[11px] tracking-wide text-muted-foreground uppercase">Write one down</p>
@@ -542,7 +790,7 @@ function WorkingPanel({
   )
 }
 
-function WorkingRow({ row, onOpen }: { row: WorkingStrategy; onOpen: (row: WorkingStrategy) => void }) {
+function WorkingRow({ row, onOpen }: { row: StrategyRecord; onOpen: (strategyId: string) => void }) {
   const base = row.symbol.replace(/USDT$/, "")
   const spec = ruleById(row.rule)
   const fields = (spec?.params ?? [])
@@ -555,10 +803,10 @@ function WorkingRow({ row, onOpen }: { row: WorkingStrategy; onOpen: (row: Worki
   return (
     <li className="bezel flex items-start justify-between gap-3 px-3 py-2">
       <div className="min-w-0">
-        <button type="button" className="flex max-w-full flex-wrap items-baseline gap-x-2 gap-y-1 text-left" onClick={() => onOpen(row)}>
+        <button type="button" className="flex max-w-full flex-wrap items-baseline gap-x-2 gap-y-1 text-left" onClick={() => onOpen(row.id)}>
           <span className="text-sm">{row.name}</span>
           <span className="text-sm text-muted-foreground">{base}</span>
-          <span className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">{row.venue === "perp" ? "Perp" : "Spot"}</span>
+          <span className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">{row.market === "perp" ? "Perp" : "Spot"}</span>
         </button>
         <p className="mt-1 text-sm text-muted-foreground">
           {label} · {row.timeframe} · {row.range}
@@ -569,14 +817,14 @@ function WorkingRow({ row, onOpen }: { row: WorkingStrategy; onOpen: (row: Worki
           value={row.note}
           placeholder="Why this one is working"
           className="mt-2"
-          onChange={(value) => setWorkingNote(row.id, value)}
+          onChange={(value) => void setStrategyNote(row.id, value)}
         />
       </div>
       <div className="flex shrink-0 gap-1">
-        <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={() => onOpen(row)}>
+        <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={() => onOpen(row.id)}>
           Open
         </Button>
-        <Button type="button" variant="ghost" size="icon-xs" aria-label={`Remove working ${row.name}`} onClick={() => removeWorking(row.id)}>
+        <Button type="button" variant="ghost" size="icon-xs" aria-label={`Remove working ${row.name}`} onClick={() => void removeStrategy(row.id)}>
           <Trash2 />
         </Button>
       </div>
@@ -624,46 +872,10 @@ function GrowingNote({
   )
 }
 
-function TradeRow({ entry }: { entry: JournalEntry }) {
-  if (entry.kind === "alert") return <AlertRow entry={entry} />
-  const pnl = tradePnl(entry)
-  const notional = entry.price * entry.size
-  const returned = pnl != null && notional > 0 ? (pnl / notional) * 100 : null
-  const base = entry.symbol.replace(/USDT$/, "")
-  return (
-    <li className="bezel flex items-start justify-between gap-3 px-3 py-2">
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-          <Badge variant={entry.side === "buy" ? "default" : "secondary"}>{entry.side === "buy" ? "Buy" : "Sell"}</Badge>
-          <span className="text-sm">{base}</span>
-          <span className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">{entry.venue === "perp" ? "Perp" : "Spot"}</span>
-          {entry.strategy ? <span className="text-sm text-muted-foreground">{entry.strategy}</span> : null}
-          <span className="font-mono text-xs tabular-nums text-muted-foreground">
-            {formatPrice(entry.price)}
-            {entry.exitPrice != null ? ` → ${formatPrice(entry.exitPrice)}` : " · open"} × {formatSize(entry.size)}
-          </span>
-          {pnl == null ? (
-            <span className="font-mono text-xs text-muted-foreground">Open</span>
-          ) : (
-            <span className={cn("font-mono text-xs tabular-nums", moneyTone(pnl) === "up" && "text-up", moneyTone(pnl) === "down" && "text-down")}>
-              {signedMoney(pnl)}
-              {returned != null ? ` · ${formatPlainPct(returned, 1)}` : ""}
-            </span>
-          )}
-        </div>
-        <p className="mt-1 font-mono text-[11px] text-muted-foreground">{formatStamp(entry.time, "1m")}</p>
-        {entry.note ? <p className="mt-1 text-sm break-words">{entry.note}</p> : null}
-      </div>
-      <Button type="button" variant="ghost" size="icon-xs" aria-label={`Remove ${base} ${entry.side}`} onClick={() => removeJournalEntry(entry.id)}>
-        <Trash2 />
-      </Button>
-    </li>
-  )
-}
-
 function AlertRow({ entry }: { entry: JournalEntry }) {
   const base = entry.symbol.replace(/USDT$/, "")
   const label = entry.alertKind === "delta" ? "60s delta" : entry.alertKind === "below" ? "Price below" : "Price above"
+  const hit = entry.alertKind === "delta" ? formatSize(entry.price) : formatPrice(entry.price)
   return (
     <li className="bezel flex items-start justify-between gap-3 px-3 py-2">
       <div className="min-w-0">
@@ -671,66 +883,47 @@ function AlertRow({ entry }: { entry: JournalEntry }) {
           <Badge variant="secondary">Alert</Badge>
           <span className="text-sm">{base}</span>
           <span className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">{entry.venue === "perp" ? "Perp" : "Spot"}</span>
-          <span className="font-mono text-xs tabular-nums">{label} {formatAlertHit(entry)}</span>
+          <span className="font-mono text-xs tabular-nums">{label} {hit}</span>
         </div>
         <p className="mt-1 font-mono text-[11px] text-muted-foreground">{formatStamp(entry.time, "1m")}</p>
         {entry.note ? <p className="mt-1 text-sm break-words">{entry.note}</p> : null}
       </div>
-      <Button type="button" variant="ghost" size="icon-xs" aria-label={`Remove ${base} alert`} onClick={() => removeJournalEntry(entry.id)}>
+      <Button type="button" variant="ghost" size="icon-xs" aria-label={`Remove ${base} alert`} onClick={() => removeAlert(entry.id)}>
         <Trash2 />
       </Button>
     </li>
   )
 }
 
-function formatAlertHit(entry: JournalEntry): string {
-  if (entry.alertKind === "delta") return formatSize(entry.price)
-  return formatPrice(entry.price)
-}
-
-function KeptRow({ row, onRestore }: { row: KeptRun; onRestore: (kept: KeptRun) => void }) {
-  const base = row.symbol.replace(/USDT$/, "")
+function KeptRow({ row, onRestore }: { row: KeptListRow; onRestore: (ids: { strategyId: string; runId: string }) => void }) {
+  const base = row.strategy.symbol.replace(/USDT$/, "")
+  const ids = { strategyId: row.strategy.id, runId: row.run.id }
   return (
     <li className="bezel flex items-start justify-between gap-3 px-3 py-2">
       <div className="min-w-0">
-        <button type="button" className="flex max-w-full flex-wrap items-baseline gap-x-2 gap-y-1 text-left" onClick={() => onRestore(row)}>
-          <span className="text-sm">{base}</span>
-          <span className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">{row.venue === "perp" ? "Perp" : "Spot"}</span>
-          <span className={cn("font-mono text-xs tabular-nums", moneyTone(row.metrics.total_return_pct) === "up" && "text-up", moneyTone(row.metrics.total_return_pct) === "down" && "text-down")}>
-            {formatPct(row.metrics.total_return_pct)}
+        <button type="button" className="flex max-w-full flex-wrap items-baseline gap-x-2 gap-y-1 text-left" onClick={() => onRestore(ids)}>
+          <span className="text-sm">{row.strategy.name}</span>
+          <span className="text-sm text-muted-foreground">{base}</span>
+          <span className={cn("font-mono text-xs tabular-nums", moneyTone(row.run.metrics.total_return_pct) === "up" && "text-up", moneyTone(row.run.metrics.total_return_pct) === "down" && "text-down")}>
+            {formatPct(row.run.metrics.total_return_pct)}
           </span>
-          {row.note ? <span className="min-w-0 text-sm break-words text-muted-foreground">{row.note}</span> : null}
         </button>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {row.name} · {ruleName(row.rule)}
-          {row.combo.length > 0 ? ` + ${row.combo.map((item) => ruleName(item.rule)).join(" + ")}` : ""} · {row.timeframe} · {row.range}
-        </p>
         <GrowingNote
-          label={`Note for ${row.name}`}
-          value={row.note}
+          label={`Note for ${row.strategy.name}`}
+          value={row.run.note}
           placeholder="Note on this run"
           className="mt-2"
-          onChange={(value) => setKeptNote(row.id, value)}
+          onChange={(value) => void setRunNote(row.run.id, value)}
         />
-        <p className="mt-1 flex flex-wrap gap-x-3 font-mono text-[11px] tabular-nums text-muted-foreground">
-          <span className={cn(moneyTone(row.metrics.total_return_pct) === "up" && "text-up", moneyTone(row.metrics.total_return_pct) === "down" && "text-down")}>
-            {formatPct(row.metrics.total_return_pct)}
-          </span>
-          <span>Sharpe {formatStat(row.metrics.sharpe)}</span>
-          <span>Win {row.metrics.win_rate_pct == null ? "—" : formatPlainPct(row.metrics.win_rate_pct, 0)}</span>
-          <span>Expectancy {formatPct(keptExpectancy(row))}</span>
-          <span>{row.metrics.trades} closed</span>
-          <span>{formatMoney(row.metrics.final_equity, 0)}</span>
-        </p>
       </div>
       <div className="flex shrink-0 gap-1">
-        <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={() => downloadKept(row)}>
+        <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={() => void exportRunFile(row.run.id)}>
           Export
         </Button>
-        <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={() => onRestore(row)}>
+        <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={() => onRestore(ids)}>
           Reopen
         </Button>
-        <Button type="button" variant="ghost" size="icon-xs" aria-label={`Remove kept ${row.name}`} onClick={() => removeKeptRun(row.id)}>
+        <Button type="button" variant="ghost" size="icon-xs" aria-label={`Remove kept ${row.strategy.name}`} onClick={() => void removeRun(row.run.id)}>
           <Trash2 />
         </Button>
       </div>
@@ -758,10 +951,4 @@ function moneyTone(value: number): "up" | "down" | "ink" {
   if (value > 0) return "up"
   if (value < 0) return "down"
   return "ink"
-}
-
-function formatFactor(value: number | null): string {
-  if (value == null) return "—"
-  if (!Number.isFinite(value)) return "∞"
-  return value.toFixed(2)
 }

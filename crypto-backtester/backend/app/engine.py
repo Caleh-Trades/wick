@@ -6,6 +6,7 @@ open, worsened by slippage. Nothing in the signal uses that future open.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from app.strategies import StrategyError, generate_signals, get_strategy, resolve_params
@@ -326,8 +327,16 @@ def _metrics(
     closed = [trade for trade in trades if trade.status == "closed"]
     returns = [trade.return_pct for trade in closed]
     wins = [trade for trade in closed if trade.pnl > 0]
-    gross_profit = sum(trade.pnl for trade in trades if trade.pnl > 0)
-    gross_loss = -sum(trade.pnl for trade in trades if trade.pnl < 0)
+    finished = [
+        trade
+        for trade in trades
+        if trade.status != "open"
+        and trade.pnl != 0
+        and math.isfinite(trade.pnl)
+        and math.isfinite(trade.return_pct)
+    ]
+    gross_profit = sum(trade.return_pct for trade in finished if trade.return_pct > 0)
+    gross_loss = -sum(trade.return_pct for trade in finished if trade.return_pct < 0)
 
     bar_returns: list[float] = []
     previous = initial

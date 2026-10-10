@@ -22,7 +22,20 @@ import { fetchCandles, mergeFunding, requestFailure } from "@/lib/api"
 import { ackBotEdits, fetchBotInbox } from "@/lib/bot-api"
 import { applyBotEdits, editConcerns } from "@/lib/bot-edits"
 import { JournalPage } from "@/components/journal"
-import { downloadExport, downloadKept, findKept, keepRun, logTradeOp, type KeptExport, type KeptRun, type WorkingStrategy } from "@/lib/journal"
+import {
+  downloadBacktestCsv,
+  downloadLiveRun,
+  downloadText,
+  exportRunFile,
+  findRun,
+  getRun,
+  getStrategy,
+  keepDeskRun,
+  logTradeOp,
+  tradesCsv,
+  tradesForRun,
+  type StrategyRecord,
+} from "@/lib/records"
 import { computeBacktest } from "@/lib/compute"
 import { ruleReading } from "@/lib/signals"
 import { spotTrades } from "@/lib/plot"
@@ -253,7 +266,7 @@ export default function App() {
         const current = workspaceRef.current
         const ops = edits.flatMap((edit) => (Array.isArray(edit.ops) ? edit.ops : []))
         for (const op of ops) {
-          if (op.op === "log-trade") logTradeOp(op)
+          if (op.op === "log-trade") await logTradeOp(op)
         }
         const next = applyBotEdits(
           current,
@@ -557,33 +570,22 @@ export default function App() {
     }
   }
 
-  function activeExport(note: string): KeptExport | null {
-    if (!active || !selected || !fitsSlot(active, selectedOutcome)) return null
-    const outcome = selectedOutcome.result
+  function setupMatch() {
+    if (!active || !selected) return null
     return {
       symbol: active.symbol,
       market: active.venue,
       timeframe: active.timeframe,
       range: active.range,
       rule: selected.rule,
-      params: { ...selected.params },
-      risk_pct: outcome.assumptions.risk_pct,
-      fee: outcome.assumptions.fee_bps,
-      slippage_bps: outcome.assumptions.slippage_bps,
-      metrics: keptMetrics(outcome.metrics),
-      walk_forward: outcome.walk_forward ?? [],
-      trades: outcome.trades,
-      in_sample: outcome.in_sample ?? null,
-      holdout: outcome.holdout ?? null,
-      note: note.trim().slice(0, 280),
-      funding_paid: active.venue === "perp" ? outcome.trades.reduce((sum, trade) => sum + trade.funding_paid, 0) : 0,
+      params: selected.params,
     }
   }
 
-  function keepSelected(note: string) {
+  async function keepSelected(note: string) {
     if (!active || !selected || !fitsSlot(active, selectedOutcome)) return
     const outcome = selectedOutcome.result
-    keepRun({
+    await keepDeskRun({
       name: selected.name,
       symbol: active.symbol,
       venue: active.venue,
@@ -592,77 +594,100 @@ export default function App() {
       rule: selected.rule,
       params: { ...selected.params },
       combo: (selected.combo ?? []).map((item) => ({ rule: item.rule, params: { ...item.params } })),
-      feeBps: selected.feeBps,
-      slippageBps: selected.slippageBps,
+      fee: selected.feeBps,
+      slippage: selected.slippageBps,
       capital: selected.capital,
       leverage: active.venue === "perp" ? selected.leverage : 1,
-      riskPct: selected.riskPct,
+      risk: selected.riskPct,
       allowShort: active.venue === "perp" && selected.allowShort,
       note,
-      fundingPaid: active.venue === "perp" ? outcome.trades.reduce((sum, trade) => sum + trade.funding_paid, 0) : 0,
-      inSample: outcome.in_sample ?? null,
-      holdout: outcome.holdout ?? null,
-      walkForward: outcome.walk_forward ?? [],
       trades: outcome.trades,
       metrics: keptMetrics(outcome.metrics),
     })
     setPage("journal")
   }
 
-  function exportSelected(note: string) {
-    if (!active || !selected) return
-    const kept = findKept({
+  async function exportSelected(note: string) {
+    const match = setupMatch()
+    if (!match || !active || !selected) return
+    const found = await findRun(match)
+    if (found) {
+      await exportRunFile(found.run.id)
+      return
+    }
+    if (!fitsSlot(active, selectedOutcome)) return
+    const outcome = selectedOutcome.result
+    downloadLiveRun({
+      name: selected.name,
       symbol: active.symbol,
       venue: active.venue,
       timeframe: active.timeframe,
       range: active.range,
       rule: selected.rule,
-      params: selected.params,
+      params: { ...selected.params },
+      fee: outcome.assumptions.fee_bps,
+      slippage: outcome.assumptions.slippage_bps,
+      risk: outcome.assumptions.risk_pct,
+      note,
+      metrics: keptMetrics(outcome.metrics),
+      trades: outcome.trades,
     })
-    if (kept) {
-      downloadKept(kept)
+  }
+
+  async function exportTradesSelected() {
+    const match = setupMatch()
+    if (!match || !active) return
+    const found = await findRun(match)
+    if (found) {
+      const rows = await tradesForRun(found.run.id)
+      downloadText(`wick-${found.strategy.symbol}-trades.csv`, tradesCsv(rows), "text/csv")
       return
     }
-    const payload = activeExport(note)
-    if (payload) downloadExport(payload)
+    if (!fitsSlot(active, selectedOutcome)) return
+    const trades = selectedOutcome.result.trades
+    const shown = active.venue === "spot" ? trades.filter((trade) => trade.side !== "short") : trades
+    downloadBacktestCsv(active.symbol, shown)
   }
 
-  function restoreKept(kept: KeptRun) {
-    openSetup(kept, {
-      name: kept.name,
-      symbol: kept.symbol as MarketId,
-      rule: normalizeRule(kept.rule),
-      params: { ...kept.params },
-      combo: kept.combo.map((item) => ({ rule: normalizeRule(item.rule), params: { ...item.params } })),
-      feeBps: kept.feeBps,
-      slippageBps: kept.slippageBps,
-      capital: kept.capital,
-      leverage: kept.venue === "perp" ? kept.leverage : 1,
-      riskPct: kept.riskPct,
-      allowShort: kept.venue === "perp" && kept.allowShort,
-    })
+  async function restoreKept(ids: { strategyId: string; runId: string }) {
+    const strategy = await getStrategy(ids.strategyId)
+    const run = await getRun(ids.runId)
+    if (!strategy || !run || run.strategyId !== strategy.id) return
+    openSetup(
+      { symbol: strategy.symbol, venue: strategy.market, timeframe: strategy.timeframe, range: run.range },
+      runFields(strategy),
+    )
   }
 
-  function restoreWorking(row: WorkingStrategy) {
-    openSetup(row, {
-      name: row.name,
-      symbol: row.symbol as MarketId,
-      rule: normalizeRule(row.rule),
-      params: { ...row.params },
-      combo: row.combo.map((item) => ({ rule: normalizeRule(item.rule), params: { ...item.params } })),
-      feeBps: row.feeBps,
-      slippageBps: row.slippageBps,
-      capital: row.capital,
-      leverage: row.venue === "perp" ? row.leverage : 1,
-      riskPct: row.riskPct,
-      allowShort: row.venue === "perp" && row.allowShort,
-    })
+  async function restoreWorking(strategyId: string) {
+    const strategy = await getStrategy(strategyId)
+    if (!strategy) return
+    openSetup(
+      { symbol: strategy.symbol, venue: strategy.market, timeframe: strategy.timeframe, range: strategy.range },
+      runFields(strategy),
+    )
   }
 
   function openSetup(seed: { symbol: string; venue: Venue; timeframe: string; range: string }, partial: Partial<Run>) {
     const run = createRun(partial)
     setPage("desk")
     setWorkspace((current) => placeKept(current, seed, run))
+  }
+
+  function runFields(strategy: StrategyRecord): Partial<Run> {
+    return {
+      name: strategy.name,
+      symbol: strategy.symbol as MarketId,
+      rule: normalizeRule(strategy.rule),
+      params: { ...strategy.params },
+      combo: strategy.combo.map((item) => ({ rule: normalizeRule(item.rule), params: { ...item.params } })),
+      feeBps: strategy.fee,
+      slippageBps: strategy.slippage,
+      capital: strategy.capital,
+      leverage: strategy.market === "perp" ? strategy.leverage : 1,
+      riskPct: strategy.risk,
+      allowShort: strategy.market === "perp" && strategy.allowShort,
+    }
   }
 
   const activeKey = active ? tapeKey(active) : ""
@@ -782,8 +807,9 @@ export default function App() {
               result={result}
               sortKey={sortKey}
               sortDir={sortDir}
-              onKeep={keepSelected}
-              onExport={exportSelected}
+              onKeep={(note) => void keepSelected(note)}
+              onExport={(note) => void exportSelected(note)}
+              onExportTrades={() => void exportTradesSelected()}
               onSort={(key) => {
                 if (sortKey === key) setSortDir((dir) => (dir === "desc" ? "asc" : "desc"))
                 else {

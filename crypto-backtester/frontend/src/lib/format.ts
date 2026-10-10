@@ -94,6 +94,7 @@ export function formatStat(value: number | null | undefined, digits = 2): string
 
 export function formatFactor(value: number | null): string {
   if (value == null || !Number.isFinite(value)) return "—"
+  if (value > 0 && value < 1) return value.toFixed(3)
   return value.toFixed(2)
 }
 

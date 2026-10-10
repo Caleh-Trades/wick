@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 
 import { backtest, liquidationPrice, monteCarloEquity, profitFactor, tradeExpectancy, windowTradesLabel } from "../src/lib/backtest.ts"
+import { formatFactor } from "../src/lib/format.ts"
 import { createRun, fingerprint, mergeCandles, nudgeFast } from "../src/lib/runs.ts"
 import type { TapeCandle } from "../src/lib/types.ts"
 
@@ -196,22 +197,26 @@ assert.deepEqual(
   ["ema_cross", "donchian", "macd", "supertrend"],
 )
 
-assert.equal(profitFactor([{ pnl: 10 }, { pnl: 4 }]), null)
+assert.equal(profitFactor([{ pnl: 10, return_pct: 1 }, { pnl: 4, return_pct: 0.4 }]), null)
 assert.equal(profitFactor([]), null)
-const expectancyTrades = [
-  { pnl: -1382.79, return_pct: -13.8279, status: "closed" },
-  { pnl: -227.72, return_pct: -2.2772, status: "closed" },
-  { pnl: 71.2, return_pct: 0.712, status: "closed" },
-  { pnl: 2249.15, return_pct: 22.4915, status: "open" },
+const quoted = [
+  { pnl: -5000, return_pct: -13.8, status: "closed" as const },
+  { pnl: -400, return_pct: -2.6, status: "closed" as const },
+  { pnl: 10, return_pct: 0.8, status: "closed" as const },
+  { pnl: 9000, return_pct: 40, status: "open" as const },
 ]
-const withOpen = tradeExpectancy(expectancyTrades)
-const closedExpectancy = tradeExpectancy(expectancyTrades.slice(0, 3))
-assert.ok(withOpen != null && withOpen < -5 && withOpen > -5.3)
-assert.ok(closedExpectancy != null && Math.abs(withOpen - closedExpectancy) < 1e-9)
-const openWinner = profitFactor(expectancyTrades)
-const closedOnly = profitFactor([{ pnl: -1382.79 }, { pnl: -227.72 }, { pnl: 71.2 }])
-assert.ok(openWinner != null && closedOnly != null && Math.abs(openWinner - closedOnly) < 1e-9)
-assert.ok(closedOnly < 0.05)
+const quotedFactor = 0.8 / (13.8 + 2.6)
+assert.ok(Math.abs((profitFactor(quoted) ?? 0) - quotedFactor) < 1e-12)
+assert.ok((profitFactor(quoted) ?? 1) < 1)
+assert.notEqual(formatFactor(profitFactor(quoted)), "0.04")
+assert.equal(formatFactor(quotedFactor), "0.049")
+const dollarFactor = 10 / (5000 + 400)
+assert.ok(Math.abs((profitFactor(quoted) ?? 0) - dollarFactor) > 0.04)
+const withOpen = tradeExpectancy(quoted)
+const closedExpectancy = tradeExpectancy(quoted.slice(0, 3))
+assert.ok(withOpen != null && Math.abs(withOpen - closedExpectancy!) < 1e-9)
+assert.ok(withOpen < -5 && withOpen > -5.3)
+assert.equal(profitFactor(quoted), profitFactor(quoted.slice(0, 3)))
 
 assert.equal(monteCarloEquity([], 10_000), null)
 assert.equal(monteCarloEquity([0, 0], 10_000), 10_000)

@@ -102,8 +102,30 @@ def _clean_password(password: object) -> str:
     return password
 
 
+_RUN_DROP = {"trades", "candles", "equity", "walkForward", "walk_forward", "inSample", "holdout", "in_sample"}
+
+
 def _blank_desk() -> dict:
-    return {"workspace": None, "journal": [], "kept": [], "working": [], "favourites": [], "panes": None}
+    return {
+        "workspace": None,
+        "journal": [],
+        "kept": [],
+        "working": [],
+        "strategies": [],
+        "runs": [],
+        "trades": [],
+        "favourites": [],
+        "panes": None,
+    }
+
+
+def _record_list(raw: dict, key: str, limit: int) -> list:
+    value = raw.get(key, [])
+    if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
+        raise AccountError("Strategies, runs, and trades have to be lists of records.")
+    if key == "runs":
+        return [{field: item[field] for field in item if field not in _RUN_DROP} for item in value[:limit]]
+    return list(value[:limit])
 
 
 def clean_desk(raw: object) -> dict:
@@ -130,8 +152,11 @@ def clean_desk(raw: object) -> dict:
     desk = {
         "workspace": workspace,
         "journal": journal[:400],
-        "kept": kept[:80],
+        "kept": [{field: item[field] for field in item if field not in _RUN_DROP} for item in kept[:80]],
         "working": working[:40],
+        "strategies": _record_list(raw, "strategies", 400),
+        "runs": _record_list(raw, "runs", 400),
+        "trades": _record_list(raw, "trades", 4000),
         "favourites": [item.strip() for item in favourites[:40] if item.strip()],
         "panes": panes,
     }

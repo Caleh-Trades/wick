@@ -476,17 +476,28 @@ function measure(
   }
 }
 
-/** Gross winning pnl divided by gross losing pnl. An open trade stays out. No losses is null. */
-export function profitFactor(trades: Array<{ pnl: number; status?: string }>): number | null {
+/** Gross winning return divided by gross losing return. Same closed trades as expectancy. An open trade stays out. No losses is null. */
+export function profitFactor(trades: Array<{ pnl: number; return_pct?: number; status?: string }>): number | null {
+  const sampled = closedReturns(trades)
   let grossWin = 0
   let grossLoss = 0
-  for (const trade of trades) {
-    if (trade.status === "open") continue
-    if (trade.pnl > 0) grossWin += trade.pnl
-    else if (trade.pnl < 0) grossLoss -= trade.pnl
+  for (const trade of sampled) {
+    const ret = trade.return_pct ?? 0
+    if (ret > 0) grossWin += ret
+    else if (ret < 0) grossLoss += Math.abs(ret)
   }
   if (!(grossLoss > 0)) return null
   return grossWin / grossLoss
+}
+
+function closedReturns(trades: Array<{ pnl: number; return_pct?: number; status?: string }>) {
+  return trades.filter(
+    (trade) =>
+      trade.status !== "open" &&
+      Number.isFinite(trade.pnl) &&
+      Number.isFinite(trade.return_pct) &&
+      trade.pnl !== 0,
+  )
 }
 
 /** 5th percentile ending equity. Each path redraws the closed-trade returns with replacement and compounds them from the starting balance. A pure shuffle cannot move the product, so the paths are redraws. */
@@ -526,13 +537,7 @@ function mulberry32(seed: number) {
 
 /** Average trade return: (win rate × avg win) − (loss rate × avg loss). An open trade stays out. */
 export function tradeExpectancy(trades: Array<{ pnl: number; return_pct: number; status?: string }>): number | null {
-  const sampled = trades.filter(
-    (trade) =>
-      trade.status !== "open" &&
-      Number.isFinite(trade.pnl) &&
-      Number.isFinite(trade.return_pct) &&
-      trade.pnl !== 0,
-  )
+  const sampled = closedReturns(trades) as Array<{ pnl: number; return_pct: number }>
   if (sampled.length === 0) return null
   const wins = sampled.filter((trade) => trade.pnl > 0)
   const losses = sampled.filter((trade) => trade.pnl < 0)

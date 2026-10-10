@@ -16,7 +16,7 @@ import {
   type DeskBlob,
 } from "@/lib/account"
 import { subscribeFavourites } from "@/lib/favourites"
-import { watchJournal, watchKept, watchWorking } from "@/lib/journal"
+import { watchBook } from "@/lib/records"
 import type { PaneSizes } from "@/lib/panes"
 import type { Workspace } from "@/lib/workspace"
 
@@ -42,14 +42,10 @@ export function useAccountSync(
 
   useEffect(() => {
     const bump = () => setTick((current) => current + 1)
-    const stopJournal = watchJournal(bump)
-    const stopKept = watchKept(bump)
-    const stopWorking = watchWorking(bump)
+    const stopBook = watchBook(bump)
     const stopFavourites = subscribeFavourites(bump)
     return () => {
-      stopJournal()
-      stopKept()
-      stopWorking()
+      stopBook()
       stopFavourites()
     }
   }, [])
@@ -66,17 +62,19 @@ export function useAccountSync(
       try {
         const remote = await fetchDesk(token)
         if (cancel) return
-        const local = canonicalDesk(captureDesk())
+        const localDesk = await captureDesk()
+        if (cancel) return
+        const local = canonicalDesk(localDesk)
         const remoteJson = canonicalDesk(remote.desk)
         revision.current = remote.revision
         if (remote.revision > (readSession()?.revision ?? 0) && local !== remoteJson) {
-          take(remote.desk, remote.revision)
+          await take(remote.desk, remote.revision)
           return
         }
         if (local !== remoteJson) {
           ready.current = true
           held.current = local
-          await push(token, captureDesk())
+          await push(token, localDesk)
           return
         }
         held.current = remoteJson
@@ -109,22 +107,35 @@ export function useAccountSync(
 
   useEffect(() => {
     if (!token || !ready.current || pushing.current) return
-    const desk = captureDesk()
-    const json = canonicalDesk(desk)
-    if (json === held.current) return
+    let cancel = false
     const handle = window.setTimeout(() => {
-      void push(token, desk)
+      void (async () => {
+        const desk = await captureDesk()
+        if (cancel || !ready.current || pushing.current) return
+        const json = canonicalDesk(desk)
+        if (json === held.current) return
+        await push(token, desk)
+      })()
     }, 600)
-    return () => window.clearTimeout(handle)
+    return () => {
+      cancel = true
+      window.clearTimeout(handle)
+    }
   }, [workspace, panes, tick, token])
 
-  function take(desk: DeskBlob, nextRevision: number) {
-    const loaded = applyDesk(desk)
-    held.current = canonicalDesk(desk)
+  async function take(desk: DeskBlob, nextRevision: number) {
+    const loaded = await applyDesk(desk)
+    const stored = await captureDesk()
+    const storedJson = canonicalDesk(stored)
+    held.current = storedJson
     ready.current = true
     remember(nextRevision)
     setWorkspace(loaded.workspace)
     setPanes(loaded.panes)
+    if (storedJson !== canonicalDesk(desk)) {
+      await push(token, stored)
+      return
+    }
     setStatus("Updated from the other device.")
   }
 
@@ -151,7 +162,9 @@ export function useAccountSync(
       if (active !== token) return
       const remoteJson = canonicalDesk(remote.desk)
       if (remote.revision === revision.current && remoteJson === held.current) return
-      if (canonicalDesk(captureDesk()) !== held.current) return
+      const local = await captureDesk()
+      if (active !== token) return
+      if (canonicalDesk(local) !== held.current) return
       if (remoteJson === held.current) {
         remember(remote.revision)
         return
@@ -170,7 +183,7 @@ export function useAccountSync(
       if ("conflict" in result) result = await saveDesk(active, result.revision, desk)
       if (active !== token && token) return
       if ("conflict" in result) {
-        take(result.desk, result.revision)
+        await take(result.desk, result.revision)
         return
       }
       held.current = canonicalDesk(desk)
@@ -190,7 +203,7 @@ export function useAccountSync(
   async function create(name: string, password: string) {
     setStatus("Creating…")
     try {
-      const desk = captureDesk()
+      const desk = await captureDesk()
       const next = await createAccount(name, password, desk)
       held.current = canonicalDesk(desk)
       revision.current = next.revision
@@ -208,10 +221,10 @@ export function useAccountSync(
     setStatus("Signing in…")
     try {
       const result = await loginAccount(name, password)
-      const loaded = applyDesk(result.desk)
-      held.current = canonicalDesk(result.desk)
+      const loaded = await applyDesk(result.desk)
       revision.current = result.session.revision
-      ready.current = true
+      ready.current = false
+      held.current = canonicalDesk(result.desk)
       writeSession(result.session)
       setSession(result.session)
       setWorkspace(loaded.workspace)

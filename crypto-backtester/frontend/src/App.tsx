@@ -736,7 +736,7 @@ export default function App() {
           <div className={cn("desk-stack flex min-w-0 flex-col lg:min-h-0 lg:flex-1", spanBook && "desk-span flex-row items-stretch")}>
           <div className="desk-stack flex min-w-0 flex-col lg:min-h-0 lg:flex-1">
           <div
-            className={cn("price-split flex min-h-0 min-w-0 lg:min-h-min", shown.length > 1 && "price-split-pair flex-col lg:flex-row")}
+            className={cn("price-split flex min-h-0 min-w-0", shown.length > 1 && "price-split-pair flex-col lg:flex-row")}
             style={{ flexGrow: panes.chart, flexShrink: 1, flexBasis: 0 }}
           >
             {shown.map((slot) => (

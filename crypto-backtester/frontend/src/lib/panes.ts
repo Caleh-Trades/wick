@@ -1,6 +1,6 @@
 const KEY = "wick-panes"
 
-export const CHART_MIN = 0.26
+export const CHART_MIN = 0.38
 export const CHART_MAX = 0.7
 export const SLOTS_MIN = 112
 export const SLOTS_MAX = 280
@@ -13,14 +13,14 @@ export type PaneSizes = {
   slots: number
 }
 
-const DEFAULTS: PaneSizes = { book: 320, chart: 0.46, slots: 200 }
+const DEFAULTS: PaneSizes = { book: 320, chart: 0.5, slots: 200 }
 
 export function loadPanes(): PaneSizes {
   try {
     const parsed = JSON.parse(localStorage.getItem(KEY) ?? "") as Partial<PaneSizes> & { v?: number }
     const book = clamp(parsed.book, 160, 520, DEFAULTS.book)
     const slots = clamp(parsed.slots, SLOTS_MIN, SLOTS_MAX, DEFAULTS.slots)
-    if (parsed.v !== 6) return { book, chart: DEFAULTS.chart, slots }
+    if (parsed.v !== 7) return { book, chart: DEFAULTS.chart, slots }
     return {
       book,
       chart: clamp(parsed.chart, CHART_MIN, CHART_MAX, DEFAULTS.chart),
@@ -41,7 +41,7 @@ export function clampChart(value: number): number {
 
 export function savePanes(sizes: PaneSizes): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify({ v: 6, ...sizes }))
+    localStorage.setItem(KEY, JSON.stringify({ v: 7, ...sizes }))
   } catch {
     /* the drag still applies for this visit */
   }

@@ -370,14 +370,14 @@ button:hover,
 @media (min-width: 1024px) {
   .price-split {
     align-items: stretch;
-    min-height: min-content !important;
+    min-height: 0;
     max-height: none;
   }
 
   .price-split > div,
   .market-pane,
   .chart-book-row {
-    min-height: min-content !important;
+    min-height: 0;
   }
 
   .price-split > div {
@@ -390,10 +390,15 @@ button:hover,
     padding-right: 0;
   }
 
+  .price-chart {
+    overflow: hidden;
+  }
+
   .price-plot {
     flex: 1 1 auto;
     height: auto;
-    min-height: 200px;
+    min-height: 0;
+    overflow: hidden;
   }
 
   .equity-strip .equity-frame,
@@ -434,9 +439,16 @@ button:hover,
   }
 
   .equity-strip .equity-plot {
+    position: relative;
     flex: 1 1 auto !important;
     height: auto !important;
-    min-height: 120px !important;
+    min-height: 0 !important;
+    overflow: hidden;
+  }
+
+  .equity-strip .equity-plot > .equity-plot-fill {
+    position: absolute;
+    inset: 0;
   }
 
   .equity-strip .drawdown-plot {
@@ -469,7 +481,7 @@ button:hover,
 
 /* Phone and tablet landscape is short. The wide layout otherwise locks to the
    screen, so a sideways window could not move. A tall desktop window stays put. */
-@media (max-height: 860px) {
+@media (max-height: 860px) and (max-width: 1023px) {
   .desk-shell {
     height: auto !important;
     max-height: none !important;

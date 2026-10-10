@@ -75,7 +75,8 @@ export const EquityChart = memo(function EquityChart({
           </Button>
         </div>
       </div>
-      <div key={drawToken} className="equity-plot equity-solid min-h-0 flex-1">
+      <div key={drawToken} className="equity-plot equity-solid relative min-h-0 flex-1">
+        <div className="equity-plot-fill absolute inset-0">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid vertical={false} stroke={plotGrid} />
@@ -140,6 +141,7 @@ export const EquityChart = memo(function EquityChart({
             />
           </ComposedChart>
         </ResponsiveContainer>
+        </div>
       </div>
       <div className="drawdown-plot equity-solid mt-2 h-14 shrink-0">
         <ResponsiveContainer width="100%" height="100%">

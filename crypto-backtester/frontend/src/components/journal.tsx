@@ -6,13 +6,49 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { formatMoney, formatPct, formatPlainPct, formatPrice, formatSize, formatStamp, formatStat } from "@/lib/format"
-import { downloadKept, journalEntries, journalStats, keptExpectancy, keptRuns, logTrade, removeJournalEntry, removeKeptRun, setKeptNote, tradePnl, watchJournal, watchKept, type JournalEntry, type JournalSide, type KeptRun } from "@/lib/journal"
-import { RULES, ruleName } from "@/lib/runs"
-import type { Venue } from "@/lib/types"
+import { downloadKept, journalEntries, journalStats, keptExpectancy, keptRuns, logTrade, removeJournalEntry, removeKeptRun, removeWorking, saveWorking, setKeptNote, setWorkingNote, tradePnl, watchJournal, watchKept, watchWorking, workingStrategies, type JournalEntry, type JournalSide, type KeptRun, type WorkingStrategy } from "@/lib/journal"
+import { RANGES, RULES, TIMEFRAMES, isRange, isTimeframe, normalizeRule, paramsForRule, ruleById, ruleName, ruleParams, strategyLabel, suggestedName } from "@/lib/runs"
+import type { RangeId, RuleId, RunParams, Timeframe, Venue } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-export function JournalPage({ symbol, venue, onRestore }: { symbol: string; venue: Venue; onRestore: (kept: KeptRun) => void }) {
+export type WorkingDraft = Omit<WorkingStrategy, "id" | "time" | "note">
+
+function workingDraftKey(draft: WorkingDraft | null): string {
+  if (!draft) return "none"
+  return [
+    draft.symbol,
+    draft.venue,
+    draft.timeframe,
+    draft.range,
+    draft.rule,
+    draft.name,
+    draft.feeBps,
+    draft.slippageBps,
+    draft.capital,
+    draft.leverage,
+    draft.riskPct,
+    draft.allowShort,
+    JSON.stringify(draft.params),
+    JSON.stringify(draft.combo),
+  ].join("|")
+}
+
+export function JournalPage({
+  symbol,
+  venue,
+  draft,
+  onRestore,
+  onOpenWorking,
+}: {
+  symbol: string
+  venue: Venue
+  draft: WorkingDraft | null
+  onRestore: (kept: KeptRun) => void
+  onOpenWorking: (row: WorkingStrategy) => void
+}) {
+  const [tab, setTab] = useState<"trades" | "working">("trades")
   const [entries, setEntries] = useState(journalEntries)
   const [kept, setKept] = useState(keptRuns)
   const [market, setMarket] = useState(symbol)
@@ -64,11 +100,38 @@ export function JournalPage({ symbol, venue, onRestore }: { symbol: string; venu
       <div className="mx-auto flex w-full max-w-[1100px] flex-col gap-4 px-4 py-4 pb-16">
         <div>
           <h2 className="font-mono text-xs tracking-[0.28em] text-[#c56a32] uppercase">Journal</h2>
-          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            Round trips you took, or a bot logged. P&amp;L is the exit minus the entry, times size, and flipped for a sell. A blank exit stays open.
+          <div className="mt-3 flex gap-1" role="tablist" aria-label="Journal">
+            {(
+              [
+                ["trades", "Trades"],
+                ["working", "Working"],
+              ] as const
+            ).map(([id, label]) => (
+              <Button
+                key={id}
+                type="button"
+                size="xs"
+                variant={tab === id ? "default" : "outline"}
+                className="normal-case tracking-normal"
+                role="tab"
+                aria-selected={tab === id}
+                onClick={() => setTab(id)}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+          <p className="mt-3 max-w-2xl text-sm text-muted-foreground">
+            {tab === "trades"
+              ? "Round trips you took, or a bot logged. P&L is the exit minus the entry, times size, and flipped for a sell. A blank exit stays open."
+              : "Strategies that are working. Save the one on the desk, or write the rule, the market, and why it is holding up. Opening a row puts that setup on a slot."}
           </p>
         </div>
 
+        {tab === "working" ? (
+          <WorkingPanel key={workingDraftKey(draft)} symbol={symbol} venue={venue} draft={draft} onOpen={onOpenWorking} />
+        ) : (
+        <>
         <section className="bezel grid grid-cols-2 gap-px overflow-hidden sm:grid-cols-3 lg:grid-cols-6" aria-label="Journal totals">
           <Stat label="P&L" value={signedMoney(stats.pnl)} toneName={moneyTone(stats.pnl)} />
           <Stat label="Win rate" value={stats.closed ? formatPlainPct(stats.winRate, 0) : "—"} />
@@ -192,8 +255,333 @@ export function JournalPage({ symbol, venue, onRestore }: { symbol: string; venu
             ))}
           </ul>
         )}
+        </>
+        )}
       </div>
     </div>
+  )
+}
+
+function WorkingPanel({
+  symbol,
+  venue,
+  draft,
+  onOpen,
+}: {
+  symbol: string
+  venue: Venue
+  draft: WorkingDraft | null
+  onOpen: (row: WorkingStrategy) => void
+}) {
+  const [rows, setRows] = useState(workingStrategies)
+  const [name, setName] = useState(draft?.name ?? "SMA 20/50")
+  const [nameTouched, setNameTouched] = useState(false)
+  const [market, setMarket] = useState(draft?.symbol ?? symbol)
+  const [marketVenue, setMarketVenue] = useState<Venue>(draft?.venue ?? venue)
+  const [timeframe, setTimeframe] = useState<Timeframe>(draft && isTimeframe(draft.timeframe) ? draft.timeframe : "1d")
+  const [range, setRange] = useState<RangeId>(draft && isRange(draft.range) ? draft.range : "1Y")
+  const [rule, setRule] = useState<RuleId>(draft ? normalizeRule(draft.rule) : "sma_cross")
+  const [params, setParams] = useState<RunParams>(() => ruleParams(draft ? normalizeRule(draft.rule) : "sma_cross", draft?.params))
+  const [combo, setCombo] = useState(draft?.combo ?? [])
+  const [feeBps, setFeeBps] = useState(String(draft?.feeBps ?? 10))
+  const [slippageBps, setSlippageBps] = useState(String(draft?.slippageBps ?? 5))
+  const [capital, setCapital] = useState(String(draft?.capital ?? 10_000))
+  const [leverage, setLeverage] = useState(String(draft?.leverage ?? (venue === "perp" ? 3 : 1)))
+  const [riskPct, setRiskPct] = useState(String(draft?.riskPct ?? 1))
+  const [allowShort, setAllowShort] = useState(draft?.allowShort ?? venue === "perp")
+  const [note, setNote] = useState("")
+  const [openNote, setOpenNote] = useState("")
+  const [error, setError] = useState<string | null>(null)
+  const spec = ruleById(rule)
+
+  useEffect(() => watchWorking(() => setRows(workingStrategies())), [])
+
+  function chooseRule(next: string) {
+    const picked = normalizeRule(next)
+    const nextParams = ruleParams(picked, paramsForRule(picked, params))
+    setRule(picked)
+    setParams(nextParams)
+    setCombo((current) => current.filter((item) => normalizeRule(item.rule) !== picked))
+    if (!nameTouched) setName(suggestedName(picked, nextParams))
+  }
+
+  function submit() {
+    const saved = saveWorking({
+      name,
+      symbol: market,
+      venue: marketVenue,
+      timeframe,
+      range,
+      rule,
+      params,
+      combo,
+      feeBps: Number(feeBps),
+      slippageBps: Number(slippageBps),
+      capital: Number(capital),
+      leverage: marketVenue === "perp" ? Number(leverage) : 1,
+      riskPct: Number(riskPct),
+      allowShort: marketVenue === "perp" && allowShort,
+      note,
+    })
+    if (!saved) {
+      setError("A strategy needs a symbol and a bar size Wick already uses.")
+      return
+    }
+    setError(null)
+    setNote("")
+  }
+
+  function saveOpen() {
+    if (!draft) return
+    const saved = saveWorking({ ...draft, note: openNote })
+    if (!saved) {
+      setError("The open strategy needs a symbol and a bar size Wick already uses.")
+      return
+    }
+    setError(null)
+    setOpenNote("")
+  }
+
+  return (
+    <>
+      {draft ? (
+        <form
+          className="bezel p-3"
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault()
+            saveOpen()
+          }}
+        >
+          <p className="font-mono text-[11px] tracking-wide text-muted-foreground uppercase">Open on the desk</p>
+          <p className="mt-2 text-sm">
+            {draft.name} · {strategyLabel({ rule: normalizeRule(draft.rule), combo: draft.combo.map((item) => ({ rule: normalizeRule(item.rule), params: item.params })) })} · {draft.symbol.replace(/USDT$/, "")} · {draft.venue === "perp" ? "Perp" : "Spot"} · {draft.timeframe} · {draft.range}
+          </p>
+          <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <Label htmlFor="working-open-note">Why it is working</Label>
+              <Input id="working-open-note" value={openNote} maxLength={280} placeholder="Holds the trend after the last two weeks" onChange={(event) => setOpenNote(event.target.value)} />
+            </div>
+            <Button type="submit" className="shrink-0">
+              Save the open strategy
+            </Button>
+          </div>
+        </form>
+      ) : null}
+
+      <form
+        className="bezel p-3"
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault()
+          submit()
+        }}
+      >
+        <p className="font-mono text-[11px] tracking-wide text-muted-foreground uppercase">Write one down</p>
+        <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="working-name">Name</Label>
+            <Input
+              id="working-name"
+              value={name}
+              maxLength={48}
+              onChange={(event) => {
+                setNameTouched(true)
+                setName(event.target.value)
+              }}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="working-symbol">Symbol</Label>
+            <Input id="working-symbol" value={market} maxLength={20} onChange={(event) => setMarket(event.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Market</span>
+            <div className="flex gap-1" role="group" aria-label="Market">
+              {(["spot", "perp"] as const).map((item) => (
+                <Button
+                  key={item}
+                  type="button"
+                  size="xs"
+                  variant={marketVenue === item ? "default" : "outline"}
+                  className="normal-case tracking-normal"
+                  aria-pressed={marketVenue === item}
+                  onClick={() => {
+                    setMarketVenue(item)
+                    if (item === "spot") setAllowShort(false)
+                  }}
+                >
+                  {item === "spot" ? "Spot" : "Perp"}
+                </Button>
+              ))}
+            </div>
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="working-rule">Rule</Label>
+            <Select value={rule} onValueChange={chooseRule}>
+              <SelectTrigger id="working-rule" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {RULES.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>
+                    {item.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="working-timeframe">Bars</Label>
+            <Select value={timeframe} onValueChange={(value) => { if (isTimeframe(value)) setTimeframe(value) }}>
+              <SelectTrigger id="working-timeframe" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TIMEFRAMES.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="working-range">Range</Label>
+            <Select value={range} onValueChange={(value) => { if (isRange(value)) setRange(value) }}>
+              <SelectTrigger id="working-range" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {RANGES.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {(spec?.params ?? []).map((param) =>
+            param.toggle ? (
+              <div key={param.key} className="flex items-center justify-between gap-3">
+                <Label htmlFor={`working-${param.key}`}>{param.label}</Label>
+                <Switch
+                  id={`working-${param.key}`}
+                  checked={(params[param.key] ?? param.default) >= 1}
+                  onCheckedChange={(checked) => setParams((current) => ({ ...current, [param.key]: checked ? 1 : 0 }))}
+                />
+              </div>
+            ) : (
+              <div key={param.key} className="flex flex-col gap-1">
+                <Label htmlFor={`working-${param.key}`}>{param.label}</Label>
+                <Input
+                  id={`working-${param.key}`}
+                  inputMode="decimal"
+                  value={String(params[param.key] ?? param.default)}
+                  onChange={(event) => {
+                    const number = Number(event.target.value)
+                    if (Number.isFinite(number)) setParams((current) => ({ ...current, [param.key]: number }))
+                  }}
+                />
+              </div>
+            ),
+          )}
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="working-fee">Fee (bps)</Label>
+            <Input id="working-fee" inputMode="decimal" value={feeBps} onChange={(event) => setFeeBps(event.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="working-slippage">Slippage (bps)</Label>
+            <Input id="working-slippage" inputMode="decimal" value={slippageBps} onChange={(event) => setSlippageBps(event.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="working-capital">Base balance</Label>
+            <Input id="working-capital" inputMode="decimal" value={capital} onChange={(event) => setCapital(event.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="working-risk">Risk %</Label>
+            <Input id="working-risk" inputMode="decimal" value={riskPct} onChange={(event) => setRiskPct(event.target.value)} />
+          </div>
+          {marketVenue === "perp" ? (
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="working-leverage">Leverage</Label>
+              <Input id="working-leverage" inputMode="decimal" value={leverage} onChange={(event) => setLeverage(event.target.value)} />
+            </div>
+          ) : null}
+          {marketVenue === "perp" ? (
+            <div className="flex items-center justify-between gap-3">
+              <Label htmlFor="working-short">Allow short</Label>
+              <Switch id="working-short" checked={allowShort} onCheckedChange={setAllowShort} />
+            </div>
+          ) : null}
+          <div className="col-span-2 flex flex-col gap-1">
+            <Label htmlFor="working-note">Why it is working</Label>
+            <Input id="working-note" value={note} maxLength={280} placeholder="Why this setup" onChange={(event) => setNote(event.target.value)} />
+          </div>
+        </div>
+        {spec ? <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{spec.summary}</p> : null}
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <Button type="submit">Save strategy</Button>
+          {error ? <p className="text-sm text-down">{error}</p> : null}
+        </div>
+      </form>
+
+      <section aria-label="Working strategies">
+        <p className="font-mono text-[11px] tracking-wide text-muted-foreground uppercase">Saved</p>
+        {rows.length === 0 ? (
+          <p className="mt-2 text-sm text-muted-foreground">Nothing saved yet. Save the strategy on the desk, or write the rule down above.</p>
+        ) : (
+          <ul className="mt-2 flex flex-col gap-2">
+            {rows.map((row) => (
+              <WorkingRow key={row.id} row={row} onOpen={onOpen} />
+            ))}
+          </ul>
+        )}
+      </section>
+    </>
+  )
+}
+
+function WorkingRow({ row, onOpen }: { row: WorkingStrategy; onOpen: (row: WorkingStrategy) => void }) {
+  const base = row.symbol.replace(/USDT$/, "")
+  const spec = ruleById(row.rule)
+  const fields = (spec?.params ?? [])
+    .map((param) => `${param.label} ${row.params[param.key] ?? param.default}`)
+    .join(" · ")
+  const label = strategyLabel({
+    rule: normalizeRule(row.rule),
+    combo: row.combo.map((item) => ({ rule: normalizeRule(item.rule), params: item.params })),
+  })
+  return (
+    <li className="bezel flex items-start justify-between gap-3 px-3 py-2">
+      <div className="min-w-0">
+        <button type="button" className="flex max-w-full flex-wrap items-baseline gap-x-2 gap-y-1 text-left" onClick={() => onOpen(row)}>
+          <span className="text-sm">{row.name}</span>
+          <span className="text-sm text-muted-foreground">{base}</span>
+          <span className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">{row.venue === "perp" ? "Perp" : "Spot"}</span>
+        </button>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {label} · {row.timeframe} · {row.range}
+          {fields ? ` · ${fields}` : ""}
+        </p>
+        <Input
+          aria-label={`Note for ${row.name}`}
+          value={row.note}
+          maxLength={280}
+          placeholder="Why this one is working"
+          className="mt-2 h-8"
+          onChange={(event) => setWorkingNote(row.id, event.target.value)}
+        />
+      </div>
+      <div className="flex shrink-0 gap-1">
+        <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={() => onOpen(row)}>
+          Open
+        </Button>
+        <Button type="button" variant="ghost" size="icon-xs" aria-label={`Remove working ${row.name}`} onClick={() => removeWorking(row.id)}>
+          <Trash2 />
+        </Button>
+      </div>
+    </li>
   )
 }
 

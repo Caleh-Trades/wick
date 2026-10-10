@@ -1,14 +1,16 @@
 import { tradeExpectancy } from "./backtest.ts"
 import type { BotOp } from "./bot-edits.ts"
 import { normalizeSymbol } from "./markets.ts"
-import { isRange, isTimeframe, isVenue, normalizeRule, ruleName } from "./runs.ts"
+import { isRange, isTimeframe, isVenue, normalizeCombo, normalizeRule, ruleName, ruleParams } from "./runs.ts"
 import type { AlertKind } from "./workspace.ts"
 import type { RunParams, SampleSlice, Trade, Venue } from "./types.ts"
 
 const KEY = "wick-journal"
 const KEPT_KEY = "wick-kept"
+const WORKING_KEY = "wick-working"
 const MAX_ENTRIES = 200
 const MAX_KEPT = 40
+const MAX_WORKING = 40
 const MAX_STRATEGY = 48
 
 export type JournalSide = "buy" | "sell"
@@ -65,6 +67,27 @@ export type KeptRun = {
   holdout: SampleSlice | null
   walkForward: SampleSlice[]
   trades: Trade[]
+}
+
+/** A strategy worth keeping: the setup, without a stored backtest. */
+export type WorkingStrategy = {
+  id: string
+  time: string
+  name: string
+  symbol: string
+  venue: Venue
+  timeframe: string
+  range: string
+  rule: string
+  params: RunParams
+  combo: { rule: string; params: RunParams }[]
+  feeBps: number
+  slippageBps: number
+  capital: number
+  leverage: number
+  riskPct: number
+  allowShort: boolean
+  note: string
 }
 
 export type StrategyStat = {
@@ -681,4 +704,91 @@ function clampKept(value: unknown, min: number, max: number, fallback: number): 
   const number = Number(value)
   if (!Number.isFinite(number)) return fallback
   return Math.min(max, Math.max(min, number))
+}
+
+const workingListeners = new Set<Listener>()
+let workingRows: WorkingStrategy[] | null = null
+
+export function workingStrategies(): WorkingStrategy[] {
+  if (workingRows) return workingRows
+  workingRows = loadWorking()
+  return workingRows
+}
+
+export function watchWorking(listener: Listener): () => void {
+  workingListeners.add(listener)
+  return () => workingListeners.delete(listener)
+}
+
+export function saveWorking(input: Omit<WorkingStrategy, "id" | "time"> & { id?: string; time?: string }): WorkingStrategy | null {
+  const row = sanitizeWorking(input)
+  if (!row) return null
+  commitWorking([row, ...workingStrategies().filter((item) => item.id !== row.id)])
+  return row
+}
+
+export function removeWorking(id: string): void {
+  commitWorking(workingStrategies().filter((item) => item.id !== id))
+}
+
+export function setWorkingNote(id: string, note: string): void {
+  commitWorking(workingStrategies().map((row) => (row.id === id ? { ...row, note: note.slice(0, 280) } : row)))
+}
+
+export function replaceWorking(raw: unknown): void {
+  const list = Array.isArray(raw) ? raw.map(sanitizeWorking).filter((row) => row != null).slice(0, MAX_WORKING) : []
+  commitWorking(list)
+}
+
+function commitWorking(next: WorkingStrategy[]): void {
+  workingRows = next.slice(0, MAX_WORKING)
+  try {
+    localStorage.setItem(WORKING_KEY, JSON.stringify(workingRows))
+  } catch {
+    /* the list still shows for this visit */
+  }
+  for (const listener of workingListeners) listener()
+}
+
+function loadWorking(): WorkingStrategy[] {
+  try {
+    const raw = localStorage.getItem(WORKING_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.map(sanitizeWorking).filter((row) => row != null).slice(0, MAX_WORKING)
+  } catch {
+    return []
+  }
+}
+
+function sanitizeWorking(value: unknown): WorkingStrategy | null {
+  if (!value || typeof value !== "object") return null
+  const raw = value as Partial<WorkingStrategy>
+  const symbol = asSymbol(typeof raw.symbol === "string" ? raw.symbol : "")
+  const venue = asVenue(typeof raw.venue === "string" ? raw.venue : "")
+  const timeframe = typeof raw.timeframe === "string" && isTimeframe(raw.timeframe) ? raw.timeframe : null
+  const range = typeof raw.range === "string" && isRange(raw.range) ? raw.range : null
+  const rule = typeof raw.rule === "string" ? normalizeRule(raw.rule) : null
+  if (!symbol || !timeframe || !range || !rule) return null
+  const time = typeof raw.time === "string" && !Number.isNaN(Date.parse(raw.time)) ? new Date(raw.time).toISOString() : new Date().toISOString()
+  return {
+    id: typeof raw.id === "string" && raw.id.trim() ? raw.id : crypto.randomUUID(),
+    time,
+    name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim().slice(0, 48) : ruleName(rule),
+    symbol,
+    venue,
+    timeframe,
+    range,
+    rule,
+    params: ruleParams(rule, asParams(raw.params)),
+    combo: normalizeCombo(raw.combo, rule).map((item) => ({ rule: item.rule, params: item.params })),
+    feeBps: clampKept(raw.feeBps, 0, 1000, 10),
+    slippageBps: clampKept(raw.slippageBps, 0, 1000, 5),
+    capital: clampKept(raw.capital, 1, 1_000_000_000, 10_000),
+    leverage: venue === "perp" ? clampKept(raw.leverage, 1, 20, 3) : 1,
+    riskPct: clampKept(raw.riskPct, 0.1, 5, 1),
+    allowShort: venue === "perp" && raw.allowShort !== false,
+    note: typeof raw.note === "string" ? raw.note.trim().slice(0, 280) : "",
+  }
 }

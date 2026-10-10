@@ -43,6 +43,7 @@ def test_two_devices_share_one_desk(monkeypatch, tmp_path):
     assert other["token"] != body["token"]
     assert other["desk"]["favourites"] == ["DOGEUSDT"]
     assert other["desk"]["journal"][0]["symbol"] == "ETHFIUSDT"
+    assert other["desk"]["working"] == []
 
     saved = second.put(
         "/api/accounts/desk",
@@ -53,6 +54,7 @@ def test_two_devices_share_one_desk(monkeypatch, tmp_path):
                 "workspace": other["desk"]["workspace"],
                 "journal": other["desk"]["journal"],
                 "kept": [{"id": "kept-1", "symbol": "BTCUSDT"}],
+                "working": [{"id": "work-1", "name": "ETHFI trend", "rule": "supertrend"}],
                 "favourites": ["DOGEUSDT", "SOLUSDT"],
                 "panes": other["desk"]["panes"],
             },
@@ -69,6 +71,7 @@ def test_two_devices_share_one_desk(monkeypatch, tmp_path):
     assert stale.status_code == 409
     assert stale.json()["revision"] == 2
     assert stale.json()["desk"]["favourites"] == ["DOGEUSDT", "SOLUSDT"]
+    assert stale.json()["desk"]["working"][0]["name"] == "ETHFI trend"
 
     caught_up = first.put(
         "/api/accounts/desk",

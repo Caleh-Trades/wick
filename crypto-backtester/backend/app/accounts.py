@@ -103,7 +103,7 @@ def _clean_password(password: object) -> str:
 
 
 def _blank_desk() -> dict:
-    return {"workspace": None, "journal": [], "kept": [], "favourites": [], "panes": None}
+    return {"workspace": None, "journal": [], "kept": [], "working": [], "favourites": [], "panes": None}
 
 
 def clean_desk(raw: object) -> dict:
@@ -114,13 +114,14 @@ def clean_desk(raw: object) -> dict:
     workspace = raw.get("workspace")
     journal = raw.get("journal", [])
     kept = raw.get("kept", [])
+    working = raw.get("working", [])
     favourites = raw.get("favourites", [])
     panes = raw.get("panes")
     if workspace is not None and not isinstance(workspace, dict):
         raise AccountError("The workspace is not valid.")
-    if not isinstance(journal, list) or not isinstance(kept, list) or not isinstance(favourites, list):
-        raise AccountError("Journal, kept runs, and favourites have to be lists.")
-    if any(not isinstance(item, dict) for item in journal) or any(not isinstance(item, dict) for item in kept):
+    if not isinstance(journal, list) or not isinstance(kept, list) or not isinstance(working, list) or not isinstance(favourites, list):
+        raise AccountError("Journal, kept runs, working strategies, and favourites have to be lists.")
+    if any(not isinstance(item, dict) for item in journal) or any(not isinstance(item, dict) for item in kept) or any(not isinstance(item, dict) for item in working):
         raise AccountError("A journal row has to be an object.")
     if panes is not None and not isinstance(panes, dict):
         raise AccountError("Pane sizes are not valid.")
@@ -130,6 +131,7 @@ def clean_desk(raw: object) -> dict:
         "workspace": workspace,
         "journal": journal[:400],
         "kept": kept[:80],
+        "working": working[:40],
         "favourites": [item.strip() for item in favourites[:40] if item.strip()],
         "panes": panes,
     }

@@ -1,5 +1,5 @@
 import { replaceFavourites } from "@/lib/favourites"
-import { replaceJournal, replaceKept } from "@/lib/journal"
+import { replaceJournal, replaceKept, replaceWorking } from "@/lib/journal"
 import { loadPanes, type PaneSizes } from "@/lib/panes"
 import { loadWorkspace, type Workspace } from "@/lib/workspace"
 
@@ -7,6 +7,7 @@ const SESSION_KEY = "wick-account"
 const WORKSPACE_KEY = "wick-runs"
 const JOURNAL_KEY = "wick-journal"
 const KEPT_KEY = "wick-kept"
+const WORKING_KEY = "wick-working"
 const FAVOURITES_KEY = "wick-favourites"
 const PANES_KEY = "wick-panes"
 
@@ -22,6 +23,7 @@ export type DeskBlob = {
   workspace: unknown
   journal: unknown
   kept: unknown
+  working: unknown
   favourites: unknown
   panes: unknown
 }
@@ -56,6 +58,7 @@ export function captureDesk(): DeskBlob {
     workspace: readStored(WORKSPACE_KEY),
     journal: readStored(JOURNAL_KEY) ?? [],
     kept: readStored(KEPT_KEY) ?? [],
+    working: readStored(WORKING_KEY) ?? [],
     favourites: readStored(FAVOURITES_KEY) ?? [],
     panes: readStored(PANES_KEY),
   }
@@ -66,6 +69,7 @@ export function applyDesk(desk: DeskBlob): { workspace: Workspace; panes: PaneSi
   if (workspace) localStorage.setItem(WORKSPACE_KEY, JSON.stringify(workspace))
   replaceJournal(desk.journal)
   replaceKept(desk.kept)
+  replaceWorking(desk.working)
   replaceFavourites(desk.favourites)
   if (desk.panes && typeof desk.panes === "object") localStorage.setItem(PANES_KEY, JSON.stringify(desk.panes))
   return { workspace: loadWorkspace(), panes: loadPanes() }

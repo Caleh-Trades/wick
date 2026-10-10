@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 
 import { editConcerns } from "../src/lib/bot-edits.ts"
-import { findKept, journalEntries, journalStats, keepRun, keptExport, keptRuns, logAlert, logTrade, logTradeOp, removeJournalEntry, removeKeptRun, setKeptNote, tradePnl, tradesCsv } from "../src/lib/journal.ts"
+import { findKept, journalEntries, journalStats, keepRun, keptExport, keptRuns, logAlert, logTrade, logTradeOp, removeJournalEntry, removeKeptRun, removeWorking, replaceWorking, saveWorking, setKeptNote, setWorkingNote, tradePnl, tradesCsv, workingStrategies } from "../src/lib/journal.ts"
 import { armReading, asDeltaAlert, createSlot, deltaCrosses, priceCrosses } from "../src/lib/workspace.ts"
 
 const slot = createSlot("BTCUSDT", "spot", "1d", "1Y")
@@ -267,5 +267,52 @@ assert.equal(keptRuns().length, 0)
 
 for (const row of [...journalEntries()]) removeJournalEntry(row.id)
 assert.equal(journalEntries().length, 0)
+
+const working = saveWorking({
+  name: "ETHFI trend",
+  symbol: "ETHFI",
+  venue: "spot",
+  timeframe: "1h",
+  range: "3M",
+  rule: "supertrend",
+  params: { atr: 10, mult: 3 },
+  combo: [
+    { rule: "ema_cross", params: { fast: 12, slow: 26 } },
+    { rule: "supertrend", params: {} },
+  ],
+  feeBps: 8,
+  slippageBps: 2,
+  capital: 25_000,
+  leverage: 5,
+  riskPct: 1,
+  allowShort: true,
+  note: "holds the 1h trend",
+})
+assert.equal(working?.symbol, "ETHFIUSDT")
+assert.equal(working?.venue, "spot")
+assert.equal(working?.allowShort, false)
+assert.equal(working?.leverage, 1)
+assert.equal(working?.rule, "supertrend")
+assert.equal(working?.params.atr, 10)
+assert.deepEqual(
+  working?.combo.map((item) => item.rule),
+  ["ema_cross"],
+)
+assert.equal(workingStrategies()[0]?.note, "holds the 1h trend")
+assert.equal(saveWorking({ ...working!, symbol: "", rule: "sma_cross" }), null)
+assert.equal(saveWorking({ ...working!, timeframe: "2h" }), null)
+if (working) {
+  setWorkingNote(working.id, "still holding")
+  assert.equal(workingStrategies()[0]?.note, "still holding")
+}
+replaceWorking([{ id: "work-2", name: "Fade", symbol: "SOL", venue: "perp", timeframe: "15m", range: "1M", rule: "rsi_reversion", params: { period: 14 }, note: "oversold bounce" }])
+assert.equal(workingStrategies().length, 1)
+assert.equal(workingStrategies()[0]?.symbol, "SOLUSDT")
+assert.equal(workingStrategies()[0]?.venue, "perp")
+assert.equal(workingStrategies()[0]?.allowShort, true)
+assert.equal(workingStrategies()[0]?.leverage, 3)
+replaceWorking("nope")
+assert.equal(workingStrategies().length, 0)
+if (working) removeWorking(working.id)
 
 console.log("journal ok")

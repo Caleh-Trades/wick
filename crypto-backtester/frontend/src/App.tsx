@@ -22,7 +22,7 @@ import { fetchCandles, mergeFunding } from "@/lib/api"
 import { ackBotEdits, fetchBotInbox } from "@/lib/bot-api"
 import { applyBotEdits, editConcerns } from "@/lib/bot-edits"
 import { JournalPage } from "@/components/journal"
-import { downloadExport, downloadKept, findKept, keepRun, logTradeOp, type KeptExport, type KeptRun } from "@/lib/journal"
+import { downloadExport, downloadKept, findKept, keepRun, logTradeOp, type KeptExport, type KeptRun, type WorkingStrategy } from "@/lib/journal"
 import { computeBacktest } from "@/lib/compute"
 import { ruleReading } from "@/lib/signals"
 import { spotTrades } from "@/lib/plot"
@@ -614,7 +614,7 @@ export default function App() {
   }
 
   function restoreKept(kept: KeptRun) {
-    const run = createRun({
+    openSetup(kept, {
       name: kept.name,
       symbol: kept.symbol as MarketId,
       rule: normalizeRule(kept.rule),
@@ -627,8 +627,28 @@ export default function App() {
       riskPct: kept.riskPct,
       allowShort: kept.venue === "perp" && kept.allowShort,
     })
+  }
+
+  function restoreWorking(row: WorkingStrategy) {
+    openSetup(row, {
+      name: row.name,
+      symbol: row.symbol as MarketId,
+      rule: normalizeRule(row.rule),
+      params: { ...row.params },
+      combo: row.combo.map((item) => ({ rule: normalizeRule(item.rule), params: { ...item.params } })),
+      feeBps: row.feeBps,
+      slippageBps: row.slippageBps,
+      capital: row.capital,
+      leverage: row.venue === "perp" ? row.leverage : 1,
+      riskPct: row.riskPct,
+      allowShort: row.venue === "perp" && row.allowShort,
+    })
+  }
+
+  function openSetup(seed: { symbol: string; venue: Venue; timeframe: string; range: string }, partial: Partial<Run>) {
+    const run = createRun(partial)
     setPage("desk")
-    setWorkspace((current) => placeKept(current, kept, run))
+    setWorkspace((current) => placeKept(current, seed, run))
   }
 
   const activeKey = active ? tapeKey(active) : ""
@@ -657,6 +677,25 @@ export default function App() {
   }, [activeTape, focusTrade, selected])
   const error = active ? errors[active.id] : null
   const phrase = phraseFor(active?.timeframe ?? "1d")
+  const workingDraft =
+    active && selected
+      ? {
+          name: selected.name,
+          symbol: active.symbol,
+          venue: active.venue,
+          timeframe: active.timeframe,
+          range: active.range,
+          rule: selected.rule,
+          params: { ...selected.params },
+          combo: (selected.combo ?? []).map((item) => ({ rule: item.rule, params: { ...item.params } })),
+          feeBps: selected.feeBps,
+          slippageBps: selected.slippageBps,
+          capital: selected.capital,
+          leverage: active.venue === "perp" ? selected.leverage : 1,
+          riskPct: selected.riskPct,
+          allowShort: active.venue === "perp" && selected.allowShort,
+        }
+      : null
 
   return (
     <div className="desk-shell flex min-h-svh flex-col lg:h-svh lg:min-h-0">
@@ -688,7 +727,13 @@ export default function App() {
         />
       ) : null}
       {page === "journal" ? (
-        <JournalPage symbol={active?.symbol ?? "BTCUSDT"} venue={active?.venue ?? "spot"} onRestore={restoreKept} />
+        <JournalPage
+          symbol={active?.symbol ?? "BTCUSDT"}
+          venue={active?.venue ?? "spot"}
+          draft={workingDraft}
+          onRestore={restoreKept}
+          onOpenWorking={restoreWorking}
+        />
       ) : page === "windows" ? (
         <WindowsPage result={result} runName={selected?.name ?? "Run"} symbol={active?.symbol ?? ""} venue={active?.venue ?? "spot"} />
       ) : (
@@ -960,7 +1005,7 @@ function alignRun(run: Run, slot: Pick<Slot, "symbol" | "venue">): Run {
   return { ...run, symbol: slot.symbol, allowShort: slot.venue === "perp" ? run.allowShort !== false : false }
 }
 
-function placeKept(current: Workspace, kept: KeptRun, run: Run): Workspace {
+function placeKept(current: Workspace, kept: { symbol: string; venue: Venue; timeframe: string; range: string }, run: Run): Workspace {
   const timeframe = kept.timeframe as Timeframe
   const range = kept.range as RangeId
   const existing = current.slots.find((slot) => slot.symbol === kept.symbol && slot.venue === kept.venue)

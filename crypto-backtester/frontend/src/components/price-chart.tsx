@@ -28,6 +28,7 @@ export const PriceChart = memo(function PriceChart({
   onRange,
   onClearFocus,
   onEnlarge,
+  pending = true,
 }: {
   candles: TapeCandle[]
   trades: Trade[]
@@ -40,6 +41,8 @@ export const PriceChart = memo(function PriceChart({
   onRange?: (range: RangeId) => void
   onClearFocus?: () => void
   onEnlarge: () => void
+  /** True while the tape is still on its way. A failed tape says so instead of waiting. */
+  pending?: boolean
 }) {
   const book = useBookView(symbol, venue)
   const formed = useFormingCandles(candles, interval, symbol, venue)
@@ -90,7 +93,7 @@ export const PriceChart = memo(function PriceChart({
         </div>
         {reading && reading.length > 0 ? <p className="font-mono text-[11px] text-muted-foreground">{reading.join(" · ")}</p> : null}
         <ChartTools venue={venue} focusTime={focusTime} range={range} onRange={onRange} onClearFocus={onClearFocus} onEnlarge={onEnlarge} />
-        <p className="mt-6 text-sm text-muted-foreground">Waiting for bars.</p>
+        <p className="mt-6 text-sm text-muted-foreground">{pending ? "Waiting for bars." : "The bars didn't load."}</p>
       </div>
     )
   }

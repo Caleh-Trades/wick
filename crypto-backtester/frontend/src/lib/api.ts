@@ -1,7 +1,7 @@
 import type { SpotMarket } from "@/lib/markets"
 import type { BacktestResult, Draft, FundingRate, MarketId, Meta, RangeId, Tape, TapeCandle, Timeframe, Venue } from "@/lib/types"
 
-const base = (import.meta.env.VITE_API_URL as string | undefined) ?? ""
+const base = (import.meta.env?.VITE_API_URL as string | undefined) ?? ""
 
 export type PremiumQuote = {
   symbol: string
@@ -115,6 +115,19 @@ function normalizeCandle(candle: TapeCandle & { t?: number }): TapeCandle {
   }
 }
 
+export function requestFailure(reason: unknown, fallback: string): string {
+  if (timedOut(reason)) return "The tape took too long."
+  if (reason instanceof Error && reason.message) return reason.message
+  return fallback
+}
+
+function timedOut(reason: unknown): boolean {
+  if (!reason || typeof reason !== "object") return false
+  const name = "name" in reason ? String(reason.name) : ""
+  const message = "message" in reason ? String(reason.message) : ""
+  return name === "TimeoutError" || message === "signal timed out"
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response
   try {
@@ -127,13 +140,22 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       },
       signal: AbortSignal.timeout(90_000),
     })
-  } catch {
+  } catch (reason) {
+    if (timedOut(reason)) throw new Error("The tape took too long.")
     throw new Error(
       "The desk can't reach the backtester. Start it with uvicorn on port 8000, then run this again.",
     )
   }
 
-  const text = await response.text()
+  let text: string
+  try {
+    text = await response.text()
+  } catch (reason) {
+    if (timedOut(reason)) throw new Error("The tape took too long.")
+    throw new Error(
+      "The desk can't reach the backtester. Start it with uvicorn on port 8000, then run this again.",
+    )
+  }
   const body = text ? (JSON.parse(text) as { detail?: unknown }) : null
   if (!response.ok) {
     const fallback = path.startsWith("/api/candles") ? "The tape didn't load." : "The backtest didn't run."

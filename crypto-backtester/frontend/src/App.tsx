@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/sheet"
 import { Watchlist } from "@/components/watchlist"
 import { WorkspaceBar } from "@/components/workspace-bar"
-import { fetchCandles, mergeFunding } from "@/lib/api"
+import { fetchCandles, mergeFunding, requestFailure } from "@/lib/api"
 import { ackBotEdits, fetchBotInbox } from "@/lib/bot-api"
 import { applyBotEdits, editConcerns } from "@/lib/bot-edits"
 import { JournalPage } from "@/components/journal"
@@ -66,6 +66,8 @@ export default function App() {
   const [clocks, setClocks] = useState<Record<string, Date | null>>({})
   const [errors, setErrors] = useState<Record<string, string | null>>({})
   const [loadingKey, setLoadingKey] = useState<string | null>(null)
+  const [tapeRetry, setTapeRetry] = useState(0)
+  const tapeTries = useRef(new Map<string, number>())
   const [running, setRunning] = useState(false)
   const [stale, setStale] = useState(false)
   const [panes, setPanes] = useState<PaneSizes>(() => loadPanes())
@@ -146,10 +148,12 @@ export default function App() {
       fetching.add(key)
       const fetchGen = (requestGen.current.get(`fetch:${key}`) ?? 0) + 1
       requestGen.current.set(`fetch:${key}`, fetchGen)
+      const attempt = { retry: false }
       setLoadingKey(key)
       void fetchCandles(slot.symbol, slot.timeframe, { days: rangeDays(slot.range), range: slot.range, venue: slot.venue })
         .then(async (tape) => {
           if (cancel || requestGen.current.get(`fetch:${key}`) !== fetchGen) return
+          tapeTries.current.delete(key)
           const next = { ...tapesRef.current, [key]: tape }
           tapesRef.current = next
           setTapes(next)
@@ -178,7 +182,16 @@ export default function App() {
         })
         .catch((reason: unknown) => {
           if (cancel || requestGen.current.get(`fetch:${key}`) !== fetchGen) return
-          const message = reason instanceof Error ? reason.message : "The tape didn't load."
+          const tries = tapeTries.current.get(key) ?? 0
+          if (tries < 1) {
+            attempt.retry = true
+            tapeTries.current.set(key, tries + 1)
+            window.setTimeout(() => {
+              if (!cancel) setTapeRetry((current) => current + 1)
+            }, 400)
+            return
+          }
+          const message = requestFailure(reason, "The tape didn't load.")
           setErrors((current) => {
             const patch = { ...current }
             for (const item of workspaceRef.current.slots) {
@@ -188,6 +201,7 @@ export default function App() {
           })
         })
         .finally(() => {
+          if (attempt.retry) return
           if (requestGen.current.get(`fetch:${key}`) === fetchGen) {
             setLoadingKey((current) => (current === key ? null : current))
           }
@@ -196,7 +210,7 @@ export default function App() {
     return () => {
       cancel = true
     }
-  }, [slotKeys])
+  }, [slotKeys, tapeRetry])
 
   const refreshTail = useCallback(async () => {
     const current = workspaceRef.current
@@ -706,6 +720,7 @@ export default function App() {
           range={active.range}
           venue={active.venue}
           tape={activeTape ?? null}
+          loading={!activeTape && !error}
           stale={stale}
           lastFetchAt={clocks[active.id] ?? null}
           onSymbol={(symbol) => openSymbol(symbol, active.venue)}
@@ -811,6 +826,7 @@ export default function App() {
                     setWorkspace((current) => ({ ...current, enlarged: true }))
                   }}
                   showBook={!spanBook}
+                  barsPending={!errors[slot.id]}
                 />
               </div>
             ))}

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 
+import { requestFailure } from "../src/lib/api.ts"
 import { krakenProduct, liveMark, projectLadder, rollingFlow, stepDecimals, streamNames, takerSide, type Print } from "../src/lib/book.ts"
 import { formatBookSize, formatCompact, formatPrice } from "../src/lib/format.ts"
 import { mergeForming } from "../src/lib/forming.ts"
@@ -195,5 +196,7 @@ const shortDaily = windowNote("6Y", {
 })
 assert.ok(shortDaily)
 assert.match(shortDaily!, /daily/)
+assert.equal(requestFailure({ name: "TimeoutError", message: "signal timed out" }, "The tape didn't load."), "The tape took too long.")
+assert.equal(requestFailure(new Error("Kraken perpetuals didn't answer."), "The tape didn't load."), "Kraken perpetuals didn't answer.")
 
 console.log("book ok")

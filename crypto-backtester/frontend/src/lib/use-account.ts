@@ -16,7 +16,7 @@ import {
   type DeskBlob,
 } from "@/lib/account"
 import { subscribeFavourites } from "@/lib/favourites"
-import { watchJournal, watchKept } from "@/lib/journal"
+import { watchJournal, watchKept, watchWorking } from "@/lib/journal"
 import type { PaneSizes } from "@/lib/panes"
 import type { Workspace } from "@/lib/workspace"
 
@@ -44,10 +44,12 @@ export function useAccountSync(
     const bump = () => setTick((current) => current + 1)
     const stopJournal = watchJournal(bump)
     const stopKept = watchKept(bump)
+    const stopWorking = watchWorking(bump)
     const stopFavourites = subscribeFavourites(bump)
     return () => {
       stopJournal()
       stopKept()
+      stopWorking()
       stopFavourites()
     }
   }, [])

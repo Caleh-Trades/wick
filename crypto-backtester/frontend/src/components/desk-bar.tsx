@@ -16,6 +16,7 @@ type DeskBarProps = {
   range: RangeId
   venue: Venue
   tape: Tape | null
+  loading: boolean
   stale: boolean
   lastFetchAt: Date | null
   onSymbol: (symbol: MarketId) => void
@@ -36,6 +37,7 @@ export function DeskBar({
   range,
   venue,
   tape,
+  loading,
   stale,
   lastFetchAt,
   onSymbol,
@@ -146,8 +148,10 @@ export function DeskBar({
               </span>
               {limited ? <span>{limited}</span> : null}
             </>
-          ) : (
+          ) : loading ? (
             <span>Loading {frame?.label ?? timeframe} bars</span>
+          ) : (
+            <span>{frame?.label ?? timeframe} bars didn't load</span>
           )}
           <span>Candles {lastFetchAt ? `${formatClock(lastFetchAt)} UTC` : "—"}</span>
         </div>

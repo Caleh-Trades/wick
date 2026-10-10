@@ -81,7 +81,7 @@ export const Results = memo(function Results({
 
   return (
     <div className="results-stack flex h-full min-h-0 flex-col gap-3">
-      <div className="flex shrink-0 gap-1 overflow-x-auto xl:hidden" role="tablist" aria-label="Results">
+      <div className="flex shrink-0 gap-1 overflow-x-auto lg:hidden" role="tablist" aria-label="Results">
         {VIEWS.map((item) => (
           <Button
             key={item.id}
@@ -101,14 +101,14 @@ export const Results = memo(function Results({
         <p className="shrink-0 text-sm text-muted-foreground">This setup is newer than the last pass. Run it again to refresh.</p>
       ) : null}
 
-      <div className="results-grid grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)_minmax(0,1fr)]">
-        <div className={cn("results-equity h-full min-h-0 min-w-0", view === "equity" ? "flex flex-col" : "hidden xl:flex xl:flex-col")}>
+      <div className="results-grid grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-3">
+        <div className={cn("results-equity h-full min-h-[220px] min-w-0", view === "equity" ? "flex flex-col" : "hidden lg:flex lg:flex-col")}>
           <div className="equity-frame min-h-0 flex-1">
             <EquityChart result={result} overlays={overlays} selectedId={selected.id} drawToken={drawToken} />
           </div>
         </div>
 
-        <div className={cn("results-comparison h-full min-h-0 min-w-0", view === "comparison" ? "block" : "hidden xl:block")}>
+        <div className={cn("results-comparison h-full min-h-[180px] min-w-0", view === "comparison" ? "block" : "hidden lg:block")}>
           <Comparison
             rows={rows}
             venue={venue}
@@ -124,7 +124,7 @@ export const Results = memo(function Results({
           />
         </div>
 
-        <div className={cn("results-trades bezel h-full min-h-0 min-w-0 flex-col overflow-hidden p-3", view === "trades" ? "flex" : "hidden xl:flex")}>
+        <div className={cn("results-trades bezel h-full min-h-[180px] min-w-0 flex-col overflow-hidden p-3", view === "trades" ? "flex" : "hidden lg:flex")}>
         <p className="mb-3 shrink-0 font-mono text-xs text-muted-foreground uppercase">
           {venue === "perp" ? "Kraken perp" : "Binance spot"}
           {" · "}
@@ -187,7 +187,7 @@ export function RunStrip({
   const open = trades.filter((trade) => trade.status === "open").length
   return (
     <div className="shrink-0 px-3 pt-2">
-      <div className="bezel grid grid-cols-4 gap-x-3 gap-y-1 px-3 py-1.5 md:grid-cols-8" aria-label="Run summary">
+      <div className="bezel flex flex-nowrap items-end gap-x-4 overflow-x-auto px-3 py-1.5" aria-label="Run summary">
         <Metric label="Total return" value={formatPct(metrics.total_return_pct)} tone={tone(metrics.total_return_pct)} dense />
         <Metric label="Buy and hold" value={formatPct(metrics.benchmark_return_pct)} tone={tone(metrics.benchmark_return_pct)} dense />
         <Metric label="Excess return" value={formatPct(metrics.excess_return_pct)} tone={tone(metrics.excess_return_pct)} dense />
@@ -236,8 +236,8 @@ export function RunStrip({
           />
         ) : null}
       </div>
-      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-        <p className="min-w-0 flex-1 font-mono text-[10px] text-muted-foreground">
+      <div className="mt-1 flex items-center gap-3">
+        <p className="min-w-0 flex-1 truncate font-mono text-[10px] whitespace-nowrap text-muted-foreground">
           In the market {formatPlainPct(metrics.exposure_pct, 0)}
           {" · "}
           CAGR {formatPct(metrics.cagr_pct)}
@@ -255,21 +255,18 @@ export function RunStrip({
           In-sample {sliceText(result.in_sample)}
           {" · "}
           Holdout {sliceText(result.holdout)}
-        </p>
-        <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={onKeep}>
-          Keep this run
-        </Button>
-      </div>
-      {(result.walk_forward ?? []).length > 0 ? (
-        <p className="mt-1 font-mono text-[10px] text-muted-foreground">
-          {result.walk_forward.map((slice, index) => (
+          {(result.walk_forward ?? []).length > 0 ? " · " : ""}
+          {(result.walk_forward ?? []).map((slice, index) => (
             <span key={index}>
               {index > 0 ? " · " : ""}
               Window {index + 1} {sliceText(slice)}
             </span>
           ))}
         </p>
-      ) : null}
+        <Button type="button" size="xs" variant="outline" className="shrink-0 normal-case tracking-normal" onClick={onKeep}>
+          Keep this run
+        </Button>
+      </div>
       {holdoutWarn(result.metrics, result.holdout) ? (
         <p className="mt-1 text-xs text-down">Holdout Sharpe is negative while the full sample is positive.</p>
       ) : null}
@@ -500,7 +497,7 @@ function Metric({
     </div>
   )
   return (
-    <div className={dense ? "py-0.5" : "border-t border-border pt-3"}>
+    <div className={dense ? "shrink-0 py-0.5" : "border-t border-border pt-3"}>
       {onSort ? (
         <Tooltip>
           <TooltipTrigger asChild>

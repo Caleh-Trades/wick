@@ -23,7 +23,7 @@ export function OrderBook({ symbol, venue }: { symbol: string | null; venue: Ven
   }, [book.asks, book.heardAt, showLadder])
 
   return (
-    <section className="bezel grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)_auto_minmax(0,1fr)_5.5rem] gap-1 overflow-hidden p-3" aria-label="Order book">
+    <section className="bezel grid h-full min-h-0 w-full min-w-0 grid-rows-[auto_auto_minmax(0,1fr)_auto_minmax(0,1fr)_5.5rem] gap-1 overflow-hidden p-3" aria-label="Order book">
       <header className="mb-2 flex items-center justify-between gap-2">
         <h3 className="font-heading text-lg">Book</h3>
         <p className="inline-flex items-center gap-1.5 font-mono text-[10px] tracking-wide text-muted-foreground uppercase" role="status">

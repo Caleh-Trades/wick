@@ -304,7 +304,7 @@ button:hover,
   to { transform: none; opacity: 1; }
 }
 
-@media (max-width: 1279px) {
+@media (max-width: 1023px) {
   .desk-column {
     overflow-x: hidden;
     overflow-y: auto;
@@ -312,9 +312,9 @@ button:hover,
 
   .price-split {
     flex: none !important;
-    height: 46vh;
-    min-height: 240px;
-    max-height: 440px;
+    height: auto !important;
+    min-height: 0;
+    max-height: none;
   }
 
   .price-split-pair {
@@ -324,13 +324,13 @@ button:hover,
   }
 
   .price-split-pair > div {
-    height: 46vh;
-    min-height: 240px;
-    max-height: 440px;
+    height: auto;
+    min-height: 0;
+    max-height: none;
   }
 
   .price-plot {
-    min-height: 180px;
+    min-height: 420px;
   }
 
   .results-pane,
@@ -354,6 +354,32 @@ button:hover,
   .results-trades {
     height: 320px !important;
     min-height: 320px !important;
+  }
+}
+
+@media (min-width: 1024px) {
+  .price-split {
+    flex: none !important;
+    height: auto !important;
+    align-items: flex-start;
+    min-height: 0;
+    max-height: none;
+  }
+
+  .price-split > div {
+    height: auto !important;
+    align-self: flex-start;
+  }
+
+  .price-plot {
+    flex: none !important;
+    height: 420px !important;
+    min-height: 420px !important;
+  }
+
+  .equity-plot {
+    flex: 1 0 180px;
+    min-height: 180px;
   }
 }
 

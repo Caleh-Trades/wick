@@ -5,7 +5,7 @@ import { SymbolSelect } from "@/components/symbol-select"
 import { Button } from "@/components/ui/button"
 import { formatClock, formatDay, formatPrice } from "@/lib/format"
 import { missingBars } from "@/lib/plot"
-import { RANGES, TIMEFRAMES, barsLabel, marketById, windowNote } from "@/lib/runs"
+import { TIMEFRAMES, barsLabel, marketById, windowNote } from "@/lib/runs"
 import type { MarketId, RangeId, Tape, Timeframe, Venue } from "@/lib/types"
 
 type DeskBarProps = {
@@ -18,7 +18,6 @@ type DeskBarProps = {
   lastFetchAt: Date | null
   onSymbol: (symbol: MarketId) => void
   onTimeframe: (timeframe: Timeframe) => void
-  onRange: (range: RangeId) => void
   onVenue: (venue: Venue) => void
   page: "desk" | "journal"
   onPage: (page: "desk" | "journal") => void
@@ -39,7 +38,6 @@ export function DeskBar({
   lastFetchAt,
   onSymbol,
   onTimeframe,
-  onRange,
   onVenue,
   page,
   onPage,
@@ -61,7 +59,7 @@ export function DeskBar({
       <div className="scan-track" aria-hidden="true">
         <span className="scan-line" />
       </div>
-      <div className="mx-auto flex max-w-[1440px] flex-wrap items-center gap-x-4 gap-y-3 px-4 py-3">
+      <div className="mx-auto flex max-w-[1440px] items-center gap-x-3 gap-y-2 px-4 py-2 max-lg:flex-wrap lg:flex-nowrap">
         <div className="flex items-center gap-2">
           <CandleMark />
           <h1 className="font-mono text-sm tracking-[0.32em] text-[#c56a32] uppercase">Wick</h1>
@@ -111,7 +109,7 @@ export function DeskBar({
           <SymbolSelect value={symbol} venue={venue} className="w-44" onChange={(value) => onSymbol(value)} />
         ) : null}
 
-        <div className="flex shrink-0 gap-1 overflow-x-auto" role="group" aria-label="Timeframe">
+        <div className="flex min-w-0 max-w-full gap-1 overflow-x-auto" role="group" aria-label="Timeframe">
           {TIMEFRAMES.map((item) => (
             <Button
               key={item.id}
@@ -127,23 +125,7 @@ export function DeskBar({
           ))}
         </div>
 
-        <div className="flex max-w-full shrink-0 gap-1 overflow-x-auto" role="group" aria-label="Range">
-          {RANGES.map((item) => (
-            <Button
-              key={item.id}
-              type="button"
-              size="xs"
-              variant={item.id === range ? "default" : "outline"}
-              className="normal-case tracking-normal"
-              aria-pressed={item.id === range}
-              onClick={() => onRange(item.id)}
-            >
-              {item.label}
-            </Button>
-          ))}
-        </div>
-
-        <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
+        <div className="ml-auto flex min-w-0 items-center gap-x-3 overflow-hidden font-mono text-[11px] tracking-wide whitespace-nowrap text-muted-foreground uppercase">
           <span>{venue === "perp" ? "Kraken perp" : "Binance spot"}</span>
           {tape && last && first ? (
             <>

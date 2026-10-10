@@ -31,11 +31,11 @@ export function Watchlist({
   }, [extra.join("|")])
 
   return (
-    <aside className="flex max-h-28 w-full shrink-0 flex-col overflow-x-auto border-b border-border bg-[#fffaf4] md:max-h-none md:w-44 md:overflow-y-auto md:border-r md:border-b-0" aria-label="Watchlist">
+    <aside className="flex max-h-28 w-full shrink-0 flex-row overflow-x-auto border-b border-border bg-[#fffaf4] lg:h-full lg:max-h-none lg:w-[200px] lg:flex-col lg:overflow-y-auto lg:border-r lg:border-b-0" aria-label="Watchlist">
       <p className="px-2 pt-2 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">Slots</p>
-      <ul className="flex min-h-0 flex-1 md:block md:overflow-y-auto">
+      <ul className="flex min-h-0 flex-1 lg:block lg:overflow-y-auto">
         {slots.map((slot) => (
-          <li key={slot.id}>
+          <li key={slot.id} className="shrink-0 lg:shrink">
             <QuoteRow
               symbol={slot.symbol}
               venue={slot.venue}
@@ -49,7 +49,7 @@ export function Watchlist({
           <li className="px-2 pt-3 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">Favourites</li>
         ) : null}
         {extra.map((id) => (
-          <li key={id}>
+          <li key={id} className="shrink-0 lg:shrink">
             <QuoteRow
               symbol={id as MarketId}
               venue="spot"

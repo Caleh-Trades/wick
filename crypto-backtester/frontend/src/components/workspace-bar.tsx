@@ -23,7 +23,7 @@ export function WorkspaceBar({
   onAdd: () => void
 }) {
   return (
-    <nav aria-label="Slots" className="flex items-center gap-1 overflow-x-auto border-b border-border bg-[#fffaf4] px-2 py-1.5">
+    <nav aria-label="Slots" className="flex w-full min-w-0 items-center gap-1 overflow-x-auto border-b border-border bg-[#fffaf4] px-2 py-1.5">
       {slots.map((slot, index) => {
         const market = marketById(slot.symbol, slot.venue)
         const active = slot.id === activeId

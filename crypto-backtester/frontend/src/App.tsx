@@ -588,7 +588,6 @@ export default function App() {
           lastFetchAt={clocks[active.id] ?? null}
           onSymbol={(symbol) => openSymbol(symbol, active.venue)}
           onTimeframe={(timeframe) => patchSlot(active.id, { timeframe })}
-          onRange={(range) => patchSlot(active.id, { range })}
           onVenue={(venue) => patchSlot(active.id, { venue })}
           page={page}
           accountSession={account.session}
@@ -618,7 +617,7 @@ export default function App() {
         onClose={closeSlot}
         onAdd={addSlot}
       />
-      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <Watchlist slots={workspace.slots} activeId={workspace.activeId} onFocus={focusSlot} onOpen={openSymbol} />
         <div className="desk-column flex min-h-0 min-w-0 flex-1 flex-col">
           {error ? (
@@ -642,8 +641,8 @@ export default function App() {
             />
           ) : null}
           <div
-            className={cn("price-split flex min-h-0 min-w-0", shown.length > 1 && "price-split-pair flex-col xl:flex-row")}
-            style={{ flex: `${panes.chart} 1 0%` }}
+            className={cn("price-split flex min-h-0 min-w-0", shown.length > 1 && "price-split-pair flex-col lg:flex-row")}
+            style={{ flexGrow: 1, flexShrink: 0, flexBasis: "420px" }}
           >
             {shown.map((slot) => (
               <div key={slot.id} className="min-h-0 min-w-0 flex-1 p-3">
@@ -661,6 +660,8 @@ export default function App() {
                   fundingStale={tapes[tapeKey(slot)]?.fundingStale === true}
                   focusTime={slot.id === workspace.activeId ? (focusTrade?.entry_time ?? null) : null}
                   reading={slot.id === workspace.activeId ? reading : []}
+                  range={slot.range}
+                  onRange={(range) => patchSlot(slot.id, { range })}
                   onClearFocus={() => setFocusTrade(null)}
                   onAlert={(alert) => patchSlot(slot.id, { alert })}
                   onBookWidth={(book) => setPanes((current) => ({ ...current, book }))}
@@ -680,14 +681,14 @@ export default function App() {
             aria-valuemax={Math.round(CHART_MAX * 100)}
             aria-valuenow={Math.round(panes.chart * 100)}
             tabIndex={0}
-            className="relative z-10 hidden h-3 shrink-0 cursor-row-resize items-center before:absolute before:inset-x-0 before:top-1/2 before:h-px before:bg-border xl:flex"
+            className="relative z-10 hidden h-3 shrink-0 cursor-row-resize items-center before:absolute before:inset-x-0 before:top-1/2 before:h-px before:bg-border"
             onPointerDown={(event) => dragChart(event, (chart) => setPanes((current) => ({ ...current, chart })))}
             onKeyDown={(event) => {
               if (event.key === "ArrowUp") setPanes((current) => ({ ...current, chart: clampChart(current.chart - 0.03) }))
               if (event.key === "ArrowDown") setPanes((current) => ({ ...current, chart: clampChart(current.chart + 0.03) }))
             }}
           />
-          <div className="results-pane flex min-h-0 flex-col overflow-hidden px-3 pb-24 xl:pb-3" style={{ flex: `${Math.max(0.01, 1 - panes.chart)} 1 0%` }}>
+          <div className="results-pane flex min-h-0 flex-col overflow-auto px-3 pb-24 lg:pb-3" style={{ flexGrow: 1, flexShrink: 1, flexBasis: "0%" }}>
             {loadingKey === activeKey && !activeTape ? (
               <p className="py-4 text-sm text-muted-foreground">Pulling the {phrase} tape. The first look at a pair can take a few seconds.</p>
             ) : null}
@@ -732,7 +733,7 @@ export default function App() {
             ) : null}
           </div>
         </div>
-        <aside className="hidden w-72 shrink-0 overflow-y-auto border-l border-border xl:block">
+        <aside className="hidden w-72 shrink-0 overflow-y-auto border-l border-border lg:block">
           <div className="p-3">
             {active && selected ? (
               <Controls
@@ -767,7 +768,7 @@ export default function App() {
         </aside>
       </div>
 
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-[#fffaf4]/90 p-3 xl:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-[#fffaf4]/90 p-3 lg:hidden">
         <Sheet
           open={setupOpen}
           onOpenChange={(open) => {

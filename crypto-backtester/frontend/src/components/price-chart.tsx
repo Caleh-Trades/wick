@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button"
 import { formatAxis, formatPrice, formatStamp } from "@/lib/format"
 import { marketSpec } from "@/lib/markets"
 import { plotCandles, priceDomain, spotTrades, type PlotBar } from "@/lib/plot"
+import { RANGES } from "@/lib/runs"
 import { useBookView, useFormingCandles } from "@/lib/use-book"
-import type { TapeCandle, Trade, Venue } from "@/lib/types"
+import type { RangeId, TapeCandle, Trade, Venue } from "@/lib/types"
 
 const axisTick = { fill: "#8d6b56", fontSize: 11, fontFamily: "IBM Plex Mono, ui-monospace, monospace" }
 const plotGrid = "#e2cdb8"
@@ -22,6 +23,8 @@ export const PriceChart = memo(function PriceChart({
   venue,
   focusTime,
   reading,
+  range,
+  onRange,
   onClearFocus,
   onEnlarge,
 }: {
@@ -32,6 +35,8 @@ export const PriceChart = memo(function PriceChart({
   venue: Venue
   focusTime?: string | null
   reading?: string[]
+  range?: RangeId
+  onRange?: (range: RangeId) => void
   onClearFocus?: () => void
   onEnlarge: () => void
 }) {
@@ -76,20 +81,21 @@ export const PriceChart = memo(function PriceChart({
 
   if (shown.length === 0) {
     return (
-      <div data-price-summary="" className="bezel flex h-full min-h-0 flex-col px-3 py-2">
+      <div data-price-summary="" className="price-chart bezel flex h-full min-h-0 flex-col px-3 py-2 lg:h-auto">
         <div className="flex items-baseline gap-3">
           <h3 className="font-heading text-xl">Price</h3>
           <QuotePrice symbol={symbol} venue={venue} />
         </div>
         {reading && reading.length > 0 ? <p className="font-mono text-[11px] text-muted-foreground">{reading.join(" · ")}</p> : null}
+        <ChartTools venue={venue} focusTime={focusTime} range={range} onRange={onRange} onClearFocus={onClearFocus} onEnlarge={onEnlarge} />
         <p className="mt-6 text-sm text-muted-foreground">Waiting for bars.</p>
       </div>
     )
   }
 
   return (
-    <div data-price-summary="" className="bezel flex h-full min-h-0 flex-col px-3 py-2">
-      <div className="mb-1 flex shrink-0 flex-wrap items-end justify-between gap-2">
+    <div data-price-summary="" className="price-chart bezel flex h-full min-h-0 flex-col px-3 py-2 lg:h-auto">
+      <div className="mb-1 flex shrink-0 flex-col gap-1">
         <div className="flex items-baseline gap-3">
           <div>
             <div className="flex items-baseline gap-3">
@@ -99,18 +105,7 @@ export const PriceChart = memo(function PriceChart({
             {reading && reading.length > 0 ? <p className="font-mono text-[11px] text-muted-foreground">{reading.join(" · ")}</p> : null}
           </div>
         </div>
-        <div className="flex items-center gap-3 font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
-          <span className="text-up">Long</span>
-          {venue === "perp" ? <span className="text-down">Short</span> : null}
-          {focusTime ? (
-            <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={onClearFocus}>
-              Full tape
-            </Button>
-          ) : null}
-          <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={onEnlarge}>
-            Enlarge
-          </Button>
-        </div>
+        <ChartTools venue={venue} focusTime={focusTime} range={range} onRange={onRange} onClearFocus={onClearFocus} onEnlarge={onEnlarge} />
       </div>
       <div ref={frameRef} className="price-plot relative min-h-0 flex-1">
         <ResponsiveContainer width="100%" height="100%">
@@ -145,6 +140,56 @@ export const PriceChart = memo(function PriceChart({
     </div>
   )
 })
+
+function ChartTools({
+  venue,
+  focusTime,
+  range,
+  onRange,
+  onClearFocus,
+  onEnlarge,
+}: {
+  venue: Venue
+  focusTime?: string | null
+  range?: RangeId
+  onRange?: (range: RangeId) => void
+  onClearFocus?: () => void
+  onEnlarge: () => void
+}) {
+  return (
+    <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto lg:flex-wrap lg:overflow-visible">
+      {range && onRange ? (
+        <div className="flex shrink-0 gap-1 lg:flex-wrap" role="group" aria-label="Range">
+          {RANGES.map((item) => (
+            <Button
+              key={item.id}
+              type="button"
+              size="xs"
+              variant={item.id === range ? "default" : "outline"}
+              className="normal-case tracking-normal"
+              aria-pressed={item.id === range}
+              onClick={() => onRange(item.id)}
+            >
+              {item.label}
+            </Button>
+          ))}
+        </div>
+      ) : null}
+      <div className="flex items-center gap-3 font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
+        <span className="text-up">Long</span>
+        {venue === "perp" ? <span className="text-down">Short</span> : null}
+        {focusTime ? (
+          <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={onClearFocus}>
+            Full tape
+          </Button>
+        ) : null}
+        <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={onEnlarge}>
+          Enlarge
+        </Button>
+      </div>
+    </div>
+  )
+}
 
 function windowAround(candles: TapeCandle[], focusTime: string | null | undefined): TapeCandle[] {
   if (!focusTime) return candles

@@ -4,7 +4,7 @@ import { PriceChart } from "@/components/price-chart"
 import { OrderBook } from "@/components/order-book"
 import { AlertControl, AlertWatch, FundingQuote } from "@/components/slot-tools"
 import { formatClock } from "@/lib/format"
-import type { FundingRate, TapeCandle, Trade, Venue } from "@/lib/types"
+import type { FundingRate, RangeId, TapeCandle, Trade, Venue } from "@/lib/types"
 import type { SlotAlert } from "@/lib/workspace"
 
 export function MarketPane({
@@ -21,6 +21,8 @@ export function MarketPane({
   fundingStale,
   focusTime,
   reading,
+  range,
+  onRange,
   onClearFocus,
   onAlert,
   onBookWidth,
@@ -39,6 +41,8 @@ export function MarketPane({
   fundingStale?: boolean
   focusTime?: string | null
   reading?: string[]
+  range?: RangeId
+  onRange?: (range: RangeId) => void
   onClearFocus?: () => void
   onAlert: (alert: SlotAlert | null) => void
   onBookWidth: (width: number) => void
@@ -58,7 +62,7 @@ export function MarketPane({
   const book = fitBook(rowWidth, bookWidth)
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="market-pane flex h-full min-h-0 flex-col lg:h-auto">
       <div className="mb-1 flex flex-col gap-1 px-1">
         {showCaption ? (
           <p className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
@@ -71,8 +75,8 @@ export function MarketPane({
         <AlertControl alert={alert} onChange={onAlert} />
         {symbol ? <AlertWatch symbol={symbol} venue={venue} alert={alert} /> : null}
       </div>
-      <div ref={rowRef} className="flex min-h-0 flex-1 flex-row">
-        <div className="min-h-0 min-w-0 flex-1">
+      <div ref={rowRef} className="chart-book-row flex min-h-0 flex-1 items-stretch lg:h-auto lg:flex-none">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <PriceChart
             candles={candles}
             trades={trades}
@@ -81,6 +85,8 @@ export function MarketPane({
             venue={venue}
             focusTime={focusTime}
             reading={reading}
+            range={range}
+            onRange={onRange}
             onClearFocus={onClearFocus}
             onEnlarge={onEnlarge}
           />
@@ -100,8 +106,10 @@ export function MarketPane({
             if (event.key === "ArrowRight") onBookWidth(Math.max(160, book - 16))
           }}
         />
-        <div className="h-full min-h-0 w-(--book-width) shrink-0" style={{ "--book-width": `${book}px` } as CSSProperties}>
-          <OrderBook symbol={symbol} venue={venue} />
+        <div className="book-column relative flex min-h-0 w-(--book-width) shrink-0 self-stretch" style={{ "--book-width": `${book}px` } as CSSProperties}>
+          <div className="absolute inset-0 flex min-h-0 w-full">
+            <OrderBook symbol={symbol} venue={venue} />
+          </div>
         </div>
       </div>
     </div>

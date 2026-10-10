@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 
-import { backtest, liquidationPrice, monteCarloEquity, profitFactor, tradeExpectancy } from "../src/lib/backtest.ts"
-import { createRun, fingerprint, mergeCandles } from "../src/lib/runs.ts"
+import { backtest, liquidationPrice, monteCarloEquity, profitFactor, tradeExpectancy, windowTradesLabel } from "../src/lib/backtest.ts"
+import { createRun, fingerprint, mergeCandles, nudgeFast } from "../src/lib/runs.ts"
 import type { TapeCandle } from "../src/lib/types.ts"
 
 function bars(prices: number[]): TapeCandle[] {
@@ -221,5 +221,17 @@ assert.ok(Math.abs((monteCarloEquity([10], 10_000) ?? 0) - 11_000) < 1e-6)
 const mixed = monteCarloEquity([50, -50], 10_000)
 assert.ok(mixed != null && mixed > 0 && mixed < 7_500)
 assert.equal(monteCarloEquity([50, -50], 10_000), mixed)
+assert.equal(windowTradesLabel(0), "open position, no closed trade")
+assert.equal(windowTradesLabel(2), null)
+const nudged = nudgeFast(createRun({ rule: "sma_cross", params: { fast: 20, slow: 50 }, name: "SMA" }))
+assert.deepEqual(
+  nudged?.map((step) => step.params.fast),
+  [19, 20, 21],
+)
+assert.deepEqual(
+  nudged?.map((step) => step.name),
+  ["fast−1", "fast", "fast+1"],
+)
+assert.equal(nudgeFast(createRun({ rule: "supertrend", name: "ST" })), null)
 
 console.log("engine check ok")

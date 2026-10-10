@@ -372,6 +372,11 @@ function benchmark(
   return marks
 }
 
+/** A window with no closed trade. The return is still mark-to-market, so it is not a completed result. */
+export function windowTradesLabel(trades: number): string | null {
+  return trades > 0 ? null : "open position, no closed trade"
+}
+
 export function holdoutWarn(metrics: { sharpe: number | null }, holdout: { sharpe: number | null }): boolean {
   return metrics.sharpe != null && metrics.sharpe > 0 && holdout.sharpe != null && holdout.sharpe < 0
 }

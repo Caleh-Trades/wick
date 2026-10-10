@@ -532,6 +532,37 @@ export function downloadKept(row: KeptRun): void {
   downloadExport(keptExport(row))
 }
 
+export function tradesCsv(trades: Trade[]): string {
+  const lines = trades.map((trade) =>
+    [
+      csvCell(trade.entry_time),
+      csvCell(trade.exit_time ?? ""),
+      trade.side,
+      trade.return_pct,
+      trade.pnl,
+      trade.fee_paid ?? "",
+      trade.slippage_paid ?? "",
+      trade.bars_held,
+    ].join(","),
+  )
+  return ["entry,exit,side,return,pnl,fee,slippage,bars", ...lines].join("\n")
+}
+
+export function downloadTradesCsv(symbol: string, trades: Trade[]): void {
+  const blob = new Blob([tradesCsv(trades)], { type: "text/csv" })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement("a")
+  anchor.href = url
+  anchor.download = `wick-${symbol}-trades.csv`
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
+
+function csvCell(value: string): string {
+  if (/[",\n]/.test(value)) return `"${value.replaceAll('"', '""')}"`
+  return value
+}
+
 function sameParams(left: RunParams, right: RunParams): boolean {
   const keys = new Set([...Object.keys(left), ...Object.keys(right)])
   for (const key of keys) {

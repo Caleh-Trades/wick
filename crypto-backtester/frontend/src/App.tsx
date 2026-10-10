@@ -6,7 +6,7 @@ import { Controls } from "@/components/controls"
 import { DeskBar } from "@/components/desk-bar"
 import { BookSpan, MarketPane } from "@/components/market-pane"
 import { ResearchChart } from "@/components/research"
-import { Results, RunStrip, WindowsPage } from "@/components/results"
+import { Results, RunStrip, WindowsPage, type NudgeReturn } from "@/components/results"
 import { Button } from "@/components/ui/button"
 import {
   Sheet,
@@ -32,6 +32,7 @@ import {
   createRun,
   comboKey,
   fingerprint,
+  nudgeFast,
   normalizeRule,
   phraseFor,
   pollIntervalMs,
@@ -74,6 +75,8 @@ export default function App() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc")
   const [drawToken, setDrawToken] = useState(0)
   const [page, setPage] = useState<"desk" | "journal" | "windows">("desk")
+  const [nudge, setNudge] = useState<{ runId: string; rows: NudgeReturn[] } | null>(null)
+  const [nudging, setNudging] = useState(false)
   const [focusTrade, setFocusTrade] = useState<Trade | null>(null)
   const workspaceRef = useRef(workspace)
   const tapesRef = useRef(tapes)
@@ -448,6 +451,34 @@ export default function App() {
     return tape
   }
 
+  async function runNudge() {
+    if (!active || !selected) return
+    const aligned = alignRun(selected, active)
+    const steps = nudgeFast(aligned)
+    if (!steps) return
+    setNudging(true)
+    setErrors((current) => ({ ...current, [active.id]: null }))
+    try {
+      const tape = await ensureTape(active)
+      const computed = await Promise.all(steps.map((step) => computeBacktest({ ...aligned, params: step.params }, tape)))
+      setNudge({
+        runId: selected.id,
+        rows: steps.map((step, index) => ({
+          name: step.name,
+          returnPct: computed[index]?.ok ? computed[index].result.metrics.total_return_pct : null,
+        })),
+      })
+      setSetupOpen(false)
+    } catch (reason: unknown) {
+      setErrors((current) => ({
+        ...current,
+        [active.id]: reason instanceof Error ? reason.message : "The nudge didn't run.",
+      }))
+    } finally {
+      setNudging(false)
+    }
+  }
+
   async function runSelected(run: Run) {
     if (!active) return
     setRunning(true)
@@ -791,6 +822,7 @@ export default function App() {
                 }}
                 onFocusTrade={setFocusTrade}
                 drawToken={drawToken}
+                nudge={nudge && selected && nudge.runId === selected.id ? nudge.rows : null}
               />
               </div>
             ) : null}
@@ -838,6 +870,8 @@ export default function App() {
                 onEditing={setEditing}
                 deltaAlert={active.deltaAlert}
                 onDeltaAlert={(deltaAlert) => patchSlot(active.id, { deltaAlert })}
+                nudging={nudging}
+                onNudge={() => void runNudge()}
               />
             ) : (
               <EmptyRuns onAdd={addSlot} />
@@ -881,6 +915,8 @@ export default function App() {
                   onEditing={setEditing}
                   deltaAlert={active.deltaAlert}
                   onDeltaAlert={(deltaAlert) => patchSlot(active.id, { deltaAlert })}
+                  nudging={nudging}
+                  onNudge={() => void runNudge()}
                 />
               ) : null}
             </div>

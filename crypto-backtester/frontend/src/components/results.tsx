@@ -16,7 +16,8 @@ import {
   formatStat,
   tone,
 } from "@/lib/format"
-import { holdoutWarn, monteCarloEquity } from "@/lib/backtest"
+import { holdoutWarn, monteCarloEquity, windowTradesLabel } from "@/lib/backtest"
+import { downloadTradesCsv } from "@/lib/journal"
 import { clampRisk, fingerprint, marketById, runColor, strategyLabel } from "@/lib/runs"
 import type { BacktestResult, Outcome, Run, SampleSlice, SortKey, Trade, Venue } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -51,6 +52,7 @@ type ResultsProps = {
   onSort: (key: SortKey) => void
   onFocusTrade: (trade: Trade) => void
   drawToken: number
+  nudge: NudgeReturn[] | null
 }
 
 export const Results = memo(function Results({
@@ -68,6 +70,7 @@ export const Results = memo(function Results({
   onSort,
   onFocusTrade,
   drawToken,
+  nudge,
 }: ResultsProps) {
   const market = marketById(result.symbol, venue)
   const trades = venue === "spot" ? result.trades.filter((trade) => trade.side !== "short") : result.trades
@@ -122,6 +125,7 @@ export const Results = memo(function Results({
             onSort={onSort}
             lens={lens}
             onLens={setLens}
+            nudge={nudge}
           />
         </div>
 
@@ -304,6 +308,9 @@ export function RunStrip({
         <Button type="button" size="xs" variant="outline" className="shrink-0 normal-case tracking-normal" onClick={() => onExport(note)}>
           Export JSON
         </Button>
+        <Button type="button" size="xs" variant="outline" className="shrink-0 normal-case tracking-normal" onClick={() => downloadTradesCsv(result.symbol, trades)}>
+          Export trades CSV
+        </Button>
         <Button
           type="button"
           size="xs"
@@ -350,19 +357,25 @@ function WindowTable({ result }: { result: BacktestResult }) {
         </tr>
       </thead>
       <tbody>
-        {rows.map((row) => (
-          <tr key={row.name} className="border-b border-border">
-            <td className="py-1.5 pr-2 text-sm">{row.name}</td>
-            <td className={cn("py-1.5 pr-2 text-right font-mono text-[11px] tabular-nums", row.slice ? toneClass(row.slice.total_return_pct) : "text-muted-foreground")}>
-              {row.slice ? formatPct(row.slice.total_return_pct) : "—"}
-            </td>
-            <td className={cn("py-1.5 pr-2 text-right font-mono text-[11px] tabular-nums", row.slice ? toneClass(row.slice.max_drawdown_pct) : "text-muted-foreground")}>
-              {row.slice ? formatPct(row.slice.max_drawdown_pct) : "—"}
-            </td>
-            <td className="py-1.5 pr-2 text-right font-mono text-[11px] tabular-nums">{row.slice ? formatStat(row.slice.sharpe) : "—"}</td>
-            <td className="py-1.5 text-right font-mono text-[11px] tabular-nums">{row.slice ? row.slice.trades : "—"}</td>
-          </tr>
-        ))}
+        {rows.map((row) => {
+          const open = row.slice != null && windowTradesLabel(row.slice.trades) != null
+          const closed = row.slice != null && !open
+          return (
+            <tr key={row.name} className="border-b border-border">
+              <td className="py-1.5 pr-2 text-sm">{row.name}</td>
+              <td className={cn("py-1.5 pr-2 text-right font-mono text-[11px] tabular-nums", closed ? toneClass(row.slice!.total_return_pct) : "text-muted-foreground")}>
+                {closed ? formatPct(row.slice!.total_return_pct) : "—"}
+              </td>
+              <td className={cn("py-1.5 pr-2 text-right font-mono text-[11px] tabular-nums", closed ? toneClass(row.slice!.max_drawdown_pct) : "text-muted-foreground")}>
+                {closed ? formatPct(row.slice!.max_drawdown_pct) : "—"}
+              </td>
+              <td className="py-1.5 pr-2 text-right font-mono text-[11px] tabular-nums">{closed ? formatStat(row.slice!.sharpe) : "—"}</td>
+              <td className={cn("py-1.5 text-right font-mono text-[11px]", open ? "text-muted-foreground normal-case" : "tabular-nums")}>
+                {row.slice == null ? "—" : open ? windowTradesLabel(row.slice.trades) : row.slice.trades}
+              </td>
+            </tr>
+          )
+        })}
       </tbody>
     </table>
   )
@@ -413,6 +426,7 @@ function Comparison({
   onSort,
   lens,
   onLens,
+  nudge,
 }: {
   rows: ComparisonRow[]
   venue: Venue
@@ -425,6 +439,7 @@ function Comparison({
   onSort: (key: SortKey) => void
   lens: SampleLens
   onLens: (lens: SampleLens) => void
+  nudge: NudgeReturn[] | null
 }) {
   const sliced = lens !== "full"
   return (
@@ -470,6 +485,20 @@ function Comparison({
             </tr>
           </thead>
           <tbody>
+            {nudge?.map((row) => (
+              <tr key={row.name} className="border-b border-border">
+                <td className="py-2 pr-2 font-mono text-[11px] text-muted-foreground normal-case">{row.name}</td>
+                <td className={cn("py-2 pr-2 text-right font-mono text-[11px] tabular-nums", row.returnPct == null ? "text-muted-foreground" : toneClass(row.returnPct))}>
+                  {row.returnPct == null ? "—" : formatPct(row.returnPct)}
+                </td>
+                {sliced ? <td className="py-2 pr-2 text-right font-mono text-[11px] text-muted-foreground">—</td> : null}
+                <td className="py-2 pr-2 text-right font-mono text-[11px] text-muted-foreground">—</td>
+                {sliced ? null : <td className="py-2 pr-2 text-right font-mono text-[11px] text-muted-foreground">—</td>}
+                {sliced ? null : <td className="py-2 pr-2 text-right font-mono text-[11px] text-muted-foreground">—</td>}
+                <td className="py-2 text-right font-mono text-[11px] text-muted-foreground">—</td>
+                <td />
+              </tr>
+            ))}
             {rows.map((row) => {
               const fitted = row.outcome?.ok && row.outcome.result.assumptions.venue === venue ? row.outcome.result : null
               const metrics = fitted?.metrics ?? null
@@ -561,6 +590,8 @@ function SortText({
     </button>
   )
 }
+
+export type NudgeReturn = { name: string; returnPct: number | null }
 
 type ComparisonRow = { run: Run; index: number; outcome: Outcome | undefined }
 

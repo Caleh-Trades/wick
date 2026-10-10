@@ -16,7 +16,7 @@ import { Separator } from "@/components/ui/separator"
 import { SymbolSelect } from "@/components/symbol-select"
 import { formatMoney } from "@/lib/format"
 import type { RuleId, Run, Venue } from "@/lib/types"
-import { MAX_RUNS, RULES, clampRisk, clampSlippage, paramsForRule, ruleName, ruleParams, runColor, runProblem } from "@/lib/runs"
+import { MAX_RUNS, RULES, clampRisk, clampSlippage, nudgeFast, paramsForRule, ruleName, ruleParams, runColor, runProblem } from "@/lib/runs"
 
 type ControlsProps = {
   idPrefix: string
@@ -35,6 +35,8 @@ type ControlsProps = {
   onEditing: (editing: boolean) => void
   deltaAlert: number | null
   onDeltaAlert: (value: number | null) => void
+  nudging: boolean
+  onNudge: () => void
 }
 
 export function Controls({
@@ -54,6 +56,8 @@ export function Controls({
   onEditing,
   deltaAlert,
   onDeltaAlert,
+  nudging,
+  onNudge,
 }: ControlsProps) {
   const full = runs.length >= MAX_RUNS
   const rule = RULES.find((item) => item.id === selected.rule)
@@ -306,6 +310,14 @@ export function Controls({
           Run all
         </Button>
       </div>
+      <Button type="button" variant="outline" disabled={running || nudging || nudgeFast(selected) == null} onClick={onNudge}>
+        {nudging ? "Nudging" : "Nudge"}
+      </Button>
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        {nudgeFast(selected)
+          ? "Reruns this rule at fast−1, fast, and fast+1. The three returns land in Comparison."
+          : "This rule has no fast length to nudge."}
+      </p>
       <p className="text-xs leading-relaxed break-words text-muted-foreground">
         A signal is fixed on the close and filled on the next bar’s open. Fee and slippage are charged on the entry and
         the exit. Ten basis points is 0.10%. Risk per trade is the equity lost if the stop is hit, and the position is

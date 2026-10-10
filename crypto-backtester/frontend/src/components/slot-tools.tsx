@@ -3,11 +3,12 @@ import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { liveMark } from "@/lib/book"
-import { formatStamp } from "@/lib/format"
+import { formatCompact, formatPrice, formatStamp } from "@/lib/format"
 import { logAlert } from "@/lib/journal"
+import { marketSpec } from "@/lib/markets"
 import { useBookView } from "@/lib/use-book"
 import type { FundingRate, Venue } from "@/lib/types"
-import { deltaCrosses, priceCrosses, type AlertKind, type SlotAlert } from "@/lib/workspace"
+import { armReading, deltaCrosses, priceCrosses, type AlertKind, type SlotAlert } from "@/lib/workspace"
 import { cn } from "@/lib/utils"
 
 const KINDS: { id: AlertKind; label: string }[] = [
@@ -65,11 +66,18 @@ export function AlertControl({
   const book = useBookView(symbol, venue)
   const mark = symbol && book.symbol === symbol.toUpperCase() && book.venue === venue ? liveMark(book) : null
   const trade = mark?.source === "trade" ? mark.price : null
-  const chartDelta = alert?.kind === "delta" ? alert.value : null
-  const heard = book.heardAt != null
-  const fired =
-    priceCrosses(trade, alert && alert.kind !== "delta" ? alert : null) ||
-    (heard && (deltaCrosses(book.delta, deltaAlert) || deltaCrosses(book.delta, chartDelta)))
+  const reading = armReading({
+    alert,
+    deltaAlert,
+    trade,
+    delta: book.delta,
+    heard: book.heardAt != null,
+  })
+  const tick = symbol ? marketSpec(symbol, venue)?.tickSize : undefined
+  const priceLevel = reading.price != null ? formatPrice(reading.price, tick) : null
+  const deltaLevel = reading.delta != null ? `60s ${formatCompact(reading.delta)}` : null
+  const watched = [reading.priceKind && priceLevel ? `${reading.priceKind} ${priceLevel}` : null, deltaLevel].filter(Boolean).join(" · ")
+  const status = reading.hot ? `fired ${reading.side}${watched ? ` · ${watched}` : ""}` : watched ? `idle · ${watched}` : "idle"
 
   useEffect(() => {
     setKind(alert?.kind ?? "above")
@@ -110,8 +118,8 @@ export function AlertControl({
       <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={arm}>
         Arm
       </Button>
-      <span className={cn("font-mono text-[10px] tracking-wide normal-case", fired ? "text-foreground" : "text-muted-foreground")} role="status">
-        {fired ? "fired" : "idle"}
+      <span className={cn("font-mono text-[10px] tracking-wide whitespace-nowrap normal-case", reading.hot ? "text-foreground" : "text-muted-foreground")} role="status">
+        {status}
       </span>
       {alert ? (
         <Button type="button" size="xs" variant="ghost" className="normal-case tracking-normal" onClick={() => onChange(null)}>

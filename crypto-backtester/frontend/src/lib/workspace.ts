@@ -179,3 +179,39 @@ export function deltaCrosses(delta: number, threshold: number | null): boolean {
   if (threshold == null || !(threshold > 0) || !Number.isFinite(delta)) return false
   return Math.abs(delta) >= threshold
 }
+
+export type ArmReading = {
+  hot: boolean
+  side: "above" | "below" | "buy" | "sell" | null
+  price: number | null
+  priceKind: "above" | "below" | null
+  delta: number | null
+}
+
+/** Idle until the last trade or the 60s delta crosses the armed level. The side is above, below, buy, or sell. */
+export function armReading(input: {
+  alert: SlotAlert | null
+  deltaAlert: number | null
+  trade: number | null
+  delta: number
+  heard: boolean
+}): ArmReading {
+  const priceAlert =
+    input.alert && (input.alert.kind === "above" || input.alert.kind === "below")
+      ? { kind: input.alert.kind, value: input.alert.value }
+      : null
+  const chartDelta = input.alert?.kind === "delta" ? input.alert.value : null
+  const deltaThreshold = input.deltaAlert ?? chartDelta
+  const priceHot = priceCrosses(input.trade, priceAlert)
+  const deltaHot = input.heard && deltaCrosses(input.delta, deltaThreshold)
+  let side: ArmReading["side"] = null
+  if (priceHot && priceAlert) side = priceAlert.kind
+  else if (deltaHot) side = input.delta > 0 ? "buy" : "sell"
+  return {
+    hot: priceHot || deltaHot,
+    side,
+    price: priceAlert?.value ?? null,
+    priceKind: priceAlert?.kind ?? null,
+    delta: deltaThreshold != null && deltaThreshold > 0 ? deltaThreshold : null,
+  }
+}

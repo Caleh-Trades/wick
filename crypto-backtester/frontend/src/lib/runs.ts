@@ -256,6 +256,32 @@ export function paramsForRule(rule: RuleId, current: RunParams = defaultParams()
   return params
 }
 
+export type NudgeStep = { name: "fast−1" | "fast" | "fast+1"; params: RunParams }
+
+/** The active rule at one bar under its fast length, at that length, and one bar over. */
+export function nudgeFast(run: Run): NudgeStep[] | null {
+  const spec = ruleById(normalizeRule(run.rule))
+  const field = spec?.params.find((param) => param.key === "fast")
+  if (!spec || !field) return null
+  let resolved: RunParams
+  try {
+    resolved = resolveRunParams(run)
+  } catch {
+    return null
+  }
+  const base = resolved.fast
+  if (base == null) return null
+  const slow = spec.params.some((param) => param.key === "slow") ? resolved.slow : null
+  const clamp = (value: number) => {
+    let next = Math.min(field.max, Math.max(field.min, Math.round(value)))
+    if (slow != null && next >= slow) next = Math.max(field.min, Math.round(slow) - 1)
+    return next
+  }
+  const values = [clamp(base - 1), clamp(base), clamp(base + 1)]
+  const names = ["fast−1", "fast", "fast+1"] as const
+  return names.map((name, index) => ({ name, params: { ...run.params, fast: values[index]! } }))
+}
+
 export function resolveRunParams(run: Run): RunParams {
   const spec = ruleById(normalizeRule(run.rule))
   if (!spec) throw new Error(`Unknown strategy: ${run.rule}.`)

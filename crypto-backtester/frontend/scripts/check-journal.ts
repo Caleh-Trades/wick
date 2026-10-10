@@ -1,8 +1,8 @@
 import assert from "node:assert/strict"
 
 import { editConcerns } from "../src/lib/bot-edits.ts"
-import { findKept, journalEntries, journalStats, keepRun, keptExport, keptRuns, logAlert, logTrade, logTradeOp, removeJournalEntry, removeKeptRun, setKeptNote, tradePnl } from "../src/lib/journal.ts"
-import { asDeltaAlert, createSlot, deltaCrosses, priceCrosses } from "../src/lib/workspace.ts"
+import { findKept, journalEntries, journalStats, keepRun, keptExport, keptRuns, logAlert, logTrade, logTradeOp, removeJournalEntry, removeKeptRun, setKeptNote, tradePnl, tradesCsv } from "../src/lib/journal.ts"
+import { armReading, asDeltaAlert, createSlot, deltaCrosses, priceCrosses } from "../src/lib/workspace.ts"
 
 const slot = createSlot("BTCUSDT", "spot", "1d", "1Y")
 assert.equal(slot.deltaAlert, null)
@@ -16,6 +16,36 @@ assert.equal(deltaCrosses(3, 2), true)
 assert.equal(deltaCrosses(-3, 2), true)
 assert.equal(deltaCrosses(1, 2), false)
 assert.equal(deltaCrosses(4, null), false)
+const quiet = armReading({ alert: { kind: "above", value: 83000 }, deltaAlert: null, trade: 82800, delta: 0, heard: true })
+assert.equal(quiet.hot, false)
+assert.equal(quiet.price, 83000)
+const crossed = armReading({ alert: { kind: "above", value: 83000 }, deltaAlert: null, trade: 83100, delta: 0, heard: true })
+assert.equal(crossed.hot, true)
+assert.equal(crossed.side, "above")
+const bought = armReading({ alert: null, deltaAlert: 1.5, trade: 100, delta: 2, heard: true })
+assert.equal(bought.hot, true)
+assert.equal(bought.side, "buy")
+const sold = armReading({ alert: null, deltaAlert: 1.5, trade: 100, delta: -2, heard: true })
+assert.equal(sold.side, "sell")
+const csv = tradesCsv([
+  {
+    entry_time: "2026-01-01T00:00:00Z",
+    exit_time: "2026-01-02T00:00:00Z",
+    side: "long",
+    entry_price: 1,
+    exit_price: 2,
+    quantity: 1,
+    pnl: 3.5,
+    return_pct: 1.2,
+    bars_held: 4,
+    status: "closed",
+    funding_paid: 0,
+    fee_paid: 0.1,
+    slippage_paid: 0.2,
+  },
+])
+assert.equal(csv.split("\n")[0], "entry,exit,side,return,pnl,fee,slippage,bars")
+assert.match(csv, /2026-01-01T00:00:00Z,2026-01-02T00:00:00Z,long,1.2,3.5,0.1,0.2,4/)
 const workspace = { slots: [slot], activeId: slot.id, pinnedId: null, enlarged: false }
 assert.equal(editConcerns(workspace, [{ op: "log-trade", symbol: "ETH", side: "sell", price: 1, size: 1 }]), true)
 

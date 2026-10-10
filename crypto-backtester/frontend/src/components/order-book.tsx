@@ -146,7 +146,7 @@ function DeltaRow({ delta, buy, sell }: { delta: number; buy: number; sell: numb
   )
 }
 
-const LEVEL_GRID = "grid-cols-[minmax(0,1.35fr)_minmax(3.2rem,0.8fr)_minmax(3.4rem,0.9fr)_minmax(3.4rem,0.9fr)]"
+const LEVEL_GRID = "grid-cols-[minmax(4.5rem,1.6fr)_minmax(2.35rem,0.65fr)_minmax(2.45rem,0.7fr)_minmax(2.6rem,0.8fr)]"
 
 function LevelHead() {
   return (

@@ -89,8 +89,7 @@ export default function App() {
     setFocusTrade(null)
   }, [active?.id, active?.symbol, active?.venue, selected?.id])
   const shown = visibleSlots(workspace)
-  const deskWide = useDeskWide()
-  const spanBook = deskWide && shown.length === 1
+  const spanBook = useSpanBook() && shown.length === 1
 
   useEffect(() => {
     saveWorkspace(workspace)
@@ -930,14 +929,27 @@ function mergeCandles(existing: TapeCandle[], incoming: TapeCandle[]): TapeCandl
   return [...byTime.values()].sort((left, right) => left.t - right.t)
 }
 
-function useDeskWide(): boolean {
+/** Book runs the full column only for a mouse on a tall, wide window. A touch
+    screen and a short landscape window keep the ladder beside the price chart. */
+function useSpanBook(): boolean {
   return useSyncExternalStore(
     (notify) => {
-      const query = window.matchMedia("(min-width: 1024px)")
-      query.addEventListener("change", notify)
-      return () => query.removeEventListener("change", notify)
+      const wide = window.matchMedia("(min-width: 1024px)")
+      const tall = window.matchMedia("(min-height: 861px)")
+      const mouse = window.matchMedia("(hover: hover) and (pointer: fine)")
+      wide.addEventListener("change", notify)
+      tall.addEventListener("change", notify)
+      mouse.addEventListener("change", notify)
+      return () => {
+        wide.removeEventListener("change", notify)
+        tall.removeEventListener("change", notify)
+        mouse.removeEventListener("change", notify)
+      }
     },
-    () => window.matchMedia("(min-width: 1024px)").matches,
+    () =>
+      window.matchMedia("(min-width: 1024px)").matches &&
+      window.matchMedia("(min-height: 861px)").matches &&
+      window.matchMedia("(hover: hover) and (pointer: fine)").matches,
     () => false,
   )
 }

@@ -63,6 +63,7 @@ export type KeptRun = {
   fundingPaid: number
   inSample: SampleSlice | null
   holdout: SampleSlice | null
+  walkForward: SampleSlice[]
   trades: Trade[]
 }
 
@@ -446,6 +447,7 @@ function sanitizeKept(value: unknown): KeptRun | null {
     fundingPaid: Number.isFinite(Number(raw.fundingPaid)) ? Number(raw.fundingPaid) : 0,
     inSample: asSlice(raw.inSample),
     holdout: asSlice(raw.holdout),
+    walkForward: asWindows(raw.walkForward),
     trades: asTrades(raw.trades),
   }
 }
@@ -459,11 +461,14 @@ export type KeptExport = {
   symbol: string
   market: Venue
   timeframe: string
+  range: string
   rule: string
   params: RunParams
+  risk_pct: number
   fee: number
   slippage_bps: number
   metrics: KeptMetrics
+  walk_forward: SampleSlice[]
   trades: Trade[]
   in_sample: SampleSlice | null
   holdout: SampleSlice | null
@@ -481,11 +486,14 @@ export function keptExport(row: KeptRun): KeptExport {
     symbol: row.symbol,
     market: row.venue,
     timeframe: row.timeframe,
+    range: row.range,
     rule: row.rule,
     params: row.params,
+    risk_pct: row.riskPct,
     fee: row.feeBps,
     slippage_bps: row.slippageBps,
     metrics: { ...row.metrics, expectancy: keptExpectancy(row) },
+    walk_forward: row.walkForward,
     trades: row.trades,
     in_sample: row.inSample,
     holdout: row.holdout,
@@ -494,14 +502,53 @@ export function keptExport(row: KeptRun): KeptExport {
   }
 }
 
-export function downloadKept(row: KeptRun): void {
-  const blob = new Blob([JSON.stringify(keptExport(row), null, 2)], { type: "application/json" })
+/** Newest kept copy of this setup, if the desk has stored one. */
+export function findKept(match: { symbol: string; venue: Venue; timeframe: string; range: string; rule: string; params: RunParams }): KeptRun | null {
+  const rule = normalizeRule(match.rule)
+  return (
+    keptRuns().find(
+      (row) =>
+        row.symbol === match.symbol &&
+        row.venue === match.venue &&
+        row.timeframe === match.timeframe &&
+        row.range === match.range &&
+        row.rule === rule &&
+        sameParams(row.params, match.params),
+    ) ?? null
+  )
+}
+
+export function downloadExport(payload: KeptExport): void {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" })
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement("a")
   anchor.href = url
-  anchor.download = `wick-${row.symbol}-${row.venue}.json`
+  anchor.download = `wick-${payload.symbol}-${payload.market}.json`
   anchor.click()
   URL.revokeObjectURL(url)
+}
+
+export function downloadKept(row: KeptRun): void {
+  downloadExport(keptExport(row))
+}
+
+function sameParams(left: RunParams, right: RunParams): boolean {
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)])
+  for (const key of keys) {
+    if (left[key] !== right[key]) return false
+  }
+  return true
+}
+
+function asWindows(value: unknown): SampleSlice[] {
+  if (!Array.isArray(value)) return []
+  const windows: SampleSlice[] = []
+  for (const item of value) {
+    const slice = asSlice(item)
+    if (slice) windows.push(slice)
+    if (windows.length >= 3) break
+  }
+  return windows
 }
 
 function asSlice(value: unknown): SampleSlice | null {

@@ -483,6 +483,41 @@ export function profitFactor(trades: Array<{ pnl: number }>): number | null {
   return grossWin / grossLoss
 }
 
+/** 5th percentile ending equity. Each path redraws the closed-trade returns with replacement and compounds them from the starting balance. A pure shuffle cannot move the product, so the paths are redraws. */
+export function monteCarloEquity(returns: number[], capital: number, paths = 500): number | null {
+  const usable = returns.filter((value) => Number.isFinite(value))
+  if (usable.length === 0 || !(capital > 0) || paths < 1) return null
+  let seed = 0x9e3779b9 ^ Math.imul(Math.round(capital * 100), 0x85ebca6b)
+  for (const value of usable) seed = Math.imul(seed ^ Math.round(value * 1000), 0x85ebca6b)
+  const random = mulberry32(seed >>> 0)
+  const endings = new Array<number>(paths)
+  for (let path = 0; path < paths; path += 1) {
+    let equity = capital
+    for (let step = 0; step < usable.length; step += 1) {
+      const ret = usable[Math.floor(random() * usable.length)] ?? 0
+      equity *= 1 + ret / 100
+      if (!Number.isFinite(equity)) {
+        equity = 0
+        break
+      }
+    }
+    endings[path] = equity
+  }
+  endings.sort((left, right) => left - right)
+  return endings[Math.max(0, Math.ceil(0.05 * paths) - 1)] ?? null
+}
+
+function mulberry32(seed: number) {
+  let state = seed >>> 0
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0
+    let next = state
+    next = Math.imul(next ^ (next >>> 15), next | 1)
+    next ^= next + Math.imul(next ^ (next >>> 7), next | 61)
+    return ((next ^ (next >>> 14)) >>> 0) / 4294967296
+  }
+}
+
 /** Average trade return: (win rate × avg win) − (loss rate × avg loss). Open trades count. */
 export function tradeExpectancy(trades: Array<{ pnl: number; return_pct: number }>): number | null {
   const sampled = trades.filter((trade) => Number.isFinite(trade.pnl) && Number.isFinite(trade.return_pct) && trade.pnl !== 0)

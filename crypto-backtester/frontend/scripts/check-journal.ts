@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 
 import { editConcerns } from "../src/lib/bot-edits.ts"
-import { journalEntries, journalStats, keepRun, keptExport, keptRuns, logAlert, logTrade, logTradeOp, removeJournalEntry, removeKeptRun, setKeptNote, tradePnl } from "../src/lib/journal.ts"
+import { findKept, journalEntries, journalStats, keepRun, keptExport, keptRuns, logAlert, logTrade, logTradeOp, removeJournalEntry, removeKeptRun, setKeptNote, tradePnl } from "../src/lib/journal.ts"
 import { createSlot } from "../src/lib/workspace.ts"
 
 const slot = createSlot("BTCUSDT", "spot", "1d", "1Y")
@@ -100,7 +100,13 @@ if (kept) {
   assert.deepEqual(exported.trades, [])
   assert.equal(exported.note, "skip the wick")
   assert.equal(exported.funding_paid, 0)
+  assert.equal(exported.range, "1Y")
+  assert.equal(exported.risk_pct, 5)
+  assert.equal(exported.slippage_bps, 5)
+  assert.deepEqual(exported.walk_forward, [])
   assert.equal("order" in exported, false)
+  assert.equal(findKept({ symbol: "BTCUSDT", venue: "spot", timeframe: "1d", range: "1Y", rule: "sma_cross", params: { fast: 20, slow: 50 } })?.id, kept.id)
+  assert.equal(findKept({ symbol: "BTCUSDT", venue: "spot", timeframe: "1d", range: "1Y", rule: "sma_cross", params: { fast: 10, slow: 50 } }), null)
 }
 const rich = keepRun({
   name: "Funded",
@@ -120,6 +126,11 @@ const rich = keepRun({
   fundingPaid: 12.5,
   inSample: { total_return_pct: 4, max_drawdown_pct: -2, sharpe: 0.4, trades: 3 },
   holdout: { total_return_pct: -1, max_drawdown_pct: -6, sharpe: null, trades: 1 },
+  walkForward: [
+    { total_return_pct: 2, max_drawdown_pct: -1, sharpe: 0.2, trades: 1 },
+    { total_return_pct: 1, max_drawdown_pct: -3, sharpe: 0.1, trades: 1 },
+    { total_return_pct: 0, max_drawdown_pct: -2, sharpe: null, trades: 1 },
+  ],
   trades: [
     {
       entry_time: "2026-01-01T00:00:00Z",
@@ -151,6 +162,8 @@ assert.equal(rich?.inSample?.trades, 3)
 assert.equal(rich?.holdout?.sharpe, null)
 assert.equal(keptExport(rich!).trades[0]?.funding_paid, 12.5)
 assert.equal(keptExport(rich!).market, "perp")
+assert.equal(keptExport(rich!).walk_forward.length, 3)
+assert.equal(keptExport(rich!).range, "1M")
 if (rich) removeKeptRun(rich.id)
 if (kept) removeKeptRun(kept.id)
 

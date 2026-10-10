@@ -44,13 +44,16 @@ pytest
 - The trades themselves, including a position that is still open at the end of the window
 - Expectancy, average win times win rate minus average loss times loss rate, and how many bars the worst drawdown takes to reclaim its peak
 - The same pass split into the first 70% of bars and the last 30%. Return, max drawdown, Sharpe, and trade count sit side by side. Parameters are not fit again on the holdout. The comparison table can show the full run, the in-sample window, or the holdout.
-- Three walk-forward windows on that same pass. Each shows return, max drawdown, Sharpe, and trades. Nothing is optimized again. If holdout Sharpe is negative while the full-sample Sharpe is positive, the run says so.
+- Three walk-forward windows on that same pass, plus the in-sample and holdout slices. Comparison lists them as rows: window, return, max drawdown, Sharpe, and trades. Nothing is optimized again. If holdout Sharpe is negative while the full-sample Sharpe is positive, the run says so.
+- A Monte Carlo tile on the run summary: the 5th percentile ending equity after 500 redraws of the closed-trade returns, compounded from the starting balance.
 
 A perpetual slot shows the last Kraken funding rate already on the candle tape, with that rate’s time in UTC. If the series is missing and stale, the line says funding didn't load. Spot slots hide it. The funding a kept perpetual run paid sits next to its fee, and the run summary shows funding paid only on a perp.
 
 A slot can arm a price above, a price below, or a 60-second delta. When the live book crosses it, the journal gains a row with the time, the symbol, and the value. That row does not place an order and does not notify anywhere else.
 
-A kept run has a note. Export downloads that run as JSON: symbol, market, timeframe, rule, parameters, fee, metrics, and trades.
+The cost line under the metric strip reads before fees, fees paid, slippage paid, and after costs. Fee and slippage sit together in Setup, and both are charged on the entry and the exit.
+
+Keep this run stores a one-line note. Export JSON, beside that button, downloads the kept copy of this run: symbol, spot or perp, timeframe, range, rule, parameters, risk percent, fee, slippage, metrics, walk-forward windows, and the trade list. If this run has not been kept, the file is the active run. The journal lists the symbol, the market, the return, and that note. Reopening the row restores the slot.
 
 Account, beside the Wick name, creates a name and password. That account stores the slots, the journal, kept runs, favourites, and pane sizes. Sign in with the same name on another device and the desk is the same one. Changes save to the account after a short pause, and the other device picks them up. Create starts from the desk already on this browser. Sign in replaces this browser with the account. Sign out leaves a copy here and stops sending changes. The password is stored as a hash.
 

@@ -3,6 +3,7 @@ import { Eye, EyeOff, Trash2 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { EquityChart, type OverlaySeries } from "@/components/charts"
 import {
@@ -15,7 +16,7 @@ import {
   formatStat,
   tone,
 } from "@/lib/format"
-import { holdoutWarn } from "@/lib/backtest"
+import { holdoutWarn, monteCarloEquity } from "@/lib/backtest"
 import { clampRisk, fingerprint, marketById, runColor, strategyLabel } from "@/lib/runs"
 import type { BacktestResult, Outcome, Run, SampleSlice, SortKey, Trade, Venue } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -121,6 +122,7 @@ export const Results = memo(function Results({
             onSort={onSort}
             lens={lens}
             onLens={setLens}
+            result={result}
           />
         </div>
 
@@ -178,17 +180,23 @@ export function RunStrip({
   sortDir,
   onSort,
   onKeep,
+  onExport,
 }: {
   result: BacktestResult
   sortKey: SortKey | null
   sortDir: "asc" | "desc"
   onSort: (key: SortKey) => void
-  onKeep: () => void
+  onKeep: (note: string) => void
+  onExport: (note: string) => void
 }) {
   const metrics = result.metrics
   const trades = result.assumptions.venue === "spot" ? result.trades.filter((trade) => trade.side !== "short") : result.trades
   const liquidated = trades.filter((trade) => trade.status === "liquidated").length
   const open = trades.filter((trade) => trade.status === "open").length
+  const slippagePaid = trades.reduce((sum, trade) => sum + (trade.slippage_paid ?? 0), 0)
+  const closedReturns = trades.filter((trade) => trade.status === "closed").map((trade) => trade.return_pct)
+  const monteCarlo = monteCarloEquity(closedReturns, result.assumptions.initial_capital)
+  const [note, setNote] = useState("")
   return (
     <div className="shrink-0 px-3 pt-2">
       <div className="bezel flex flex-nowrap items-end gap-x-4 overflow-x-auto px-3 py-1.5" aria-label="Run summary">
@@ -238,6 +246,12 @@ export function RunStrip({
         />
         <Metric label="Recovery" hint="Bars from the worst-drawdown peak until equity reclaims it." value={recoveryLabel(metrics.recovery_bars)} dense />
         <Metric label="Final equity" value={formatMoney(metrics.final_equity, 0)} dense />
+        <Metric
+          label="Monte Carlo"
+          hint="5th percentile ending equity. Each of 500 paths redraws the closed-trade returns with replacement and compounds them from the starting balance."
+          value={monteCarlo == null ? "—" : formatMoney(monteCarlo, 0)}
+          dense
+        />
         {result.assumptions.venue === "perp" ? (
           <Metric
             label="Funding paid"
@@ -252,7 +266,9 @@ export function RunStrip({
           {" · "}
           Fees paid {formatMoney(metrics.fees_paid, 2)}
           {" · "}
-          After fees {formatPct(metrics.total_return_pct)}
+          Slippage paid {formatMoney(slippagePaid, 2)}
+          {" · "}
+          After costs {formatPct(metrics.total_return_pct)}
           {" · "}
           In the market {formatPlainPct(metrics.exposure_pct, 0)}
           {" · "}
@@ -267,19 +283,28 @@ export function RunStrip({
           {" · "}
           Risk {riskLabel(result.assumptions.risk_pct)}
           {result.assumptions.funding_stale ? " · Funding stale" : ""}
-          {" · "}
-          In-sample {sliceText(result.in_sample)}
-          {" · "}
-          Holdout {sliceText(result.holdout)}
-          {(result.walk_forward ?? []).length > 0 ? " · " : ""}
-          {(result.walk_forward ?? []).map((slice, index) => (
-            <span key={index}>
-              {index > 0 ? " · " : ""}
-              Window {index + 1} {sliceText(slice)}
-            </span>
-          ))}
         </p>
-        <Button type="button" size="xs" variant="outline" className="shrink-0 normal-case tracking-normal" onClick={onKeep}>
+        <Input
+          aria-label="Note for this run"
+          value={note}
+          maxLength={280}
+          placeholder="Note"
+          className="h-7 w-28 shrink-0 px-2 text-xs"
+          onChange={(event) => setNote(event.target.value)}
+        />
+        <Button type="button" size="xs" variant="outline" className="shrink-0 normal-case tracking-normal" onClick={() => onExport(note)}>
+          Export JSON
+        </Button>
+        <Button
+          type="button"
+          size="xs"
+          variant="outline"
+          className="shrink-0 normal-case tracking-normal"
+          onClick={() => {
+            onKeep(note)
+            setNote("")
+          }}
+        >
           Keep this run
         </Button>
       </div>
@@ -295,9 +320,40 @@ function recoveryLabel(bars: number | null | undefined): string {
   return bars === 1 ? "1 bar" : `${bars} bars`
 }
 
-function sliceText(slice: SampleSlice | undefined): string {
-  if (!slice) return "—"
-  return `${formatPct(slice.total_return_pct)} · DD ${formatPct(slice.max_drawdown_pct)} · ${formatStat(slice.sharpe)} · ${slice.trades}`
+function WindowTable({ result }: { result: BacktestResult }) {
+  const rows: { name: string; slice: SampleSlice | null }[] = [
+    { name: "In-sample", slice: result.in_sample ?? null },
+    { name: "Holdout", slice: result.holdout ?? null },
+    ...(result.walk_forward ?? []).map((slice, index) => ({ name: `Window ${index + 1}`, slice })),
+  ]
+  return (
+    <table className="mb-3 w-full border-collapse text-left" aria-label="Walk-forward windows">
+      <thead className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
+        <tr className="border-b border-border">
+          <th className="py-1 pr-2 font-medium">Window</th>
+          <th className="py-1 pr-2 text-right font-medium">Return</th>
+          <th className="py-1 pr-2 text-right font-medium">Max DD</th>
+          <th className="py-1 pr-2 text-right font-medium">Sharpe</th>
+          <th className="py-1 text-right font-medium">Trades</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr key={row.name} className="border-b border-border">
+            <td className="py-1.5 pr-2 text-sm">{row.name}</td>
+            <td className={cn("py-1.5 pr-2 text-right font-mono text-[11px] tabular-nums", row.slice ? toneClass(row.slice.total_return_pct) : "text-muted-foreground")}>
+              {row.slice ? formatPct(row.slice.total_return_pct) : "—"}
+            </td>
+            <td className={cn("py-1.5 pr-2 text-right font-mono text-[11px] tabular-nums", row.slice ? toneClass(row.slice.max_drawdown_pct) : "text-muted-foreground")}>
+              {row.slice ? formatPct(row.slice.max_drawdown_pct) : "—"}
+            </td>
+            <td className="py-1.5 pr-2 text-right font-mono text-[11px] tabular-nums">{row.slice ? formatStat(row.slice.sharpe) : "—"}</td>
+            <td className="py-1.5 text-right font-mono text-[11px] tabular-nums">{row.slice ? row.slice.trades : "—"}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
 }
 
 function Comparison({
@@ -312,6 +368,7 @@ function Comparison({
   onSort,
   lens,
   onLens,
+  result,
 }: {
   rows: ComparisonRow[]
   venue: Venue
@@ -324,6 +381,7 @@ function Comparison({
   onSort: (key: SortKey) => void
   lens: SampleLens
   onLens: (lens: SampleLens) => void
+  result: BacktestResult
 }) {
   const sliced = lens !== "full"
   return (
@@ -354,6 +412,7 @@ function Comparison({
         <SortText label="Trades" sortKey="trades" active={sortKey} dir={sortDir} onSort={onSort} />
       </div>
       <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto border-t border-border">
+        <WindowTable result={result} />
         <table className="w-full table-fixed border-collapse text-left">
           <caption className="sr-only">Runs on this tape</caption>
           <thead className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">

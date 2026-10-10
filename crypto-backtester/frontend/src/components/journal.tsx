@@ -267,15 +267,15 @@ function KeptRow({ row, onRestore }: { row: KeptRun; onRestore: (kept: KeptRun) 
     <li className="bezel flex items-start justify-between gap-3 px-3 py-2">
       <div className="min-w-0">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-          <span className="text-sm">{row.name}</span>
-          <span className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
-            {base} · {row.venue === "perp" ? "Perp" : "Spot"} · {row.timeframe} · {row.range}
+          <span className="text-sm">{base}</span>
+          <span className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">{row.venue === "perp" ? "Perp" : "Spot"}</span>
+          <span className={cn("font-mono text-xs tabular-nums", moneyTone(row.metrics.total_return_pct) === "up" && "text-up", moneyTone(row.metrics.total_return_pct) === "down" && "text-down")}>
+            {formatPct(row.metrics.total_return_pct)}
           </span>
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
-          {ruleName(row.rule)}
-          {row.combo.length > 0 ? ` + ${row.combo.map((item) => ruleName(item.rule)).join(" + ")}` : ""} · {row.feeBps} bps
-          {row.venue === "perp" ? ` · funding paid ${signedMoney(row.fundingPaid)}` : ""}
+          {row.name} · {ruleName(row.rule)}
+          {row.combo.length > 0 ? ` + ${row.combo.map((item) => ruleName(item.rule)).join(" + ")}` : ""} · {row.timeframe} · {row.range}
         </p>
         <Input
           aria-label={`Note for ${row.name}`}

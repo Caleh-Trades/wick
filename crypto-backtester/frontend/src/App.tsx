@@ -22,7 +22,7 @@ import { fetchCandles, mergeFunding } from "@/lib/api"
 import { ackBotEdits, fetchBotInbox } from "@/lib/bot-api"
 import { applyBotEdits, editConcerns } from "@/lib/bot-edits"
 import { JournalPage } from "@/components/journal"
-import { keepRun, logTradeOp, type KeptRun } from "@/lib/journal"
+import { downloadExport, downloadKept, findKept, keepRun, logTradeOp, type KeptExport, type KeptRun } from "@/lib/journal"
 import { computeBacktest } from "@/lib/compute"
 import { ruleReading } from "@/lib/signals"
 import { spotTrades } from "@/lib/plot"
@@ -52,7 +52,7 @@ import {
   type Slot,
   type Workspace,
 } from "@/lib/workspace"
-import type { MarketId, Outcome, RangeId, Run, SortKey, Tape, TapeCandle, Timeframe, Trade, Venue } from "@/lib/types"
+import type { BacktestResult, MarketId, Outcome, RangeId, Run, SortKey, Tape, TapeCandle, Timeframe, Trade, Venue } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const EMPTY_CANDLES: TapeCandle[] = []
@@ -498,9 +498,46 @@ export default function App() {
     }
   }
 
-  function keepSelected() {
+  function keptMetrics(metrics: BacktestResult["metrics"]) {
+    return {
+      total_return_pct: metrics.total_return_pct,
+      cagr_pct: metrics.cagr_pct,
+      max_drawdown_pct: metrics.max_drawdown_pct,
+      sharpe: metrics.sharpe,
+      win_rate_pct: metrics.win_rate_pct,
+      profit_factor: metrics.profit_factor,
+      expectancy: metrics.expectancy,
+      trades: metrics.trades,
+      final_equity: metrics.final_equity,
+    }
+  }
+
+  function activeExport(note: string): KeptExport | null {
+    if (!active || !selected || !fitsSlot(active, selectedOutcome)) return null
+    const outcome = selectedOutcome.result
+    return {
+      symbol: active.symbol,
+      market: active.venue,
+      timeframe: active.timeframe,
+      range: active.range,
+      rule: selected.rule,
+      params: { ...selected.params },
+      risk_pct: outcome.assumptions.risk_pct,
+      fee: outcome.assumptions.fee_bps,
+      slippage_bps: outcome.assumptions.slippage_bps,
+      metrics: keptMetrics(outcome.metrics),
+      walk_forward: outcome.walk_forward ?? [],
+      trades: outcome.trades,
+      in_sample: outcome.in_sample ?? null,
+      holdout: outcome.holdout ?? null,
+      note: note.trim().slice(0, 280),
+      funding_paid: active.venue === "perp" ? outcome.trades.reduce((sum, trade) => sum + trade.funding_paid, 0) : 0,
+    }
+  }
+
+  function keepSelected(note: string) {
     if (!active || !selected || !fitsSlot(active, selectedOutcome)) return
-    const metrics = selectedOutcome.result.metrics
+    const outcome = selectedOutcome.result
     keepRun({
       name: selected.name,
       symbol: active.symbol,
@@ -516,24 +553,33 @@ export default function App() {
       leverage: active.venue === "perp" ? selected.leverage : 1,
       riskPct: selected.riskPct,
       allowShort: active.venue === "perp" && selected.allowShort,
-      note: "",
-      fundingPaid: active.venue === "perp" ? selectedOutcome.result.trades.reduce((sum, trade) => sum + trade.funding_paid, 0) : 0,
-      inSample: selectedOutcome.result.in_sample ?? null,
-      holdout: selectedOutcome.result.holdout ?? null,
-      trades: selectedOutcome.result.trades,
-      metrics: {
-        total_return_pct: metrics.total_return_pct,
-        cagr_pct: metrics.cagr_pct,
-        max_drawdown_pct: metrics.max_drawdown_pct,
-        sharpe: metrics.sharpe,
-        win_rate_pct: metrics.win_rate_pct,
-        profit_factor: metrics.profit_factor,
-        expectancy: metrics.expectancy,
-        trades: metrics.trades,
-        final_equity: metrics.final_equity,
-      },
+      note,
+      fundingPaid: active.venue === "perp" ? outcome.trades.reduce((sum, trade) => sum + trade.funding_paid, 0) : 0,
+      inSample: outcome.in_sample ?? null,
+      holdout: outcome.holdout ?? null,
+      walkForward: outcome.walk_forward ?? [],
+      trades: outcome.trades,
+      metrics: keptMetrics(outcome.metrics),
     })
     setPage("journal")
+  }
+
+  function exportSelected(note: string) {
+    if (!active || !selected) return
+    const kept = findKept({
+      symbol: active.symbol,
+      venue: active.venue,
+      timeframe: active.timeframe,
+      range: active.range,
+      rule: selected.rule,
+      params: selected.params,
+    })
+    if (kept) {
+      downloadKept(kept)
+      return
+    }
+    const payload = activeExport(note)
+    if (payload) downloadExport(payload)
   }
 
   function restoreKept(kept: KeptRun) {
@@ -644,6 +690,7 @@ export default function App() {
               sortKey={sortKey}
               sortDir={sortDir}
               onKeep={keepSelected}
+              onExport={exportSelected}
               onSort={(key) => {
                 if (sortKey === key) setSortDir((dir) => (dir === "desc" ? "asc" : "desc"))
                 else {

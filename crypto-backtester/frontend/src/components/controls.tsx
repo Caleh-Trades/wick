@@ -253,23 +253,24 @@ export function Controls({
         />
       ) : null}
 
-      <DecimalField
-        id={`${idPrefix}-fee`}
-        label="Fee (bps)"
-        value={selected.feeBps}
-        min={0}
-        max={1000}
-        onValue={(feeBps) => patch({ feeBps })}
-      />
-
-      <DecimalField
-        id={`${idPrefix}-slippage`}
-        label="Slippage (bps)"
-        value={clampSlippage(selected.slippageBps)}
-        min={0}
-        max={1000}
-        onValue={(slippageBps) => patch({ slippageBps })}
-      />
+      <div className="grid grid-cols-2 gap-2">
+        <DecimalField
+          id={`${idPrefix}-fee`}
+          label="Fee (bps)"
+          value={selected.feeBps}
+          min={0}
+          max={1000}
+          onValue={(feeBps) => patch({ feeBps })}
+        />
+        <DecimalField
+          id={`${idPrefix}-slippage`}
+          label="Slippage (bps)"
+          value={clampSlippage(selected.slippageBps)}
+          min={0}
+          max={1000}
+          onValue={(slippageBps) => patch({ slippageBps })}
+        />
+      </div>
 
       {venue === "perp" ? (
         <Button

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 
-import { backtest, liquidationPrice, profitFactor, tradeExpectancy } from "../src/lib/backtest.ts"
+import { backtest, liquidationPrice, monteCarloEquity, profitFactor, tradeExpectancy } from "../src/lib/backtest.ts"
 import { createRun, fingerprint, mergeCandles } from "../src/lib/runs.ts"
 import type { TapeCandle } from "../src/lib/types.ts"
 
@@ -214,5 +214,12 @@ assert.ok(openWinner != null && openWinner > 1)
 assert.ok(Math.abs(openWinner - (71.2 + 2249.15) / (1382.79 + 227.72)) < 1e-9)
 const closedOnly = profitFactor([{ pnl: -1382.79 }, { pnl: -227.72 }, { pnl: 71.2 }])
 assert.ok(closedOnly != null && closedOnly < 0.05)
+
+assert.equal(monteCarloEquity([], 10_000), null)
+assert.equal(monteCarloEquity([0, 0], 10_000), 10_000)
+assert.ok(Math.abs((monteCarloEquity([10], 10_000) ?? 0) - 11_000) < 1e-6)
+const mixed = monteCarloEquity([50, -50], 10_000)
+assert.ok(mixed != null && mixed > 0 && mixed < 7_500)
+assert.equal(monteCarloEquity([50, -50], 10_000), mixed)
 
 console.log("engine check ok")

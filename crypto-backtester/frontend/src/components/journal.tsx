@@ -60,7 +60,7 @@ export function JournalPage({ symbol, venue, onRestore }: { symbol: string; venu
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
+    <div className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
       <div className="mx-auto flex w-full max-w-[1100px] flex-col gap-4 px-4 py-4 pb-16">
         <div>
           <h2 className="font-mono text-xs tracking-[0.28em] text-[#c56a32] uppercase">Journal</h2>

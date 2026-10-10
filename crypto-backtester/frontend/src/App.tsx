@@ -583,7 +583,7 @@ export default function App() {
   const phrase = phraseFor(active?.timeframe ?? "1d")
 
   return (
-    <div className="flex h-svh min-h-0 flex-col">
+    <div className="flex min-h-svh flex-col lg:h-svh lg:min-h-0">
       {active && selected ? (
         <DeskBar
           symbol={active.symbol}
@@ -624,7 +624,7 @@ export default function App() {
         onClose={closeSlot}
         onAdd={addSlot}
       />
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+      <div className="flex flex-col lg:min-h-0 lg:flex-1 lg:flex-row">
         <Watchlist
           slots={workspace.slots}
           activeId={workspace.activeId}
@@ -633,7 +633,7 @@ export default function App() {
           onFocus={focusSlot}
           onOpen={openSymbol}
         />
-        <div className="desk-column flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="desk-column flex min-w-0 flex-col lg:min-h-0 lg:flex-1">
           {error ? (
             <div role="alert" className="bezel mx-3 mt-3 shrink-0 px-4 py-3 text-sm text-down">
               {error}
@@ -654,14 +654,14 @@ export default function App() {
               }}
             />
           ) : null}
-          <div className={cn("flex min-h-0 min-w-0 flex-1", spanBook ? "desk-span flex-row items-stretch" : "flex-col")}>
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className={cn("flex min-w-0 flex-col lg:min-h-0 lg:flex-1", spanBook && "desk-span flex-row items-stretch")}>
+          <div className="flex min-w-0 flex-col lg:min-h-0 lg:flex-1">
           <div
             className={cn("price-split flex min-h-0 min-w-0 lg:min-h-min", shown.length > 1 && "price-split-pair flex-col lg:flex-row")}
             style={{ flexGrow: panes.chart, flexShrink: 1, flexBasis: 0 }}
           >
             {shown.map((slot) => (
-              <div key={slot.id} className="flex min-h-0 min-w-0 flex-1 flex-col p-3">
+              <div key={slot.id} className="flex min-w-0 flex-col p-3 lg:min-h-0 lg:flex-1">
                 <MarketPane
                   symbol={slot.symbol}
                   candles={tapes[tapeKey(slot)]?.candles ?? EMPTY_CANDLES}

@@ -148,8 +148,10 @@
       scroll-behavior: smooth;
     }
   }
-  [class*="overflow-"] {
-    overscroll-behavior: contain;
+  @media (min-width: 1024px) {
+    [class*="overflow-"] {
+      overscroll-behavior: contain;
+      }
     }
   #root {
     position: relative;
@@ -306,8 +308,16 @@ button:hover,
 
 @media (max-width: 1023px) {
   .desk-column {
-    overflow-x: hidden;
-    overflow-y: auto;
+    height: auto;
+    overflow: visible;
+  }
+
+  .market-pane,
+  .chart-book-row {
+    flex: none !important;
+    height: auto !important;
+    min-height: min-content !important;
+    max-height: none;
   }
 
   .price-split {

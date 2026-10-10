@@ -439,8 +439,12 @@ function krakenLevels(rows: unknown): Map<string, number> {
 }
 
 function mapsToTuples(bids: Map<string, number>, asks: Map<string, number>): { bids: [string, string][]; asks: [string, string][] } {
-  const rows = (map: Map<string, number>) => [...map.entries()].map(([price, qty]) => [price, String(qty)] as [string, string])
-  return { bids: rows(bids), asks: rows(asks) }
+  const rows = (map: Map<string, number>, side: "bid" | "ask") =>
+    [...map.entries()]
+      .sort((left, right) => (side === "bid" ? Number(right[0]) - Number(left[0]) : Number(left[0]) - Number(right[0])))
+      .slice(0, 20)
+      .map(([price, qty]) => [price, String(qty)] as [string, string])
+  return { bids: rows(bids, "bid"), asks: rows(asks, "ask") }
 }
 
 function krakenPriceKey(price: number): string {

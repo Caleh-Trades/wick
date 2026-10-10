@@ -92,15 +92,8 @@ export function formatStat(value: number | null | undefined, digits = 2): string
   return value.toFixed(digits)
 }
 
-export function formatFactor(
-  value: number | null,
-  trades: number,
-  winRate: number | null,
-): string {
-  if (value == null) {
-    if (trades > 0 && winRate != null && winRate >= 99.5) return "∞"
-    return "—"
-  }
+export function formatFactor(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return "—"
   return value.toFixed(2)
 }
 

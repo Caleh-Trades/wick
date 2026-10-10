@@ -109,7 +109,7 @@ export const PriceChart = memo(function PriceChart({
       </div>
       <div ref={frameRef} className="price-plot relative min-h-0 flex-1">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={bars} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+          <ComposedChart key={`${symbol ?? ""}-${interval}-${range ?? ""}-${domain[0]}-${domain[1]}`} data={bars} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
             <CartesianGrid vertical={false} stroke={plotGrid} />
             <XAxis
               dataKey="time"

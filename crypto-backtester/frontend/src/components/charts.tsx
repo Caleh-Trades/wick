@@ -48,7 +48,7 @@ export const EquityChart = memo(function EquityChart({
 
   return (
     <div className="bezel flex h-full min-h-0 flex-col px-4 py-3 text-foreground sm:px-6">
-      <div className="mb-2 flex flex-wrap items-end justify-between gap-3">
+      <div className="equity-headline mb-2 flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-[0.65rem] font-semibold tracking-[0.18em] text-bench uppercase">Equity</p>
           <p className="font-mono text-2xl text-[#c56a32] tabular-nums">
@@ -141,7 +141,7 @@ export const EquityChart = memo(function EquityChart({
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      <div className="equity-solid mt-2 h-14 shrink-0">
+      <div className="drawdown-plot equity-solid mt-2 h-14 shrink-0">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={drawdown} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <XAxis dataKey="time" hide />
@@ -174,7 +174,7 @@ export const EquityChart = memo(function EquityChart({
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      <p className="mt-2 font-mono text-[10px] tracking-[0.16em] text-bench uppercase">Drawdown</p>
+      <p className="drawdown-label mt-2 font-mono text-[10px] tracking-[0.16em] text-bench uppercase">Drawdown</p>
     </div>
   )
 })

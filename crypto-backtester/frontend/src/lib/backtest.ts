@@ -402,9 +402,6 @@ function measure(
   const liquidations = trades.filter((trade) => trade.status === "liquidated").length
   const returns = closed.map((trade) => trade.return_pct)
   const wins = closed.filter((trade) => trade.pnl > 0)
-  const losses = closed.filter((trade) => trade.pnl < 0)
-  const grossProfit = wins.reduce((sum, trade) => sum + trade.pnl, 0)
-  const grossLoss = -losses.reduce((sum, trade) => sum + trade.pnl, 0)
   const barReturns: number[] = []
   let previous = initial
   for (const point of equity) {
@@ -421,7 +418,7 @@ function measure(
     sharpe: sharpe(barReturns, periodsPerYear),
     sortino: sortino(barReturns, periodsPerYear),
     win_rate_pct: closed.length ? (wins.length / closed.length) * 100 : null,
-    profit_factor: grossLoss > 0 ? grossProfit / grossLoss : null,
+    profit_factor: profitFactor(trades),
     expectancy: tradeExpectancy(closed),
     recovery_bars: recoveryBars(equity, initial),
     trades: closed.length - liquidations,
@@ -432,6 +429,18 @@ function measure(
     best_trade_pct: returns.length ? Math.max(...returns) : null,
     worst_trade_pct: returns.length ? Math.min(...returns) : null,
   }
+}
+
+/** Gross winning pnl divided by gross losing pnl. Open trades count. No losses is null. */
+export function profitFactor(trades: Array<{ pnl: number }>): number | null {
+  let grossWin = 0
+  let grossLoss = 0
+  for (const trade of trades) {
+    if (trade.pnl > 0) grossWin += trade.pnl
+    else if (trade.pnl < 0) grossLoss -= trade.pnl
+  }
+  if (!(grossLoss > 0)) return null
+  return grossWin / grossLoss
 }
 
 function tradeExpectancy(closed: Trade[]): number | null {

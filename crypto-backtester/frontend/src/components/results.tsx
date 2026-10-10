@@ -102,7 +102,7 @@ export const Results = memo(function Results({
       ) : null}
 
       <div className="results-grid grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-3">
-        <div className={cn("results-equity h-full min-h-[220px] min-w-0", view === "equity" ? "flex flex-col" : "hidden lg:flex lg:flex-col")}>
+        <div className={cn("results-equity equity-strip h-full min-w-0 max-lg:min-h-[220px] lg:h-14 lg:min-h-0 lg:flex-none", view === "equity" ? "flex flex-col" : "hidden lg:flex lg:flex-col")}>
           <div className="equity-frame min-h-0 flex-1">
             <EquityChart result={result} overlays={overlays} selectedId={selected.id} drawToken={drawToken} />
           </div>
@@ -212,8 +212,8 @@ export function RunStrip({
         />
         <Metric
           label="Profit factor"
-          hint="Gross profit divided by gross loss. Infinite when nothing lost money. Click to sort the comparison."
-          value={formatFactor(metrics.profit_factor, metrics.trades + metrics.liquidations, metrics.win_rate_pct)}
+          hint="Gross wins divided by gross losses, including the open trade. An em dash when nothing lost money. Click to sort the comparison."
+          value={formatFactor(metrics.profit_factor)}
           active={sortKey === "profit_factor"}
           dir={sortDir}
           onSort={() => onSort("profit_factor")}
@@ -347,6 +347,7 @@ function Comparison({
               {sliced ? <th className="py-1 pr-2 text-right font-medium">DD</th> : null}
               <th className="py-1 pr-2 text-right font-medium">Sharpe</th>
               {sliced ? null : <th className="py-1 pr-2 text-right font-medium">Win</th>}
+              {sliced ? null : <th className="w-12 py-1 pr-2 text-right font-medium">PF</th>}
               <th className="w-12 py-1 text-right font-medium">Trades</th>
               <th className="w-14 py-1 font-medium"><span className="sr-only">Actions</span></th>
             </tr>
@@ -385,6 +386,9 @@ function Comparison({
                   <td className="py-2 pr-2 text-right font-mono text-[11px] tabular-nums">{fitted ? formatStat(sharpe) : "—"}</td>
                   {sliced ? null : (
                     <td className="py-2 pr-2 text-right font-mono text-[11px] tabular-nums">{metrics ? formatPlainPct(metrics.win_rate_pct, 0) : "—"}</td>
+                  )}
+                  {sliced ? null : (
+                    <td className="py-2 pr-2 text-right font-mono text-[11px] tabular-nums">{metrics ? formatFactor(metrics.profit_factor) : "—"}</td>
                   )}
                   <td className="py-2 text-right font-mono text-[11px] tabular-nums">{trades == null ? "—" : trades}</td>
                   <td className="py-1 text-right">

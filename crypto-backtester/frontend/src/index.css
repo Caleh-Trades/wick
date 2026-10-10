@@ -377,9 +377,30 @@ button:hover,
     min-height: 420px !important;
   }
 
-  .equity-plot {
-    flex: 1 0 180px;
-    min-height: 180px;
+  .equity-strip {
+    height: 56px;
+    min-height: 0;
+    flex: none;
+  }
+
+  .equity-strip .bezel {
+    padding: 2px 12px;
+  }
+
+  .equity-strip .equity-headline,
+  .equity-strip .drawdown-label {
+    display: none;
+  }
+
+  .equity-strip .equity-plot {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .equity-strip .drawdown-plot {
+    height: 16px;
+    min-height: 0;
+    margin-top: 2px;
   }
 }
 

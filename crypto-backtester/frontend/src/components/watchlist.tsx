@@ -31,7 +31,7 @@ export function Watchlist({
   }, [extra.join("|")])
 
   return (
-    <aside className="flex max-h-28 w-full shrink-0 flex-row overflow-x-auto border-b border-border bg-[#fffaf4] lg:h-full lg:max-h-none lg:w-[200px] lg:flex-col lg:overflow-y-auto lg:border-r lg:border-b-0" aria-label="Watchlist">
+    <aside className="flex w-full shrink-0 flex-row overflow-x-auto border-b border-border bg-[#fffaf4] max-lg:max-h-28 lg:h-full lg:w-[200px] lg:flex-col lg:overflow-y-auto lg:border-r lg:border-b-0" aria-label="Watchlist">
       <p className="px-2 pt-2 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">Slots</p>
       <ul className="flex min-h-0 flex-1 lg:block lg:overflow-y-auto">
         {slots.map((slot) => (

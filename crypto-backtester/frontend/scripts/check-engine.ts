@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 
-import { backtest, liquidationPrice } from "../src/lib/backtest.ts"
+import { backtest, liquidationPrice, profitFactor } from "../src/lib/backtest.ts"
 import { createRun, fingerprint, mergeCandles } from "../src/lib/runs.ts"
 import type { TapeCandle } from "../src/lib/types.ts"
 
@@ -159,5 +159,13 @@ assert.equal(agreed.strategy.name, "SMA crossover + Buy and hold")
 assert.equal(agreed.trades.some((trade) => trade.side === "short"), false)
 assert.equal(agreed.trades.some((trade) => trade.side === "long"), true)
 assert.notEqual(fingerprint({ ...cross, combo: [{ rule: "buy_hold", params: {} }] }), fingerprint(cross))
+
+assert.equal(profitFactor([{ pnl: 10 }, { pnl: 4 }]), null)
+assert.equal(profitFactor([]), null)
+const openWinner = profitFactor([{ pnl: -1382.79 }, { pnl: -227.72 }, { pnl: 71.2 }, { pnl: 2249.15 }])
+assert.ok(openWinner != null && openWinner > 1)
+assert.ok(Math.abs(openWinner - (71.2 + 2249.15) / (1382.79 + 227.72)) < 1e-9)
+const closedOnly = profitFactor([{ pnl: -1382.79 }, { pnl: -227.72 }, { pnl: 71.2 }])
+assert.ok(closedOnly != null && closedOnly < 0.05)
 
 console.log("engine check ok")

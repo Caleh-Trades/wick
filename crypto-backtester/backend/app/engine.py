@@ -326,9 +326,8 @@ def _metrics(
     closed = [trade for trade in trades if trade.status == "closed"]
     returns = [trade.return_pct for trade in closed]
     wins = [trade for trade in closed if trade.pnl > 0]
-    losses = [trade for trade in closed if trade.pnl < 0]
-    gross_profit = sum(trade.pnl for trade in wins)
-    gross_loss = -sum(trade.pnl for trade in losses)
+    gross_profit = sum(trade.pnl for trade in trades if trade.pnl > 0)
+    gross_loss = -sum(trade.pnl for trade in trades if trade.pnl < 0)
 
     bar_returns: list[float] = []
     previous = initial

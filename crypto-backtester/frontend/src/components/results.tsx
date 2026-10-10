@@ -230,14 +230,14 @@ export function RunStrip({
           tone={tone(metrics.expectancy)}
           dense
         />
-        <Metric label="Recovery" hint="Bars from the worst-drawdown peak until equity reclaims it." value={recoveryLabel(metrics.recovery_bars)} dense />
-        <Metric label="Final equity" value={formatMoney(metrics.final_equity, 0)} dense />
         <Metric
           label="Risk"
           hint="Percent of equity lost if the stop is hit. The position is that amount divided by the stop distance."
           value={riskLabel(result.assumptions.risk_pct)}
           dense
         />
+        <Metric label="Recovery" hint="Bars from the worst-drawdown peak until equity reclaims it." value={recoveryLabel(metrics.recovery_bars)} dense />
+        <Metric label="Final equity" value={formatMoney(metrics.final_equity, 0)} dense />
         {result.assumptions.venue === "perp" ? (
           <Metric
             label="Funding paid"

@@ -352,6 +352,8 @@ export default function App() {
       prev.capital !== patched.capital ||
       prev.leverage !== patched.leverage ||
       prev.riskPct !== patched.riskPct ||
+      prev.feeBps !== patched.feeBps ||
+      prev.slippageBps !== patched.slippageBps ||
       comboKey(prev) !== comboKey(patched)
     if (!restage) return
     const tape = tapesRef.current[tapeKey({ ...active, symbol })]
@@ -510,6 +512,7 @@ export default function App() {
       params: { ...selected.params },
       combo: (selected.combo ?? []).map((item) => ({ rule: item.rule, params: { ...item.params } })),
       feeBps: selected.feeBps,
+      slippageBps: selected.slippageBps,
       capital: selected.capital,
       leverage: active.venue === "perp" ? selected.leverage : 1,
       riskPct: selected.riskPct,
@@ -526,6 +529,7 @@ export default function App() {
         sharpe: metrics.sharpe,
         win_rate_pct: metrics.win_rate_pct,
         profit_factor: metrics.profit_factor,
+        expectancy: metrics.expectancy,
         trades: metrics.trades,
         final_equity: metrics.final_equity,
       },
@@ -541,6 +545,7 @@ export default function App() {
       params: { ...kept.params },
       combo: kept.combo.map((item) => ({ rule: normalizeRule(item.rule), params: { ...item.params } })),
       feeBps: kept.feeBps,
+      slippageBps: kept.slippageBps,
       capital: kept.capital,
       leverage: kept.venue === "perp" ? kept.leverage : 1,
       riskPct: kept.riskPct,

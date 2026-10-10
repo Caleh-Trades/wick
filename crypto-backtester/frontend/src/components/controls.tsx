@@ -16,7 +16,7 @@ import { Separator } from "@/components/ui/separator"
 import { SymbolSelect } from "@/components/symbol-select"
 import { formatMoney } from "@/lib/format"
 import type { RuleId, Run, Venue } from "@/lib/types"
-import { MAX_COMBO, MAX_RUNS, RULES, clampRisk, paramsForRule, ruleName, ruleParams, runColor, runProblem } from "@/lib/runs"
+import { MAX_COMBO, MAX_RUNS, RULES, clampRisk, clampSlippage, paramsForRule, ruleName, ruleParams, runColor, runProblem } from "@/lib/runs"
 
 type ControlsProps = {
   idPrefix: string
@@ -237,9 +237,9 @@ export function Controls({
         label="Risk per trade (%)"
         value={clampRisk(selected.riskPct)}
         min={0.1}
-        max={100}
+        max={5}
         onValue={(riskPct) => patch({ riskPct })}
-        hint={<p className="text-xs leading-relaxed text-muted-foreground">{riskCopy(selected.capital, clampRisk(selected.riskPct), venue)}</p>}
+        hint={<p className="text-xs leading-relaxed text-muted-foreground">{riskCopy(selected.capital, clampRisk(selected.riskPct))}</p>}
       />
 
       {venue === "perp" ? (
@@ -260,6 +260,15 @@ export function Controls({
         min={0}
         max={1000}
         onValue={(feeBps) => patch({ feeBps })}
+      />
+
+      <DecimalField
+        id={`${idPrefix}-slippage`}
+        label="Slippage (bps)"
+        value={clampSlippage(selected.slippageBps)}
+        min={0}
+        max={1000}
+        onValue={(slippageBps) => patch({ slippageBps })}
       />
 
       {venue === "perp" ? (
@@ -283,8 +292,10 @@ export function Controls({
         </Button>
       </div>
       <p className="text-xs leading-relaxed break-words text-muted-foreground">
-        A signal is fixed on the close and filled on the next bar’s open. Slippage stays at 5 bps. Ten basis points is
-        0.10%. Risk per trade is the share of equity that fill loses if the position is wiped out.
+        A signal is fixed on the close and filled on the next bar’s open. Fee and slippage are charged on the entry and
+        the exit. Ten basis points is 0.10%. Risk per trade is the equity lost if the stop is hit, and the position is
+        that amount divided by the stop. The stop is the 14-bar average true range at the signal, or 2% of price when
+        the range is flat.
         {venue === "perp"
           ? " Perps size the position with this leverage, up to 20×, deduct funding, and liquidate through a 0.40% maintenance margin. Perp candles and funding come from the Kraken USD perpetual."
           : " Spot stays long or flat."}
@@ -478,16 +489,9 @@ function isField(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && (target instanceof HTMLInputElement || target.getAttribute("role") === "combobox")
 }
 
-function riskCopy(capital: number, riskPct: number, venue: Venue): string {
+function riskCopy(capital: number, riskPct: number): string {
   const stake = capital * (riskPct / 100)
-  const money = formatMoney(stake, stake >= 100 ? 0 : 2)
-  if (venue === "perp") {
-    return riskPct >= 100
-      ? "A liquidation loses the whole base balance. Leverage still sizes the position."
-      : `A liquidation loses ${money} of the base balance. That amount is the margin.`
-  }
-  return riskPct >= 100
-    ? "If price goes to zero, this trade loses the whole base balance."
-    : `If price goes to zero, this trade loses ${money}. The rest stays in cash.`
+  const money = formatMoney(stake, 2)
+  return `${money} of equity is lost if the stop is hit. Size is that amount divided by the stop distance.`
 }
 

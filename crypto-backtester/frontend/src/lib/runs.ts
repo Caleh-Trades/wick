@@ -387,6 +387,7 @@ export function createRun(partial?: Partial<Run>, existing: Run[] = []): Run {
     rule,
     params,
     feeBps: partial?.feeBps ?? 10,
+    slippageBps: clampSlippage(partial?.slippageBps),
     capital: clampNum(partial?.capital, 1, 1_000_000_000, 10_000),
     leverage: clampNum(partial?.leverage, 1, 20, 3),
     riskPct: clampRisk(partial?.riskPct),
@@ -472,7 +473,7 @@ export function pollIntervalMs(timeframe: Timeframe): number {
 export function fingerprint(run: Run): string {
   const spec = ruleById(normalizeRule(run.rule))
   const fields = (spec?.params ?? []).map((param) => `${param.key}:${run.params[param.key] ?? param.default}`)
-  const base = [run.symbol, normalizeRule(run.rule), fields.join(","), run.feeBps, run.capital, run.allowShort ? "short" : "flat", run.leverage, clampRisk(run.riskPct)].join("|")
+  const base = [run.symbol, normalizeRule(run.rule), fields.join(","), run.feeBps, clampSlippage(run.slippageBps), run.capital, run.allowShort ? "short" : "flat", run.leverage, clampRisk(run.riskPct)].join("|")
   const combo = comboKey(run)
   return combo ? `${base}|${combo}` : base
 }
@@ -490,6 +491,7 @@ function sanitizeRun(value: unknown): Run | null {
     rule,
     params: sanitizeParams(raw.params),
     feeBps: clampInt(raw.feeBps, 0, 1000, 10),
+    slippageBps: clampSlippage(raw.slippageBps),
     capital: clampNum(raw.capital, 1, 1_000_000_000, 10_000),
     leverage: clampNum(raw.leverage, 1, 20, 3),
     riskPct: clampRisk(raw.riskPct),
@@ -522,7 +524,11 @@ function clampInt(value: unknown, min: number, max: number, fallback: number): n
 }
 
 export function clampRisk(value: unknown): number {
-  return clampNum(value, 0.1, 100, 100)
+  return clampNum(value, 0.1, 5, 1)
+}
+
+export function clampSlippage(value: unknown): number {
+  return clampNum(value, 0, 1_000, 5)
 }
 
 function clampNum(value: unknown, min: number, max: number, fallback: number): number {

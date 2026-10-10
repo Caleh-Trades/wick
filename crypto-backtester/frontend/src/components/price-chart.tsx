@@ -5,7 +5,7 @@ import { QuotePrice } from "@/components/quote-price"
 import { Button } from "@/components/ui/button"
 import { formatAxis, formatPrice, formatStamp } from "@/lib/format"
 import { marketSpec } from "@/lib/markets"
-import { plotCandles, priceDomain, spotTrades, type PlotBar } from "@/lib/plot"
+import { plotCandles, priceDomain, priceTicks, spotTrades, type PlotBar } from "@/lib/plot"
 import { RANGES } from "@/lib/runs"
 import { useBookView, useFormingCandles } from "@/lib/use-book"
 import type { RangeId, TapeCandle, Trade, Venue } from "@/lib/types"
@@ -52,7 +52,8 @@ export const PriceChart = memo(function PriceChart({
   const frameRef = useRef<HTMLDivElement>(null)
   const [plot, setPlot] = useState<PlotBox | null>(null)
   const bars = useMemo(() => plotCandles(shown, spotTrades(trades, venue), 280), [shown, trades, venue])
-  const domain = useMemo(() => priceDomain(bars), [bars])
+  const domain = useMemo(() => priceDomain(shown), [shown])
+  const ticks = useMemo(() => priceTicks(domain), [domain])
   const tick = symbol ? marketSpec(symbol, venue)?.tickSize : undefined
 
   useLayoutEffect(() => {
@@ -123,6 +124,7 @@ export const PriceChart = memo(function PriceChart({
             <YAxis
               orientation="right"
               domain={domain}
+              ticks={ticks}
               allowDataOverflow
               padding={{ top: 0, bottom: 0 }}
               tickFormatter={(value) => formatPrice(Number(value), tick)}

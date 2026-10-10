@@ -66,7 +66,7 @@ export type Metrics = {
   sortino: number | null
   win_rate_pct: number | null
   profit_factor: number | null
-  /** Average winning return times win rate, minus average losing return times loss rate. */
+  /** Win rate times average winning return, minus loss rate times average losing return. Open trades count. */
   expectancy: number | null
   /** Bars from the worst-drawdown peak until equity reclaims it. Null if it never does. */
   recovery_bars: number | null
@@ -74,6 +74,10 @@ export type Metrics = {
   liquidations: number
   exposure_pct: number
   final_equity: number
+  /** Commissions charged on entries and exits. Slippage stays in the fills. */
+  fees_paid: number
+  /** Total return with those commissions added back to ending equity. */
+  return_before_fees_pct: number
   avg_trade_pct: number | null
   best_trade_pct: number | null
   worst_trade_pct: number | null
@@ -100,6 +104,10 @@ export type Trade = {
   status: "open" | "closed" | "liquidated"
   /** Funding charged while this position was open. Zero on spot. */
   funding_paid: number
+  /** Commission on the entry and, once closed, the exit. */
+  fee_paid?: number
+  /** Dollar slippage on the entry and, once closed, the exit. */
+  slippage_paid?: number
 }
 
 /** One window of a single pass. Parameters are not fit again on the holdout. */
@@ -170,9 +178,11 @@ export type Run = {
   /** Extra strategies that must agree with `rule` before a position opens. */
   combo: ComboRule[]
   feeBps: number
+  /** Adverse fill, in basis points, on the entry and the exit. */
+  slippageBps: number
   capital: number
   leverage: number
-  /** Percent of equity lost if this trade is wiped out. 100 uses the whole balance. */
+  /** Percent of equity lost if the stop is hit. Position size is this amount divided by the stop distance. */
   riskPct: number
   allowShort: boolean
   hidden: boolean

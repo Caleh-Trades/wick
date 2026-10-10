@@ -1,4 +1,4 @@
-import { clampRisk, normalizeCombo, normalizeRule, resolveRunParams, strategyLabel } from "./runs.ts"
+import { clampRisk, clampSlippage, normalizeCombo, normalizeRule, resolveRunParams, strategyLabel } from "./runs.ts"
 import { buildSignals } from "./signals.ts"
 import type { BacktestResult, EquityPoint, FundingRate, Run, SampleSlice, TapeCandle, Trade, Venue } from "./types"
 
@@ -50,7 +50,8 @@ export function backtest(
   const funding = venue === "perp" ? [...(options?.funding ?? [])].sort((left, right) => left.t - right.t) : []
   let fundIndex = 0
   const fee = run.feeBps / 10_000
-  const slip = SLIPPAGE_BPS / 10_000
+  const slipBps = clampSlippage(run.slippageBps)
+  const slip = slipBps / 10_000
   const simStart = 1
   const hi = candles.length - 1
   const bench = benchmark(candles, simStart, hi, capital, fee, slip)
@@ -70,18 +71,21 @@ export function backtest(
     if (!bar) continue
     if (sign(account.qty) !== target) {
       if (account.qty !== 0 && open) {
-        pushClose(trades, exits, open, account, closeFill(bar.open, account.qty, slip), bar.time, index, "closed")
+        const raw = bar.open
+        pushClose(trades, exits, open, account, closeFill(raw, account.qty, slip), raw, bar.time, index, "closed")
         open = null
       }
       if (target !== 0 && account.cash > 1) {
-        const fill = openFill(bar.open, target, slip)
-        const opened = account.open(target, fill, leverage, riskPct / 100)
+        const raw = bar.open
+        const fill = openFill(raw, target, slip)
+        const opened = account.open(target, fill, leverage, riskPct / 100, stopDistance(candles, index - 1, fill))
         if (opened.quantity > 0) {
           open = {
             entryTime: bar.time,
             entryIndex: index,
             entryPrice: fill,
             entryFee: opened.fee,
+            entrySlippage: Math.abs(fill - raw) * opened.quantity,
             quantity: opened.quantity,
             side: target > 0 ? "long" : "short",
             fundingPaid: 0,
@@ -102,7 +106,7 @@ export function backtest(
       const liq = liquidationPrice(open.entryPrice, open.side, leverage)
       const hit = open.side === "long" ? bar.low <= liq : bar.high >= liq
       if (venue === "perp" && hit) {
-        pushClose(trades, exits, open, account, liq, bar.time, index, "liquidated")
+        pushClose(trades, exits, open, account, liq, liq, bar.time, index, "liquidated")
         open = null
       }
     }
@@ -138,6 +142,8 @@ export function backtest(
         bars_held: hi - open.entryIndex,
         status: "open",
         funding_paid: open.fundingPaid,
+        fee_paid: open.entryFee,
+        slippage_paid: open.entrySlippage,
       })
       exits.push(hi)
     }
@@ -165,7 +171,7 @@ export function backtest(
     assumptions: {
       fill: "next_open",
       fee_bps: run.feeBps,
-      slippage_bps: SLIPPAGE_BPS,
+      slippage_bps: slipBps,
       initial_capital: capital,
       allow_short: allowShort,
       venue,
@@ -195,6 +201,7 @@ type OpenTrade = {
   entryIndex: number
   entryPrice: number
   entryFee: number
+  entrySlippage: number
   quantity: number
   side: "long" | "short"
   fundingPaid: number
@@ -206,10 +213,13 @@ function pushClose(
   open: OpenTrade,
   account: Account,
   fill: number,
+  raw: number,
   exitTime: string,
   index: number,
   status: "closed" | "liquidated",
 ) {
+  const exitFee = open.quantity * fill * account.fee
+  const exitSlippage = Math.abs(fill - raw) * open.quantity
   const pnl = account.close(fill) - open.entryFee - open.fundingPaid
   const notional = open.quantity * open.entryPrice
   trades.push({
@@ -224,8 +234,33 @@ function pushClose(
     bars_held: index - open.entryIndex,
     status,
     funding_paid: open.fundingPaid,
+    fee_paid: open.entryFee + exitFee,
+    slippage_paid: open.entrySlippage + exitSlippage,
   })
   exits.push(index)
+}
+
+/** Stop distance known when the signal fixed: a 14-bar average true range, or 2% of price when that range is flat. */
+function stopDistance(candles: TapeCandle[], signalIndex: number, fill: number): number {
+  const width = averageTrueRange(candles, signalIndex, 14)
+  if (width != null && width > 0) return width
+  return Math.abs(fill) * 0.02
+}
+
+function averageTrueRange(candles: TapeCandle[], end: number, period: number): number | null {
+  if (end < 1) return null
+  const start = Math.max(1, end - period + 1)
+  let sum = 0
+  let count = 0
+  for (let index = start; index <= end; index += 1) {
+    const bar = candles[index]
+    const prev = candles[index - 1]
+    if (!bar || !prev) continue
+    const range = Math.max(bar.high - bar.low, Math.abs(bar.high - prev.close), Math.abs(bar.low - prev.close))
+    sum += range
+    count += 1
+  }
+  return count > 0 ? sum / count : null
 }
 
 function barEnd(candles: TapeCandle[], index: number): number {
@@ -253,12 +288,14 @@ class Account {
     this.fee = fee
   }
 
-  open(side: number, fill: number, leverage = 1, risk = 1): { quantity: number; fee: number } {
+  open(side: number, fill: number, leverage = 1, risk = 0.01, distance = fill * 0.02): { quantity: number; fee: number } {
     if (fill <= 0 || this.cash <= 0 || side === 0) return { quantity: 0, fee: 0 }
     const scale = Math.min(20, Math.max(1, leverage))
-    const fraction = Math.min(1, Math.max(0.001, risk))
-    const budget = this.cash * fraction
-    const notional = (budget * scale) / (1 + this.fee * scale)
+    const fraction = Math.min(0.05, Math.max(0.001, risk))
+    const stop = Math.max(distance, Math.abs(fill) * 1e-8)
+    const maxNotional = (this.cash * scale) / (1 + this.fee * scale)
+    const notional = Math.min(maxNotional, ((this.cash * fraction) / stop) * fill)
+    if (!(notional > 0)) return { quantity: 0, fee: 0 }
     const feePaid = notional * this.fee
     this.cash -= feePaid
     this.qty = side * (notional / fill)
@@ -409,6 +446,7 @@ function measure(
     previous = point.equity
   }
   const drawdowns = equity.map((point) => point.drawdown_pct)
+  const feesPaid = trades.reduce((sum, trade) => sum + (trade.fee_paid ?? 0), 0)
   return {
     total_return_pct: total,
     benchmark_return_pct: benchmarkReturn,
@@ -419,7 +457,9 @@ function measure(
     sortino: sortino(barReturns, periodsPerYear),
     win_rate_pct: closed.length ? (wins.length / closed.length) * 100 : null,
     profit_factor: profitFactor(trades),
-    expectancy: tradeExpectancy(closed),
+    expectancy: tradeExpectancy(trades),
+    fees_paid: feesPaid,
+    return_before_fees_pct: pct(finalEquity + feesPaid, initial),
     recovery_bars: recoveryBars(equity, initial),
     trades: closed.length - liquidations,
     liquidations,
@@ -443,14 +483,17 @@ export function profitFactor(trades: Array<{ pnl: number }>): number | null {
   return grossWin / grossLoss
 }
 
-function tradeExpectancy(closed: Trade[]): number | null {
-  if (closed.length === 0) return null
-  const wins = closed.filter((trade) => trade.pnl > 0)
-  const losses = closed.filter((trade) => trade.pnl < 0)
-  const winRate = wins.length / closed.length
+/** Average trade return: (win rate × avg win) − (loss rate × avg loss). Open trades count. */
+export function tradeExpectancy(trades: Array<{ pnl: number; return_pct: number }>): number | null {
+  const sampled = trades.filter((trade) => Number.isFinite(trade.pnl) && Number.isFinite(trade.return_pct) && trade.pnl !== 0)
+  if (sampled.length === 0) return null
+  const wins = sampled.filter((trade) => trade.pnl > 0)
+  const losses = sampled.filter((trade) => trade.pnl < 0)
+  const winRate = wins.length / sampled.length
+  const lossRate = losses.length / sampled.length
   const avgWin = wins.length ? wins.reduce((sum, trade) => sum + trade.return_pct, 0) / wins.length : 0
   const avgLoss = losses.length ? losses.reduce((sum, trade) => sum + Math.abs(trade.return_pct), 0) / losses.length : 0
-  return avgWin * winRate - avgLoss * (1 - winRate)
+  return winRate * avgWin - lossRate * avgLoss
 }
 
 function recoveryBars(equity: EquityPoint[], initial: number): number | null {

@@ -48,6 +48,24 @@ export function priceDomain(candles: Array<{ low: number; high: number }>): [num
   return [min, hi + pad]
 }
 
+/** Round labels inside the padded range. The scale still starts at the padded low, so a wick is not clipped, and the axis does not print that pad as a price. */
+export function priceTicks(domain: [number, number]): number[] {
+  const [min, max] = domain
+  const span = max - min
+  if (!(span > 0)) return [min, max]
+  const rough = span / 4
+  const magnitude = 10 ** Math.floor(Math.log10(rough))
+  const residual = rough / magnitude
+  const step = residual >= 5 ? 10 * magnitude : residual >= 2 ? 5 * magnitude : residual >= 1 ? 2 * magnitude : magnitude
+  const ticks: number[] = []
+  const start = Math.ceil(min / step) * step
+  for (let value = start; value < max; value += step) {
+    ticks.push(Math.round(value * 1e8) / 1e8)
+    if (ticks.length >= 6) break
+  }
+  return ticks.length >= 2 ? ticks : [min, max]
+}
+
 export function plotCandles(candles: TapeCandle[], trades: Trade[], maxPoints: number): PlotBar[] {
   if (candles.length === 0) return []
   const entryAt = new Map<string, { price: number; side: "long" | "short" }>()

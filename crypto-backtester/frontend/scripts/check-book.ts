@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import { krakenProduct, projectLadder, rollingFlow, stepDecimals, streamNames, takerSide, type Print } from "../src/lib/book.ts"
 import { formatBookSize, formatCompact, formatPrice } from "../src/lib/format.ts"
 import { mergeForming } from "../src/lib/forming.ts"
-import { missingBars, priceDomain, spotTrades } from "../src/lib/plot.ts"
+import { missingBars, priceDomain, priceTicks, spotTrades } from "../src/lib/plot.ts"
 import { barsLabel, rangeDays, windowNote } from "../src/lib/runs.ts"
 import type { TapeCandle } from "../src/lib/types.ts"
 
@@ -84,6 +84,12 @@ const nearPrice = priceDomain([{ low: 80_000, high: 86_000 }])
 assert.ok(nearPrice[0] > 79_000)
 assert.ok(nearPrice[0] < 80_000)
 assert.ok(nearPrice[1] < 87_000)
+const year = priceDomain([{ low: 57_800.19, high: 122_550 }])
+const yearTicks = priceTicks(year)
+assert.ok(year[0] < 56_000)
+assert.ok(yearTicks.length >= 2)
+assert.ok(yearTicks.every((tick) => tick > 56_000 && tick < year[1]))
+assert.ok(!yearTicks.some((tick) => Math.abs(tick - 55_210.2) < 1))
 assert.deepEqual(
   spotTrades(
     [

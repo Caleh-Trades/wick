@@ -157,6 +157,10 @@ export const Results = memo(function Results({
                   <span className={toneClass(trade.pnl)}>{formatMoney(trade.pnl, 2)}</span>
                   <span className="text-muted-foreground">{trade.bars_held} bars</span>
                 </p>
+                <p className="mt-0.5 grid grid-cols-2 gap-2 font-mono text-[11px] tabular-nums text-muted-foreground">
+                  <span>Fee {trade.fee_paid == null ? "—" : formatMoney(trade.fee_paid, 2)}</span>
+                  <span className="text-right">Slip {trade.slippage_paid == null ? "—" : formatMoney(trade.slippage_paid, 2)}</span>
+                </p>
                 </button>
               </li>
             ))}
@@ -221,13 +225,19 @@ export function RunStrip({
         />
         <Metric
           label="Expectancy"
-          hint="Average win times win rate, minus average loss times loss rate."
+          hint="Average trade return: win rate times the average win, minus loss rate times the average loss. The open trade is included."
           value={formatPct(metrics.expectancy)}
           tone={tone(metrics.expectancy)}
           dense
         />
         <Metric label="Recovery" hint="Bars from the worst-drawdown peak until equity reclaims it." value={recoveryLabel(metrics.recovery_bars)} dense />
         <Metric label="Final equity" value={formatMoney(metrics.final_equity, 0)} dense />
+        <Metric
+          label="Risk"
+          hint="Percent of equity lost if the stop is hit. The position is that amount divided by the stop distance."
+          value={riskLabel(result.assumptions.risk_pct)}
+          dense
+        />
         {result.assumptions.venue === "perp" ? (
           <Metric
             label="Funding paid"
@@ -238,6 +248,12 @@ export function RunStrip({
       </div>
       <div className="mt-1 flex items-center gap-3">
         <p className="min-w-0 flex-1 truncate font-mono text-[10px] whitespace-nowrap text-muted-foreground">
+          Before fees {formatPct(metrics.return_before_fees_pct)}
+          {" · "}
+          Fees paid {formatMoney(metrics.fees_paid, 2)}
+          {" · "}
+          After fees {formatPct(metrics.total_return_pct)}
+          {" · "}
           In the market {formatPlainPct(metrics.exposure_pct, 0)}
           {" · "}
           CAGR {formatPct(metrics.cagr_pct)}
@@ -370,6 +386,7 @@ function Comparison({
                         <span className={cn("block truncate text-sm", row.run.id === selectedId && "text-[#c56a32]")}>{row.run.name}</span>
                         <span className="block font-mono text-[10px] leading-relaxed break-words text-muted-foreground uppercase">
                           {base} · {strategyLabel(row.run)}
+                          {metrics ? ` · E ${formatPct(metrics.expectancy)}` : ""}
                           {row.run.hidden ? " · hidden" : ""}
                         </span>
                       </span>

@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { formatMoney, formatPct, formatPlainPct, formatPrice, formatSize, formatStamp, formatStat } from "@/lib/format"
-import { downloadKept, journalEntries, journalStats, keptRuns, logTrade, removeJournalEntry, removeKeptRun, setKeptNote, tradePnl, watchJournal, watchKept, type JournalEntry, type JournalSide, type KeptRun } from "@/lib/journal"
+import { downloadKept, journalEntries, journalStats, keptExpectancy, keptRuns, logTrade, removeJournalEntry, removeKeptRun, setKeptNote, tradePnl, watchJournal, watchKept, type JournalEntry, type JournalSide, type KeptRun } from "@/lib/journal"
 import { RULES, ruleName } from "@/lib/runs"
 import type { Venue } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -291,6 +291,7 @@ function KeptRow({ row, onRestore }: { row: KeptRun; onRestore: (kept: KeptRun) 
           </span>
           <span>Sharpe {formatStat(row.metrics.sharpe)}</span>
           <span>Win {row.metrics.win_rate_pct == null ? "—" : formatPlainPct(row.metrics.win_rate_pct, 0)}</span>
+          <span>Expectancy {formatPct(keptExpectancy(row))}</span>
           <span>{row.metrics.trades} closed</span>
           <span>{formatMoney(row.metrics.final_equity, 0)}</span>
         </p>

@@ -1,3 +1,4 @@
+import { tradeExpectancy } from "./backtest.ts"
 import type { BotOp } from "./bot-edits.ts"
 import { normalizeSymbol } from "./markets.ts"
 import { isRange, isTimeframe, isVenue, normalizeRule, ruleName } from "./runs.ts"
@@ -35,6 +36,7 @@ export type KeptMetrics = {
   sharpe: number | null
   win_rate_pct: number | null
   profit_factor: number | null
+  expectancy: number | null
   trades: number
   final_equity: number
 }
@@ -51,6 +53,7 @@ export type KeptRun = {
   params: RunParams
   combo: { rule: string; params: RunParams }[]
   feeBps: number
+  slippageBps: number
   capital: number
   leverage: number
   riskPct: number
@@ -433,9 +436,10 @@ function sanitizeKept(value: unknown): KeptRun | null {
     params: asParams(raw.params),
     combo: asCombo(raw.combo, rule),
     feeBps: clampKept(raw.feeBps, 0, 1000, 10),
+    slippageBps: clampKept(raw.slippageBps, 0, 1000, 5),
     capital: clampKept(raw.capital, 1, 1_000_000_000, 10_000),
     leverage: clampKept(raw.leverage, 1, 20, venue === "perp" ? 3 : 1),
-    riskPct: clampKept(raw.riskPct, 0.1, 100, 100),
+    riskPct: clampKept(raw.riskPct, 0.1, 5, 1),
     allowShort: venue === "perp" && raw.allowShort !== false,
     metrics,
     note: typeof raw.note === "string" ? raw.note.trim().slice(0, 280) : "",
@@ -454,26 +458,37 @@ export function setKeptNote(id: string, note: string): void {
 export type KeptExport = {
   symbol: string
   market: Venue
+  timeframe: string
   rule: string
   params: RunParams
+  fee: number
+  slippage_bps: number
   metrics: KeptMetrics
+  trades: Trade[]
   in_sample: SampleSlice | null
   holdout: SampleSlice | null
-  trades: Trade[]
   note: string
   funding_paid: number
+}
+
+export function keptExpectancy(row: Pick<KeptRun, "trades" | "metrics">): number | null {
+  if (row.trades.length > 0) return tradeExpectancy(row.trades)
+  return row.metrics.expectancy
 }
 
 export function keptExport(row: KeptRun): KeptExport {
   return {
     symbol: row.symbol,
     market: row.venue,
+    timeframe: row.timeframe,
     rule: row.rule,
     params: row.params,
-    metrics: row.metrics,
+    fee: row.feeBps,
+    slippage_bps: row.slippageBps,
+    metrics: { ...row.metrics, expectancy: keptExpectancy(row) },
+    trades: row.trades,
     in_sample: row.inSample,
     holdout: row.holdout,
-    trades: row.trades,
     note: row.note,
     funding_paid: row.fundingPaid,
   }
@@ -527,6 +542,8 @@ function asTrades(value: unknown): Trade[] {
       bars_held: Number.isFinite(Number(raw.bars_held)) ? Number(raw.bars_held) : 0,
       status,
       funding_paid: Number.isFinite(Number(raw.funding_paid)) ? Number(raw.funding_paid) : 0,
+      fee_paid: Number.isFinite(Number(raw.fee_paid)) ? Number(raw.fee_paid) : undefined,
+      slippage_paid: Number.isFinite(Number(raw.slippage_paid)) ? Number(raw.slippage_paid) : undefined,
     })
     if (trades.length >= 500) break
   }
@@ -548,6 +565,7 @@ function asMetrics(value: unknown): KeptMetrics | null {
     sharpe: finiteOrNull(raw.sharpe),
     win_rate_pct: finiteOrNull(raw.win_rate_pct),
     profit_factor: finiteOrNull(raw.profit_factor),
+    expectancy: finiteOrNull(raw.expectancy),
     trades,
     final_equity: equity,
   }

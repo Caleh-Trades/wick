@@ -215,13 +215,18 @@ def test_premium_keeps_the_rate_and_a_failure_does_not_invent_zero(monkeypatch):
 def test_candles_route_loads_perp_funding_without_inventing_it(monkeypatch):
     now = int(time.time())
 
-    def load(symbol, interval, days=None, venue="spot"):
-        assert symbol == "BTCUSDT"
-        assert venue == "perp"
-        return ([Candle(time=now - 3_600, open=1, high=2, low=1, close=1.5, volume=4)], "binance-perp")
+    def spot_kline(*args, **kwargs):
+        raise AssertionError("a perp slot must not plot a spot kline")
 
-    monkeypatch.setattr("app.main.load_binance_series", load)
-    monkeypatch.setattr("app.main.load_funding", lambda symbol, start, end: (_ for _ in ()).throw(DataUnavailable("down")))
+    monkeypatch.setattr("app.main.load_binance_series", spot_kline)
+    monkeypatch.setattr("app.main.load_binance_tail", spot_kline)
+    monkeypatch.setattr(
+        "app.main.load_kraken_perp_series",
+        lambda symbol, interval, days=None: (
+            [Candle(time=now - 3_600, open=1, high=2, low=1, close=1.5, volume=4)],
+            "kraken-perp",
+        ),
+    )
     monkeypatch.setattr(
         "app.main.load_kraken_funding",
         lambda symbol, start, end: (_ for _ in ()).throw(DataUnavailable("kraken down")),
@@ -229,7 +234,8 @@ def test_candles_route_loads_perp_funding_without_inventing_it(monkeypatch):
     response = TestClient(app).get("/api/candles", params={"symbol": "BTCUSDT", "interval": "1h", "days": 1, "venue": "perp"})
     assert response.status_code == 200
     body = response.json()
-    assert body["source"] == "binance-perp"
+    assert body["source"] == "kraken-perp"
+    assert body["candles"][0]["close"] == 1.5
     assert body["funding"] is None
     assert body["funding_stale"] is True
 

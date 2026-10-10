@@ -97,15 +97,16 @@ def test_funding_uses_the_relative_rate_and_flags_a_late_history(monkeypatch):
         raise AssertionError("missing funding should not come back as an empty rate")
 
 
-def test_perp_routes_use_kraken_when_binance_is_blocked(monkeypatch):
+def test_perp_routes_use_kraken(monkeypatch):
     now = int(time.time())
 
-    def blocked(*args, **kwargs):
-        raise DataUnavailable("Service unavailable from a restricted location.")
+    def spot_kline(*args, **kwargs):
+        raise AssertionError("a perp slot must not plot a spot or Binance kline")
 
-    monkeypatch.setattr("app.main.load_binance_series", blocked)
-    monkeypatch.setattr("app.main.load_funding", blocked)
-    monkeypatch.setattr("app.main.list_usdt_markets", blocked)
+    monkeypatch.setattr("app.main.load_binance_series", spot_kline)
+    monkeypatch.setattr("app.main.load_binance_tail", spot_kline)
+    monkeypatch.setattr("app.main.load_funding", spot_kline)
+    monkeypatch.setattr("app.main.list_usdt_markets", spot_kline)
     monkeypatch.setattr(
         "app.main.load_kraken_perp_series",
         lambda symbol, interval, days=None: (

@@ -2,11 +2,10 @@ import { useEffect, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { fetchPremium, type PremiumQuote } from "@/lib/api"
-import { formatClock } from "@/lib/format"
+import { formatStamp } from "@/lib/format"
 import { logAlert } from "@/lib/journal"
 import { useBookView } from "@/lib/use-book"
-import type { Venue } from "@/lib/types"
+import type { FundingRate, Venue } from "@/lib/types"
 import type { AlertKind, SlotAlert } from "@/lib/workspace"
 
 const KINDS: { id: AlertKind; label: string }[] = [
@@ -17,52 +16,33 @@ const KINDS: { id: AlertKind; label: string }[] = [
 
 const latched = new Set<string>()
 
-export function FundingQuote({ symbol }: { symbol: string }) {
-  const [quote, setQuote] = useState<PremiumQuote | null>(null)
-  const [missing, setMissing] = useState(false)
-
-  useEffect(() => {
-    let stop = false
-    setQuote(null)
-    setMissing(false)
-
-    async function load() {
-      try {
-        const next = await fetchPremium(symbol)
-        if (stop) return
-        setQuote(next)
-        setMissing(false)
-      } catch {
-        if (stop) return
-        setQuote((current) => (current ? { ...current, stale: true } : null))
-        setMissing(true)
-      }
-    }
-
-    void load()
-    const timer = window.setInterval(() => void load(), 60_000)
-    return () => {
-      stop = true
-      window.clearInterval(timer)
-    }
-  }, [symbol])
-
-  if (!quote) {
+export function FundingQuote({ rates, stale }: { rates: FundingRate[] | null | undefined; stale: boolean }) {
+  const last = latestRate(rates)
+  if (!last) {
     return (
       <p className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase" role="status">
-        {missing ? "Funding unavailable" : "Funding"}
+        {stale ? "Funding didn't load." : "Funding"}
       </p>
     )
   }
 
   return (
     <p className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase" role="status">
-      Funding {formatFundingRate(quote.rate)}
-      {" · next "}
-      {formatFundingWhen(quote.nextFundingTime)}
-      {quote.stale ? " · stale" : ""}
+      Funding {formatFundingRate(last.rate)}
+      {" · "}
+      {formatStamp(new Date(last.t * 1000).toISOString(), "1m")} UTC
+      {stale ? " · stale" : ""}
     </p>
   )
+}
+
+function latestRate(rates: FundingRate[] | null | undefined): FundingRate | null {
+  if (!rates || rates.length === 0) return null
+  let best = rates[0]!
+  for (const rate of rates) {
+    if (rate.t >= best.t) best = rate
+  }
+  return Number.isFinite(best.rate) ? best : null
 }
 
 export function AlertControl({ alert, onChange }: { alert: SlotAlert | null; onChange: (next: SlotAlert | null) => void }) {
@@ -153,9 +133,3 @@ function formatFundingRate(rate: number): string {
   return `${sign}${pct.toFixed(4)}%`
 }
 
-function formatFundingWhen(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0) return "—"
-  const date = new Date(ms)
-  const day = date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
-  return `${day} ${formatClock(date)} UTC`
-}

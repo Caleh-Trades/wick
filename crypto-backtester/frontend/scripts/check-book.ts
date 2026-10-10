@@ -1,9 +1,9 @@
 import assert from "node:assert/strict"
 
-import { projectLadder, rollingFlow, stepDecimals, streamNames, takerSide, type Print } from "../src/lib/book.ts"
+import { krakenProduct, projectLadder, rollingFlow, stepDecimals, streamNames, takerSide, type Print } from "../src/lib/book.ts"
 import { formatBookSize, formatCompact, formatPrice } from "../src/lib/format.ts"
 import { mergeForming } from "../src/lib/forming.ts"
-import { priceDomain, spotTrades } from "../src/lib/plot.ts"
+import { missingBars, priceDomain, spotTrades } from "../src/lib/plot.ts"
 import { barsLabel, rangeDays, windowNote } from "../src/lib/runs.ts"
 import type { TapeCandle } from "../src/lib/types.ts"
 
@@ -95,6 +95,11 @@ assert.deepEqual(
   ["long"],
 )
 assert.equal(spotTrades([{ side: "short" as const }], "perp").length, 1)
+assert.equal(krakenProduct("BTCUSDT"), "PF_XBTUSD")
+assert.equal(krakenProduct("ETHUSDT"), "PF_ETHUSD")
+assert.equal(krakenProduct("1000PEPEUSDT"), "PF_1000PEPEUSD")
+assert.equal(missingBars([{ t: 0 }, { t: 60 }, { t: 180 }], 60), 1)
+assert.equal(missingBars([{ t: 0 }, { t: 60 }, { t: 120 }], 60), 0)
 assert.equal(takerSide(true), "sell")
 assert.equal(takerSide(false), "buy")
 

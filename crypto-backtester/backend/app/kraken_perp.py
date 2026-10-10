@@ -1,4 +1,4 @@
-"""Kraken USD perpetuals. Used when Binance USDT-M history cannot be fetched."""
+"""Kraken USD perpetuals. Perp slots read this book, not a Binance spot or USDT-M kline."""
 
 from __future__ import annotations
 

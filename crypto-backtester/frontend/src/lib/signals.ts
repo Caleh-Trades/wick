@@ -1,3 +1,4 @@
+import { ruleById } from "./runs.ts"
 import type { RuleId, RunParams, TapeCandle } from "./types"
 
 const SKIP_LAST = 1
@@ -14,6 +15,37 @@ export function buildSignals(rule: RuleId, candles: TapeCandle[], params: RunPar
   const days = candles.map((bar) => Math.floor(bar.t / 86_400))
   const signals = series(rule, { closes, highs, lows, opens, volumes, days }, params)
   return signals.map((value) => (value > 0 ? 1 : value < 0 ? -1 : 0))
+}
+
+/** Values that fired the entry. Moving averages are read on the signal bar, one bar before the fill. */
+export function ruleReading(rule: RuleId, candles: TapeCandle[], params: RunParams, entryTime: string): string[] {
+  const entry = candles.findIndex((bar) => bar.time === entryTime)
+  const signal = Math.max(0, (entry < 0 ? 0 : entry) - 1)
+  const closes = candles.map((bar) => bar.close)
+  if (rule === "sma_cross" || rule === "dual_ma") {
+    const lines = [
+      `Fast SMA ${readingValue(sma(closes, params.fast ?? 20)[signal])}`,
+      `Slow SMA ${readingValue(sma(closes, params.slow ?? 50)[signal])}`,
+    ]
+    if (rule === "dual_ma") lines.push(`Filter SMA ${readingValue(sma(closes, params.filter ?? 200)[signal])}`)
+    return lines
+  }
+  if (rule === "ema_cross") {
+    return [
+      `Fast EMA ${readingValue(ema(closes, params.fast ?? 12)[signal])}`,
+      `Slow EMA ${readingValue(ema(closes, params.slow ?? 26)[signal])}`,
+    ]
+  }
+  const spec = ruleById(rule)
+  if (!spec || spec.params.length === 0) return spec ? [spec.name] : []
+  return spec.params.map((param) => `${param.label} ${params[param.key] ?? param.default}`)
+}
+
+function readingValue(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "—"
+  const abs = Math.abs(value)
+  const digits = abs >= 1000 ? 2 : abs >= 1 ? 4 : 6
+  return value.toFixed(digits)
 }
 
 type Bars = {

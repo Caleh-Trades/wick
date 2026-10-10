@@ -31,9 +31,13 @@ export const SEED_MARKETS: SpotMarket[] = [
   { id: "DOGEUSDT", base: "DOGE", quote: "USDT", tickSize: "0.00001", stepSize: "1" },
 ]
 
+const PERP_SEED: SpotMarket[] = SEED_MARKETS.map((market) =>
+  market.id === "BTCUSDT" ? { ...market, tickSize: "1", stepSize: "0.0001" } : { ...market },
+)
+
 const books: Record<Venue, SpotMarket[]> = {
   spot: SEED_MARKETS,
-  perp: SEED_MARKETS.map((market) => ({ ...market })),
+  perp: PERP_SEED,
 }
 const listeners = new Set<() => void>()
 

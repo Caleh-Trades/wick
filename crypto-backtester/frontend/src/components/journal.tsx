@@ -119,7 +119,7 @@ export function JournalPage({ symbol, venue, onRestore }: { symbol: string; venu
           }}
         >
           <p className="font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
-            Log a trade · {venue === "perp" ? "Binance perp" : "Binance spot"}
+            Log a trade · {venue === "perp" ? "Kraken perp" : "Binance spot"}
           </p>
           <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
             <div className="flex flex-col gap-1">

@@ -24,6 +24,7 @@ import { applyBotEdits, editConcerns } from "@/lib/bot-edits"
 import { JournalPage } from "@/components/journal"
 import { keepRun, logTradeOp, type KeptRun } from "@/lib/journal"
 import { computeBacktest } from "@/lib/compute"
+import { ruleReading } from "@/lib/signals"
 import { spotTrades } from "@/lib/plot"
 import { CHART_MAX, CHART_MIN, clampChart, loadPanes, savePanes, type PaneSizes } from "@/lib/panes"
 import {
@@ -73,6 +74,7 @@ export default function App() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc")
   const [drawToken, setDrawToken] = useState(0)
   const [page, setPage] = useState<"desk" | "journal">("desk")
+  const [focusTrade, setFocusTrade] = useState<Trade | null>(null)
   const workspaceRef = useRef(workspace)
   const tapesRef = useRef(tapes)
   const outcomesRef = useRef(outcomes)
@@ -83,6 +85,9 @@ export default function App() {
 
   const active = workspace.slots.find((slot) => slot.id === workspace.activeId) ?? workspace.slots[0]
   const selected = active?.runs.find((run) => run.id === active.selectedId) ?? active?.runs[0]
+  useEffect(() => {
+    setFocusTrade(null)
+  }, [active?.id, active?.symbol, active?.venue, selected?.id])
   const shown = visibleSlots(workspace)
 
   useEffect(() => {
@@ -563,6 +568,10 @@ export default function App() {
       ]
     })
   }, [active, outcomes])
+  const reading = useMemo(() => {
+    if (!focusTrade || !activeTape || !selected) return []
+    return ruleReading(normalizeRule(selected.rule), activeTape.candles, selected.params, focusTrade.entry_time)
+  }, [activeTape, focusTrade, selected])
   const error = active ? errors[active.id] : null
   const phrase = phraseFor(active?.timeframe ?? "1d")
 
@@ -648,6 +657,11 @@ export default function App() {
                   candleClock={clocks[slot.id] ?? null}
                   showCaption={shown.length > 1}
                   alert={slot.alert}
+                  funding={tapes[tapeKey(slot)]?.funding}
+                  fundingStale={tapes[tapeKey(slot)]?.fundingStale === true}
+                  focusTime={slot.id === workspace.activeId ? (focusTrade?.entry_time ?? null) : null}
+                  reading={slot.id === workspace.activeId ? reading : []}
+                  onClearFocus={() => setFocusTrade(null)}
                   onAlert={(alert) => patchSlot(slot.id, { alert })}
                   onBookWidth={(book) => setPanes((current) => ({ ...current, book }))}
                   onEnlarge={() => {
@@ -708,6 +722,7 @@ export default function App() {
                     setSortDir("desc")
                   }
                 }}
+                onFocusTrade={setFocusTrade}
                 drawToken={drawToken}
               />
               </div>

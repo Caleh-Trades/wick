@@ -286,7 +286,7 @@ export function Controls({
         A signal is fixed on the close and filled on the next bar’s open. Slippage stays at 5 bps. Ten basis points is
         0.10%. Risk per trade is the share of equity that fill loses if the position is wiped out.
         {venue === "perp"
-          ? " Perps size the position with this leverage, up to 20×, deduct funding, and liquidate through a 0.40% maintenance margin. If Binance history is blocked, candles and funding come from the Kraken USD perpetual."
+          ? " Perps size the position with this leverage, up to 20×, deduct funding, and liquidate through a 0.40% maintenance margin. Perp candles and funding come from the Kraken USD perpetual."
           : " Spot stays long or flat."}
       </p>
     </form>

@@ -177,6 +177,7 @@ export function backtest(
     metrics,
     in_sample: measureSlice(equity.slice(0, split), inSampleTrades, capital, periodsPerYear),
     holdout: measureSlice(equity.slice(split), holdoutTrades, boundary, periodsPerYear),
+    walk_forward: walkForward(equity, trades, exits, simStart, capital, periodsPerYear),
     equity,
     trades,
     candles: window.map((bar) => ({
@@ -334,6 +335,32 @@ function benchmark(
   return marks
 }
 
+export function holdoutWarn(metrics: { sharpe: number | null }, holdout: { sharpe: number | null }): boolean {
+  return metrics.sharpe != null && metrics.sharpe > 0 && holdout.sharpe != null && holdout.sharpe < 0
+}
+
+function walkForward(
+  equity: EquityPoint[],
+  trades: Trade[],
+  exits: number[],
+  simStart: number,
+  capital: number,
+  periodsPerYear: number,
+): SampleSlice[] {
+  const count = equity.length
+  const cuts = [0, Math.floor(count / 3), Math.floor((2 * count) / 3), count]
+  return [0, 1, 2].map((window) => {
+    const start = cuts[window] ?? 0
+    const end = cuts[window + 1] ?? count
+    const startEquity = window === 0 ? capital : (equity[start - 1]?.equity ?? capital)
+    const windowTrades = trades.filter((_, index) => {
+      const exit = (exits[index] ?? simStart) - simStart
+      return exit >= start && exit < end
+    })
+    return measureSlice(equity.slice(start, end), windowTrades, startEquity, periodsPerYear)
+  })
+}
+
 function measureSlice(points: EquityPoint[], trades: Trade[], startEquity: number, periodsPerYear: number): SampleSlice {
   if (points.length === 0) {
     return { total_return_pct: 0, max_drawdown_pct: 0, sharpe: null, trades: 0 }
@@ -395,6 +422,8 @@ function measure(
     sortino: sortino(barReturns, periodsPerYear),
     win_rate_pct: closed.length ? (wins.length / closed.length) * 100 : null,
     profit_factor: grossLoss > 0 ? grossProfit / grossLoss : null,
+    expectancy: tradeExpectancy(closed),
+    recovery_bars: recoveryBars(equity, initial),
     trades: closed.length - liquidations,
     liquidations,
     exposure_pct: equity.length ? (exposedBars / equity.length) * 100 : 0,
@@ -403,6 +432,44 @@ function measure(
     best_trade_pct: returns.length ? Math.max(...returns) : null,
     worst_trade_pct: returns.length ? Math.min(...returns) : null,
   }
+}
+
+function tradeExpectancy(closed: Trade[]): number | null {
+  if (closed.length === 0) return null
+  const wins = closed.filter((trade) => trade.pnl > 0)
+  const losses = closed.filter((trade) => trade.pnl < 0)
+  const winRate = wins.length / closed.length
+  const avgWin = wins.length ? wins.reduce((sum, trade) => sum + trade.return_pct, 0) / wins.length : 0
+  const avgLoss = losses.length ? losses.reduce((sum, trade) => sum + Math.abs(trade.return_pct), 0) / losses.length : 0
+  return avgWin * winRate - avgLoss * (1 - winRate)
+}
+
+function recoveryBars(equity: EquityPoint[], initial: number): number | null {
+  if (equity.length === 0) return 0
+  let worst = 0
+  let trough = -1
+  for (let index = 0; index < equity.length; index += 1) {
+    const drawdown = equity[index]?.drawdown_pct ?? 0
+    if (drawdown < worst) {
+      worst = drawdown
+      trough = index
+    }
+  }
+  if (trough < 0) return 0
+  let peak = initial
+  let peakAt = -1
+  for (let index = 0; index <= trough; index += 1) {
+    const marked = equity[index]?.equity ?? peak
+    if (marked >= peak) {
+      peak = marked
+      peakAt = index
+    }
+  }
+  if ((equity[trough]?.equity ?? peak) >= peak) return 0
+  for (let index = trough + 1; index < equity.length; index += 1) {
+    if ((equity[index]?.equity ?? 0) >= peak) return index - peakAt
+  }
+  return null
 }
 
 function pct(final: number, initial: number): number {

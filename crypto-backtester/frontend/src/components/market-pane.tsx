@@ -4,7 +4,7 @@ import { PriceChart } from "@/components/price-chart"
 import { OrderBook } from "@/components/order-book"
 import { AlertControl, AlertWatch, FundingQuote } from "@/components/slot-tools"
 import { formatClock } from "@/lib/format"
-import type { TapeCandle, Trade, Venue } from "@/lib/types"
+import type { FundingRate, TapeCandle, Trade, Venue } from "@/lib/types"
 import type { SlotAlert } from "@/lib/workspace"
 
 export function MarketPane({
@@ -17,6 +17,11 @@ export function MarketPane({
   candleClock,
   showCaption,
   alert,
+  funding,
+  fundingStale,
+  focusTime,
+  reading,
+  onClearFocus,
   onAlert,
   onBookWidth,
   onEnlarge,
@@ -30,6 +35,11 @@ export function MarketPane({
   candleClock: Date | null
   showCaption: boolean
   alert: SlotAlert | null
+  funding?: FundingRate[] | null
+  fundingStale?: boolean
+  focusTime?: string | null
+  reading?: string[]
+  onClearFocus?: () => void
   onAlert: (alert: SlotAlert | null) => void
   onBookWidth: (width: number) => void
   onEnlarge: () => void
@@ -52,18 +62,28 @@ export function MarketPane({
       <div className="mb-1 flex flex-col gap-1 px-1">
         {showCaption ? (
           <p className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
-            {venue === "perp" ? "Binance perp" : "Binance spot"}
+            {venue === "perp" ? "Kraken perp" : "Binance spot"}
             {" · "}
             Candles {candleClock ? `${formatClock(candleClock)} UTC` : "—"}
           </p>
         ) : null}
-        {venue === "perp" && symbol ? <FundingQuote symbol={symbol} /> : null}
+        {venue === "perp" && symbol ? <FundingQuote rates={funding} stale={fundingStale === true} /> : null}
         <AlertControl alert={alert} onChange={onAlert} />
         {symbol ? <AlertWatch symbol={symbol} venue={venue} alert={alert} /> : null}
       </div>
       <div ref={rowRef} className="flex min-h-0 flex-1 flex-row">
         <div className="min-h-0 min-w-0 flex-1">
-          <PriceChart candles={candles} trades={trades} interval={interval} symbol={symbol} venue={venue} onEnlarge={onEnlarge} />
+          <PriceChart
+            candles={candles}
+            trades={trades}
+            interval={interval}
+            symbol={symbol}
+            venue={venue}
+            focusTime={focusTime}
+            reading={reading}
+            onClearFocus={onClearFocus}
+            onEnlarge={onEnlarge}
+          />
         </div>
         <div
           role="separator"

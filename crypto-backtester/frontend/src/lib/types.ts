@@ -66,6 +66,10 @@ export type Metrics = {
   sortino: number | null
   win_rate_pct: number | null
   profit_factor: number | null
+  /** Average winning return times win rate, minus average losing return times loss rate. */
+  expectancy: number | null
+  /** Bars from the worst-drawdown peak until equity reclaims it. Null if it never does. */
+  recovery_bars: number | null
   trades: number
   liquidations: number
   exposure_pct: number
@@ -217,6 +221,8 @@ export type BacktestResult = {
   in_sample: SampleSlice
   /** Last 30% of simulated bars, measured from equity at the split. */
   holdout: SampleSlice
+  /** Three equal slices of the same pass. Parameters are not fit again. */
+  walk_forward: SampleSlice[]
   equity: EquityPoint[]
   trades: Trade[]
   candles: Candle[]

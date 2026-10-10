@@ -4,6 +4,7 @@ import type { AccountSession } from "@/lib/account"
 import { SymbolSelect } from "@/components/symbol-select"
 import { Button } from "@/components/ui/button"
 import { formatClock, formatDay, formatPrice } from "@/lib/format"
+import { missingBars } from "@/lib/plot"
 import { RANGES, TIMEFRAMES, barsLabel, marketById, windowNote } from "@/lib/runs"
 import type { MarketId, RangeId, Tape, Timeframe, Venue } from "@/lib/types"
 
@@ -53,6 +54,7 @@ export function DeskBar({
   const last = tape?.candles.at(-1)
   const first = tape?.candles[0]
   const limited = tape ? windowNote(range, tape) : null
+  const gaps = tape ? missingBars(tape.candles, tape.seconds) : 0
 
   return (
     <header className="bezel sticky top-0 z-30">
@@ -142,14 +144,15 @@ export function DeskBar({
         </div>
 
         <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
-          <span>{venue === "perp" ? "Binance perp" : "Binance spot"}</span>
+          <span>{venue === "perp" ? "Kraken perp" : "Binance spot"}</span>
           {tape && last && first ? (
             <>
               <span>{market?.base ?? tape.symbol}</span>
               <span>{barsLabel(timeframe, tape.candles.length)}</span>
               <span>
-                {formatDay(first.time)} – {formatDay(last.time)}
+                {formatDay(first.time)} – {formatDay(last.time)} UTC
               </span>
+              {gaps > 0 ? <span>{gapLabel(gaps)}</span> : null}
               <span className="text-foreground tabular-nums">{formatPrice(last.close, market?.tickSize)}</span>
               {limited ? <span>{limited}</span> : null}
             </>
@@ -167,6 +170,10 @@ export function DeskBar({
       ) : null}
     </header>
   )
+}
+
+function gapLabel(count: number): string {
+  return count === 1 ? "1 gap" : `${count} gaps`
 }
 
 function CandleMark() {

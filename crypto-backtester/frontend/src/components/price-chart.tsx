@@ -20,6 +20,9 @@ export const PriceChart = memo(function PriceChart({
   interval,
   symbol,
   venue,
+  focusTime,
+  reading,
+  onClearFocus,
   onEnlarge,
 }: {
   candles: TapeCandle[]
@@ -27,12 +30,20 @@ export const PriceChart = memo(function PriceChart({
   interval: string
   symbol: string | null
   venue: Venue
+  focusTime?: string | null
+  reading?: string[]
+  onClearFocus?: () => void
   onEnlarge: () => void
 }) {
   const book = useBookView(symbol, venue)
   const formed = useFormingCandles(candles, interval, symbol, venue)
   const livePrice = book.last?.price ?? book.quote
-  const shown = useMemo(() => withLivePrice(formed, livePrice), [formed, livePrice])
+  const windowed = useMemo(() => windowAround(formed, focusTime), [formed, focusTime])
+  const includesTail = windowed.length > 0 && windowed[windowed.length - 1] === formed[formed.length - 1]
+  const shown = useMemo(
+    () => (includesTail ? withLivePrice(windowed, livePrice) : windowed),
+    [includesTail, livePrice, windowed],
+  )
   const frameRef = useRef<HTMLDivElement>(null)
   const [plot, setPlot] = useState<PlotBox | null>(null)
   const bars = useMemo(() => plotCandles(shown, spotTrades(trades, venue), 280), [shown, trades, venue])
@@ -70,6 +81,7 @@ export const PriceChart = memo(function PriceChart({
           <h3 className="font-heading text-xl">Price</h3>
           <QuotePrice symbol={symbol} venue={venue} />
         </div>
+        {reading && reading.length > 0 ? <p className="font-mono text-[11px] text-muted-foreground">{reading.join(" · ")}</p> : null}
         <p className="mt-6 text-sm text-muted-foreground">Waiting for bars.</p>
       </div>
     )
@@ -79,12 +91,22 @@ export const PriceChart = memo(function PriceChart({
     <div data-price-summary="" className="bezel flex h-full min-h-0 flex-col px-3 py-2">
       <div className="mb-1 flex shrink-0 flex-wrap items-end justify-between gap-2">
         <div className="flex items-baseline gap-3">
-          <h3 className="font-heading text-xl">Price</h3>
-          <QuotePrice symbol={symbol} venue={venue} close={shown.at(-1)?.close} />
+          <div>
+            <div className="flex items-baseline gap-3">
+              <h3 className="font-heading text-xl">Price</h3>
+              <QuotePrice symbol={symbol} venue={venue} close={shown.at(-1)?.close} />
+            </div>
+            {reading && reading.length > 0 ? <p className="font-mono text-[11px] text-muted-foreground">{reading.join(" · ")}</p> : null}
+          </div>
         </div>
         <div className="flex items-center gap-3 font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
           <span className="text-up">Long</span>
           {venue === "perp" ? <span className="text-down">Short</span> : null}
+          {focusTime ? (
+            <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={onClearFocus}>
+              Full tape
+            </Button>
+          ) : null}
           <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={onEnlarge}>
             Enlarge
           </Button>
@@ -123,6 +145,13 @@ export const PriceChart = memo(function PriceChart({
     </div>
   )
 })
+
+function windowAround(candles: TapeCandle[], focusTime: string | null | undefined): TapeCandle[] {
+  if (!focusTime) return candles
+  const index = candles.findIndex((bar) => bar.time === focusTime)
+  if (index < 0) return candles
+  return candles.slice(Math.max(0, index - 60), Math.min(candles.length, index + 61))
+}
 
 function withLivePrice(candles: TapeCandle[], price: number | null | undefined): TapeCandle[] {
   if (price == null || !(price > 0) || candles.length === 0) return candles
@@ -198,7 +227,7 @@ function CandleTip({
   if (!active || !bar || label == null) return null
   return (
     <div className="border border-border bg-[#fffaf4] px-3 py-2 font-mono text-xs text-[#3c2a22]">
-      <div className="mb-1 text-[10px] tracking-wide uppercase opacity-70">{formatStamp(String(label), interval)}</div>
+      <div className="mb-1 text-[10px] tracking-wide uppercase opacity-70">{formatStamp(String(label), interval)} UTC</div>
       <div>O {formatPrice(bar.open, tick)}</div>
       <div>H {formatPrice(bar.high, tick)}</div>
       <div>L {formatPrice(bar.low, tick)}</div>

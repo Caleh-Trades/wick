@@ -31,6 +31,16 @@ export type Ladder = {
 
 type RawLevel = { priceKey: string; price: number; size: number }
 
+/** Kraken USD perpetual product id. Bitcoin is PF_XBTUSD. Other bases keep their ticker. */
+export function krakenProduct(symbol: string): string | null {
+  const id = symbol.toUpperCase()
+  if (!id.endsWith("USDT")) return null
+  const base = id.slice(0, -4)
+  if (!base) return null
+  if (base === "BTC") return "PF_XBTUSD"
+  return `PF_${base}USD`
+}
+
 export function tickerName(symbol: string): string {
   return `${symbol.toLowerCase()}@ticker`
 }

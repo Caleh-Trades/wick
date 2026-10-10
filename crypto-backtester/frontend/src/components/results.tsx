@@ -15,8 +15,9 @@ import {
   formatStat,
   tone,
 } from "@/lib/format"
+import { holdoutWarn } from "@/lib/backtest"
 import { clampRisk, fingerprint, marketById, runColor, strategyLabel } from "@/lib/runs"
-import type { BacktestResult, Outcome, Run, SampleSlice, SortKey, Venue } from "@/lib/types"
+import type { BacktestResult, Outcome, Run, SampleSlice, SortKey, Trade, Venue } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const VIEWS = [
@@ -47,6 +48,7 @@ type ResultsProps = {
   onToggleHidden: (id: string) => void
   onRemove: (id: string) => void
   onSort: (key: SortKey) => void
+  onFocusTrade: (trade: Trade) => void
   drawToken: number
 }
 
@@ -63,6 +65,7 @@ export const Results = memo(function Results({
   onToggleHidden,
   onRemove,
   onSort,
+  onFocusTrade,
   drawToken,
 }: ResultsProps) {
   const market = marketById(result.symbol, venue)
@@ -123,7 +126,7 @@ export const Results = memo(function Results({
 
         <div className={cn("results-trades bezel h-full min-h-0 min-w-0 flex-col overflow-hidden p-3", view === "trades" ? "flex" : "hidden xl:flex")}>
         <p className="mb-3 shrink-0 font-mono text-xs text-muted-foreground uppercase">
-          {venue === "perp" ? "Binance perp" : "Binance spot"}
+          {venue === "perp" ? "Kraken perp" : "Binance spot"}
           {" · "}
           {closed} closed{liquidated ? ` · ${liquidated} liquidated` : ""}{open ? ` · ${open} open` : ""}
         </p>
@@ -134,7 +137,8 @@ export const Results = memo(function Results({
         ) : (
           <ul className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto border-t border-border">
             {trades.map((trade) => (
-              <li key={`${trade.entry_time}-${trade.side}-${trade.status}`} className="border-b border-border py-2">
+              <li key={`${trade.entry_time}-${trade.side}-${trade.status}`} className="border-b border-border">
+                <button type="button" className="w-full py-2 text-left" onClick={() => onFocusTrade(trade)}>
                 <div className="flex items-baseline justify-between gap-2">
                   <Badge variant={trade.side === "long" ? "default" : "secondary"}>
                     {trade.side === "short" ? "Short" : "Long"}
@@ -153,6 +157,7 @@ export const Results = memo(function Results({
                   <span className={toneClass(trade.pnl)}>{formatMoney(trade.pnl, 2)}</span>
                   <span className="text-muted-foreground">{trade.bars_held} bars</span>
                 </p>
+                </button>
               </li>
             ))}
           </ul>
@@ -214,7 +219,22 @@ export function RunStrip({
           onSort={() => onSort("profit_factor")}
           dense
         />
+        <Metric
+          label="Expectancy"
+          hint="Average win times win rate, minus average loss times loss rate."
+          value={formatPct(metrics.expectancy)}
+          tone={tone(metrics.expectancy)}
+          dense
+        />
+        <Metric label="Recovery" hint="Bars from the worst-drawdown peak until equity reclaims it." value={recoveryLabel(metrics.recovery_bars)} dense />
         <Metric label="Final equity" value={formatMoney(metrics.final_equity, 0)} dense />
+        {result.assumptions.venue === "perp" ? (
+          <Metric
+            label="Funding paid"
+            value={formatMoney(result.trades.reduce((sum, trade) => sum + trade.funding_paid, 0), 2)}
+            dense
+          />
+        ) : null}
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
         <p className="min-w-0 flex-1 font-mono text-[10px] text-muted-foreground">
@@ -240,8 +260,26 @@ export function RunStrip({
           Keep this run
         </Button>
       </div>
+      {(result.walk_forward ?? []).length > 0 ? (
+        <p className="mt-1 font-mono text-[10px] text-muted-foreground">
+          {result.walk_forward.map((slice, index) => (
+            <span key={index}>
+              {index > 0 ? " · " : ""}
+              Window {index + 1} {sliceText(slice)}
+            </span>
+          ))}
+        </p>
+      ) : null}
+      {holdoutWarn(result.metrics, result.holdout) ? (
+        <p className="mt-1 text-xs text-down">Holdout Sharpe is negative while the full sample is positive.</p>
+      ) : null}
     </div>
   )
+}
+
+function recoveryLabel(bars: number | null | undefined): string {
+  if (bars == null) return "Not recovered"
+  return bars === 1 ? "1 bar" : `${bars} bars`
 }
 
 function sliceText(slice: SampleSlice | undefined): string {

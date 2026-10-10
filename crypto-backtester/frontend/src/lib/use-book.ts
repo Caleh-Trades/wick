@@ -1,12 +1,12 @@
 import { useEffect, useState, useSyncExternalStore } from "react"
 
-import { projectLadder, rollingFlow, streamNames, takerSide, tickerName, TAPE_LENGTH, type FlowSide, type Level, type Print } from "@/lib/book"
+import { krakenProduct, projectLadder, rollingFlow, streamNames, takerSide, tickerName, TAPE_LENGTH, type FlowSide, type Level, type Print } from "@/lib/book"
 import { barSeconds, mergeForming } from "@/lib/forming"
 import type { TapeCandle, Venue } from "@/lib/types"
 
 const SOCKET_URL: Record<Venue, string> = {
   spot: "wss://data-stream.binance.vision/ws",
-  perp: "wss://fstream.binance.com/ws",
+  perp: "wss://futures.kraken.com/ws/v1",
 }
 /** Depth on fstream `/ws` is live. Trades and the 24h ticker only arrive on `/market`. */
 const PERP_TAPE_URL = "wss://fstream.binance.com/market/ws"
@@ -87,6 +87,8 @@ type BookConn = {
   heardAt: number | null
   quote: number | null
   changePct: number | null
+  bookBids: Map<string, number>
+  bookAsks: Map<string, number>
   view: LiveView
 }
 
@@ -153,6 +155,8 @@ function ensure(symbol: string, venue: Venue): BookConn | null {
     heardAt: null,
     quote: null,
     changePct: null,
+    bookBids: new Map(),
+    bookAsks: new Map(),
     view: blank(id, venue, "connecting"),
   }
   books.set(key, conn)
@@ -199,6 +203,10 @@ function tapeStreamParams(conn: BookConn): string[] {
 
 function syncSocket(conn: BookConn) {
   if (!repaint) repaint = window.setInterval(republish, REPAINT_MS)
+  if (conn.venue === "perp") {
+    syncKraken(conn)
+    return
+  }
   const next = depthParams(conn)
   if (next.length === 0) {
     if (conn.socket) {
@@ -274,6 +282,169 @@ function sameTail(left: TapeCandle[], right: TapeCandle[]): boolean {
   const b = right[right.length - 1]
   if (!a || !b) return false
   return a.t === b.t && a.open === b.open && a.high === b.high && a.low === b.low && a.close === b.close && a.volume === b.volume
+}
+
+function syncKraken(conn: BookConn) {
+  closeTape(conn)
+  if (!conn.socket || (conn.socket.readyState !== WebSocket.OPEN && conn.socket.readyState !== WebSocket.CONNECTING)) {
+    openKraken(conn)
+  }
+}
+
+function openKraken(conn: BookConn) {
+  window.clearTimeout(conn.retry)
+  if (conn.socket && (conn.socket.readyState === WebSocket.OPEN || conn.socket.readyState === WebSocket.CONNECTING)) return
+  const product = krakenProduct(conn.symbol)
+  if (!product) {
+    conn.view = { ...conn.view, status: "stale" }
+    emit()
+    return
+  }
+  const ws = new WebSocket(SOCKET_URL.perp)
+  conn.socket = ws
+  ws.onopen = () => {
+    if (conn.socket !== ws) return
+    conn.attempt = 0
+    conn.accept = true
+    armSilence(conn)
+    for (const feed of ["book", "trade", "ticker"]) {
+      ws.send(JSON.stringify({ event: "subscribe", feed, product_ids: [product] }))
+    }
+  }
+  ws.onmessage = (event) => {
+    if (conn.socket !== ws) return
+    handleKraken(conn, String(event.data), product)
+  }
+  ws.onerror = () => ws.close()
+  ws.onclose = () => {
+    if (conn.socket !== ws) return
+    conn.socket = null
+    window.clearTimeout(conn.silence)
+    conn.accept = false
+    if (conn.refs <= 0) return
+    if (conn.sawGood || conn.quote != null || conn.view.bids.length > 0) {
+      conn.view = { ...conn.view, status: "stale", heardAt: conn.heardAt }
+    }
+    emit()
+    const delay = Math.min(30_000, 1000 * 2 ** Math.min(conn.attempt, 5))
+    conn.attempt += 1
+    conn.retry = window.setTimeout(() => {
+      if (conn.refs > 0) openKraken(conn)
+    }, delay)
+  }
+}
+
+function handleKraken(conn: BookConn, raw: string, product: string) {
+  armSilence(conn)
+  conn.heardAt = Date.now()
+  let payload: Record<string, unknown>
+  try {
+    payload = JSON.parse(raw) as Record<string, unknown>
+  } catch {
+    return
+  }
+  if (typeof payload.event === "string") return
+  const feed = payload.feed
+  if (feed === "heartbeat") return
+  if (typeof payload.product_id === "string" && payload.product_id !== product) return
+  if (feed === "ticker") {
+    takeKrakenTicker(conn, payload)
+    return
+  }
+  if (feed === "trade_snapshot") {
+    const trades = Array.isArray(payload.trades) ? payload.trades : []
+    for (const row of trades) {
+      if (row && typeof row === "object") takeKrakenTrade(conn, row as Record<string, unknown>)
+    }
+    return
+  }
+  if (feed === "trade") {
+    takeKrakenTrade(conn, payload)
+    return
+  }
+  if (feed === "book_snapshot") {
+    conn.bookBids = krakenLevels(payload.bids)
+    conn.bookAsks = krakenLevels(payload.asks)
+    conn.latest = mapsToTuples(conn.bookBids, conn.bookAsks)
+    if (!conn.primed) {
+      conn.primed = true
+      publish(conn)
+    }
+    return
+  }
+  if (feed === "book") {
+    applyKrakenDelta(conn, payload)
+  }
+}
+
+function takeKrakenTicker(conn: BookConn, payload: Record<string, unknown>) {
+  const last = Number(payload.last)
+  const change = Number(payload.change)
+  if (Number.isFinite(last) && last > 0) conn.quote = last
+  if (Number.isFinite(last) && last > 0 && Number.isFinite(change)) {
+    const base = last - change
+    if (base !== 0) conn.changePct = (change / base) * 100
+  }
+}
+
+function takeKrakenTrade(conn: BookConn, payload: Record<string, unknown>) {
+  const price = Number(payload.price)
+  const size = Number(payload.qty)
+  const t = Number(payload.time)
+  if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(size) || size <= 0 || !Number.isFinite(t)) return
+  const id = payload.uid == null ? `${t}|${price}|${size}` : String(payload.uid)
+  if (conn.seen.has(id)) return
+  conn.seen.add(id)
+  const side: FlowSide = payload.side === "sell" ? "sell" : "buy"
+  conn.prints.push({ id, t, side, price, size })
+  if (conn.prints.length > PRINT_MEMORY) {
+    const dropped = conn.prints.splice(0, conn.prints.length - PRINT_MEMORY)
+    for (const print of dropped) conn.seen.delete(print.id)
+  }
+}
+
+function applyKrakenDelta(conn: BookConn, payload: Record<string, unknown>) {
+  const price = Number(payload.price)
+  const qty = Number(payload.qty)
+  if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(qty) || qty < 0) return
+  const book = payload.side === "sell" ? conn.bookAsks : conn.bookBids
+  const key = krakenPriceKey(price)
+  if (qty === 0) book.delete(key)
+  else book.set(key, qty)
+  conn.latest = mapsToTuples(conn.bookBids, conn.bookAsks)
+  if (!conn.primed) {
+    conn.primed = true
+    publish(conn)
+  }
+}
+
+function krakenLevels(rows: unknown): Map<string, number> {
+  const map = new Map<string, number>()
+  if (!Array.isArray(rows)) return map
+  for (const row of rows) {
+    let price = Number.NaN
+    let qty = Number.NaN
+    if (Array.isArray(row)) {
+      price = Number(row[0])
+      qty = Number(row[1])
+    } else if (row && typeof row === "object") {
+      const item = row as Record<string, unknown>
+      price = Number(item.price)
+      qty = Number(item.qty)
+    }
+    if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(qty) || qty <= 0) continue
+    map.set(krakenPriceKey(price), qty)
+  }
+  return map
+}
+
+function mapsToTuples(bids: Map<string, number>, asks: Map<string, number>): { bids: [string, string][]; asks: [string, string][] } {
+  const rows = (map: Map<string, number>) => [...map.entries()].map(([price, qty]) => [price, String(qty)] as [string, string])
+  return { bids: rows(bids), asks: rows(asks) }
+}
+
+function krakenPriceKey(price: number): string {
+  return price.toFixed(10).replace(/\.?0+$/, "")
 }
 
 function openSocket(conn: BookConn) {
@@ -506,7 +677,8 @@ function republish() {
 
 function publish(conn: BookConn, notify = true) {
   const now = Date.now()
-  const quiet = conn.heardAt == null || now - conn.heardAt > STALE_MS
+  const socketDown = conn.venue === "perp" && conn.socket?.readyState !== WebSocket.OPEN
+  const quiet = conn.heardAt == null || now - conn.heardAt > STALE_MS || socketDown
   const flow = rollingFlow(conn.prints, now)
   const tape = conn.prints.slice(-TAPE_LENGTH).reverse()
   const quoteFields = { quote: conn.quote, changePct: conn.changePct }

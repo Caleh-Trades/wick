@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, type ReactNode } from "react"
+import { memo, useMemo, useState, type ReactNode } from "react"
 import {
   Area,
   CartesianGrid,
@@ -10,6 +10,7 @@ import {
   YAxis,
 } from "recharts"
 
+import { Button } from "@/components/ui/button"
 import { formatAxis, formatCompactMoney, formatMoney, formatPct, formatStamp } from "@/lib/format"
 import { thinRows } from "@/lib/plot"
 import type { BacktestResult } from "@/lib/types"
@@ -21,8 +22,8 @@ export type OverlaySeries = {
   equity: { time: string; equity: number }[]
 }
 
-const axisTick = { fill: "#8d6b56", fontSize: 11, fontFamily: "IBM Plex Mono, ui-monospace, monospace" }
-const plotGrid = "#e2cdb8"
+const axisTick = { fill: "#9fb0c9", fontSize: 11, fontFamily: "IBM Plex Mono, ui-monospace, monospace" }
+const plotGrid = "rgba(159,176,201,0.28)"
 
 export const EquityChart = memo(function EquityChart({
   result,
@@ -35,59 +36,15 @@ export const EquityChart = memo(function EquityChart({
   selectedId: string
   drawToken: number
 }) {
-  const plotRef = useRef<HTMLDivElement>(null)
+  const [log, setLog] = useState(false)
   const rows = thinRows(overlayRows(result, overlays), 480)
   const drawdown = thinRows(result.equity, 480)
   const selectedSeries = overlays.find((series) => series.id === selectedId)
   const headline = selectedSeries
     ? (rows.at(-1)?.[selectedId] as number | null | undefined)
     : result.metrics.final_equity
-
-  useEffect(() => {
-    const root = plotRef.current
-    if (!root || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
-    let path: SVGPathElement | null = null
-    let animation: Animation | null = null
-    let timer = 0
-    let stopped = false
-    const clearStyle = (node: SVGPathElement | null) => {
-      node?.style.removeProperty("stroke-dasharray")
-      node?.style.removeProperty("stroke-dashoffset")
-    }
-    const play = () => {
-      if (stopped) return
-      const found = root.querySelector(".equity-selected .recharts-line-curve")
-      if (!(found instanceof SVGPathElement)) return
-      const length = found.getTotalLength()
-      if (!Number.isFinite(length) || length < 2) return
-      if (found === path) return
-      clearStyle(path)
-      animation?.cancel()
-      path = found
-      path.style.strokeDasharray = `${length}`
-      path.style.strokeDashoffset = `${length}`
-      animation = path.animate([{ strokeDashoffset: `${length}px` }, { strokeDashoffset: "0px" }], {
-        duration: 600,
-        easing: "cubic-bezier(0.22, 1, 0.36, 1)",
-        fill: "forwards",
-      })
-      animation.onfinish = () => clearStyle(path)
-    }
-    const kick = () => {
-      window.clearTimeout(timer)
-      timer = window.setTimeout(play, 50)
-    }
-    const observer = new MutationObserver(kick)
-    observer.observe(root, { childList: true, subtree: true })
-    kick()
-    return () => {
-      stopped = true
-      observer.disconnect()
-      window.clearTimeout(timer)
-      animation?.cancel()
-      clearStyle(path)
-    }
-  }, [drawToken])
+  const canLog = useMemo(() => rowsCanLog(rows, overlays), [rows, overlays])
+  const logScale = log && canLog
 
   return (
     <div className="bezel flex h-full min-h-0 flex-col px-4 py-3 text-foreground sm:px-6">
@@ -100,14 +57,25 @@ export const EquityChart = memo(function EquityChart({
         </div>
         <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] tracking-wide uppercase">
           {overlays.map((series) => (
-            <span key={series.id} style={{ color: series.color }}>
+            <span key={series.id} style={{ color: series.id === selectedId ? "#39e7ff" : series.color }}>
               {series.name}
             </span>
           ))}
-          <span className="text-bench">Buy and hold</span>
+          <span style={{ color: "#9fb0c9" }}>Buy and hold</span>
+          <Button
+            type="button"
+            size="xs"
+            variant={logScale ? "default" : "outline"}
+            className="normal-case tracking-normal"
+            aria-pressed={logScale}
+            disabled={!canLog}
+            onClick={() => setLog((value) => !value)}
+          >
+            Log
+          </Button>
         </div>
       </div>
-      <div ref={plotRef} className="equity-plot plot-solid min-h-0 flex-1">
+      <div key={drawToken} className="equity-plot equity-solid min-h-0 flex-1">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid vertical={false} stroke={plotGrid} />
@@ -121,7 +89,12 @@ export const EquityChart = memo(function EquityChart({
             />
             <YAxis
               orientation="right"
-              domain={[(value: number) => value - Math.abs(value) * 0.06, (value: number) => value + Math.abs(value) * 0.06]}
+              scale={logScale ? "log" : "auto"}
+              domain={
+                logScale
+                  ? ["auto", "auto"]
+                  : [(value: number) => value - Math.abs(value) * 0.06, (value: number) => value + Math.abs(value) * 0.06]
+              }
               tickFormatter={(value) => formatCompactMoney(Number(value))}
               tick={axisTick}
               axisLine={false}
@@ -148,7 +121,7 @@ export const EquityChart = memo(function EquityChart({
                 className={series.id === selectedId ? "equity-selected" : undefined}
                 type="monotone"
                 dataKey={series.id}
-                stroke={series.color}
+                stroke={series.id === selectedId ? "#39e7ff" : series.color}
                 strokeWidth={series.id === selectedId ? 2 : 1.5}
                 dot={false}
                 connectNulls
@@ -158,7 +131,7 @@ export const EquityChart = memo(function EquityChart({
             <Line
               type="monotone"
               dataKey="benchmark"
-              stroke="#8d6b56"
+              stroke="#9fb0c9"
               strokeWidth={1.5}
               strokeDasharray="4 4"
               dot={false}
@@ -168,7 +141,7 @@ export const EquityChart = memo(function EquityChart({
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      <div className="plot-solid mt-2 h-14 shrink-0">
+      <div className="equity-solid mt-2 h-14 shrink-0">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={drawdown} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <XAxis dataKey="time" hide />
@@ -201,10 +174,23 @@ export const EquityChart = memo(function EquityChart({
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      <p className="mt-2 font-mono text-[10px] tracking-[0.16em] text-bench uppercase">Drawdown from peak equity</p>
+      <p className="mt-2 font-mono text-[10px] tracking-[0.16em] text-bench uppercase">Drawdown</p>
     </div>
   )
 })
+
+function rowsCanLog(rows: Array<Record<string, string | number | null>>, overlays: OverlaySeries[]): boolean {
+  if (rows.length === 0) return false
+  for (const row of rows) {
+    const bench = row.benchmark
+    if (typeof bench === "number" && bench <= 0) return false
+    for (const series of overlays) {
+      const value = row[series.id]
+      if (typeof value === "number" && value <= 0) return false
+    }
+  }
+  return true
+}
 
 function overlayRows(result: BacktestResult, overlays: OverlaySeries[]) {
   const times = new Set<string>()
@@ -261,7 +247,7 @@ function ChartTip({
       }
     >
       <div className="mb-1 font-mono text-[10px] tracking-wide uppercase opacity-70">
-        {formatStamp(String(label), interval)}
+        {formatStamp(String(label), interval)} UTC
       </div>
       <div className="space-y-0.5 font-mono">{children}</div>
     </div>

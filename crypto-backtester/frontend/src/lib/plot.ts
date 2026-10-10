@@ -19,6 +19,17 @@ export function spotTrades<T extends { side: "long" | "short" }>(trades: T[], ve
   return trades.filter((trade) => trade.side !== "short")
 }
 
+/** Count missing bars. A gap stays empty; the previous close is not copied forward. */
+export function missingBars(candles: Array<{ t: number }>, seconds: number): number {
+  if (candles.length < 2 || !(seconds > 0)) return 0
+  let gaps = 0
+  for (let index = 1; index < candles.length; index += 1) {
+    const step = (candles[index]?.t ?? 0) - (candles[index - 1]?.t ?? 0)
+    if (step > seconds * 1.5) gaps += Math.round(step / seconds) - 1
+  }
+  return gaps
+}
+
 export function priceDomain(candles: Array<{ low: number; high: number }>): [number, number] {
   let lo = Infinity
   let hi = -Infinity

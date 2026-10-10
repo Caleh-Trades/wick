@@ -6,7 +6,7 @@ import { Controls } from "@/components/controls"
 import { DeskBar } from "@/components/desk-bar"
 import { BookSpan, MarketPane } from "@/components/market-pane"
 import { ResearchChart } from "@/components/research"
-import { Results, RunStrip } from "@/components/results"
+import { Results, RunStrip, WindowsPage } from "@/components/results"
 import { Button } from "@/components/ui/button"
 import {
   Sheet,
@@ -73,7 +73,7 @@ export default function App() {
   const [sortKey, setSortKey] = useState<SortKey | null>(null)
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc")
   const [drawToken, setDrawToken] = useState(0)
-  const [page, setPage] = useState<"desk" | "journal">("desk")
+  const [page, setPage] = useState<"desk" | "journal" | "windows">("desk")
   const [focusTrade, setFocusTrade] = useState<Trade | null>(null)
   const workspaceRef = useRef(workspace)
   const tapesRef = useRef(tapes)
@@ -649,7 +649,7 @@ export default function App() {
           onSignOutAccount={account.signOut}
           onPage={(next) => {
             setPage(next)
-            if (next === "journal") {
+            if (next !== "desk") {
               setSetupOpen(false)
               setEditing(false)
             }
@@ -658,6 +658,8 @@ export default function App() {
       ) : null}
       {page === "journal" ? (
         <JournalPage symbol={active?.symbol ?? "BTCUSDT"} venue={active?.venue ?? "spot"} onRestore={restoreKept} />
+      ) : page === "windows" ? (
+        <WindowsPage result={result} runName={selected?.name ?? "Run"} symbol={active?.symbol ?? ""} venue={active?.venue ?? "spot"} />
       ) : (
       <>
       <WorkspaceBar

@@ -199,7 +199,7 @@ export function RunStrip({
   const [note, setNote] = useState("")
   return (
     <div className="shrink-0 px-3 pt-2">
-      <div className="bezel flex flex-nowrap items-end gap-x-4 overflow-x-auto px-3 py-1.5" aria-label="Run summary">
+      <div className="bezel flex flex-nowrap items-end gap-x-3 overflow-x-auto px-3 py-1.5" aria-label="Run summary">
         <Metric label="Total return" value={formatPct(metrics.total_return_pct)} tone={tone(metrics.total_return_pct)} dense />
         <Metric label="Buy and hold" value={formatPct(metrics.benchmark_return_pct)} tone={tone(metrics.benchmark_return_pct)} dense />
         <Metric label="Excess return" value={formatPct(metrics.excess_return_pct)} tone={tone(metrics.excess_return_pct)} dense />
@@ -366,6 +366,39 @@ function WindowTable({ result }: { result: BacktestResult }) {
         ))}
       </tbody>
     </table>
+  )
+}
+
+export function WindowsPage({
+  result,
+  runName,
+  symbol,
+  venue,
+}: {
+  result: BacktestResult | null
+  runName: string
+  symbol: string
+  venue: Venue
+}) {
+  return (
+    <div className="desk-stack lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+      <div className="mx-auto flex w-full max-w-[1100px] flex-col gap-4 px-4 py-4 pb-16">
+        <div>
+          <h2 className="font-mono text-xs tracking-[0.28em] text-[#c56a32] uppercase">Windows</h2>
+          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+            {symbol ? `${symbol} · ${venue === "perp" ? "Perp" : "Spot"} · ${runName}. ` : ""}
+            In-sample is the first 70% of bars. Holdout is the last 30%. Window 1, Window 2, and Window 3 split that same pass into thirds. Parameters are not fit again.
+          </p>
+        </div>
+        {result ? (
+          <div className="bezel p-4">
+            <WindowTable result={result} />
+          </div>
+        ) : (
+          <p className="border-t border-border py-6 text-sm text-muted-foreground">Run this slot to fill the windows.</p>
+        )}
+      </div>
+    </div>
   )
 }
 

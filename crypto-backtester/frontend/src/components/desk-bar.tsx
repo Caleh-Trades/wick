@@ -21,8 +21,8 @@ type DeskBarProps = {
   onSymbol: (symbol: MarketId) => void
   onTimeframe: (timeframe: Timeframe) => void
   onVenue: (venue: Venue) => void
-  page: "desk" | "journal"
-  onPage: (page: "desk" | "journal") => void
+  page: "desk" | "journal" | "windows"
+  onPage: (page: "desk" | "journal" | "windows") => void
   accountSession: AccountSession | null
   accountStatus: string
   onCreateAccount: (name: string, password: string) => Promise<void>
@@ -79,7 +79,7 @@ export function DeskBar({
         </div>
 
         <div className="flex shrink-0 gap-1" role="group" aria-label="Page">
-          {(["desk", "journal"] as const).map((item) => (
+          {(["desk", "journal", "windows"] as const).map((item) => (
             <Button
               key={item}
               type="button"
@@ -89,7 +89,7 @@ export function DeskBar({
               aria-pressed={page === item}
               onClick={() => onPage(item)}
             >
-              {item === "desk" ? "Desk" : "Journal"}
+              {item === "desk" ? "Desk" : item === "journal" ? "Journal" : "Windows"}
             </Button>
           ))}
         </div>

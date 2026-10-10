@@ -102,7 +102,7 @@ export const Results = memo(function Results({
       ) : null}
 
       <div className="results-grid grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-3">
-        <div className={cn("results-equity equity-strip h-full min-w-0 max-lg:min-h-[220px] lg:h-14 lg:min-h-0 lg:flex-none", view === "equity" ? "flex flex-col" : "hidden lg:flex lg:flex-col")}>
+        <div className={cn("results-equity equity-strip min-w-0 max-lg:h-full max-lg:min-h-[220px] lg:h-[248px] lg:min-h-[248px] lg:shrink-0", view === "equity" ? "flex flex-col" : "hidden lg:flex lg:flex-col")}>
           <div className="equity-frame min-h-0 flex-1">
             <EquityChart result={result} overlays={overlays} selectedId={selected.id} drawToken={drawToken} />
           </div>

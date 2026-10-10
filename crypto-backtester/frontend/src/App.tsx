@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from "react"
 
 import { type OverlaySeries } from "@/components/charts"
 import { useAccountSync } from "@/lib/use-account"
 import { Controls } from "@/components/controls"
 import { DeskBar } from "@/components/desk-bar"
-import { MarketPane } from "@/components/market-pane"
+import { BookSpan, MarketPane } from "@/components/market-pane"
 import { ResearchChart } from "@/components/research"
 import { Results, RunStrip } from "@/components/results"
 import { Button } from "@/components/ui/button"
@@ -89,6 +89,8 @@ export default function App() {
     setFocusTrade(null)
   }, [active?.id, active?.symbol, active?.venue, selected?.id])
   const shown = visibleSlots(workspace)
+  const deskWide = useDeskWide()
+  const spanBook = deskWide && shown.length === 1
 
   useEffect(() => {
     saveWorkspace(workspace)
@@ -640,6 +642,8 @@ export default function App() {
               }}
             />
           ) : null}
+          <div className={cn("flex min-h-0 min-w-0 flex-1", spanBook ? "desk-span flex-row items-stretch" : "flex-col")}>
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div
             className={cn("price-split flex min-h-0 min-w-0", shown.length > 1 && "price-split-pair flex-col lg:flex-row")}
             style={{ flexGrow: 1, flexShrink: 0, flexBasis: "420px" }}
@@ -669,6 +673,7 @@ export default function App() {
                     if (slot.id !== workspace.activeId) focusSlot(slot.id)
                     setWorkspace((current) => ({ ...current, enlarged: true }))
                   }}
+                  showBook={!spanBook}
                 />
               </div>
             ))}
@@ -688,7 +693,7 @@ export default function App() {
               if (event.key === "ArrowDown") setPanes((current) => ({ ...current, chart: clampChart(current.chart + 0.03) }))
             }}
           />
-          <div className="results-pane flex min-h-0 flex-col overflow-auto px-3 pb-24 lg:pb-3" style={{ flexGrow: 1, flexShrink: 1, flexBasis: "0%" }}>
+          <div className="results-pane flex min-h-0 flex-col overflow-auto px-3 pb-24 lg:overflow-hidden lg:pb-3" style={{ flexGrow: 1, flexShrink: 1, flexBasis: "0%" }}>
             {loadingKey === activeKey && !activeTape ? (
               <p className="py-4 text-sm text-muted-foreground">Pulling the {phrase} tape. The first look at a pair can take a few seconds.</p>
             ) : null}
@@ -731,6 +736,16 @@ export default function App() {
             {running ? (
               <p className="mt-3 font-mono text-xs tracking-wide text-muted-foreground uppercase">Running the next pass…</p>
             ) : null}
+          </div>
+          </div>
+          {spanBook && active ? (
+            <BookSpan
+              symbol={active.symbol}
+              venue={active.venue}
+              preferred={panes.book}
+              onWidth={(book) => setPanes((current) => ({ ...current, book }))}
+            />
+          ) : null}
           </div>
         </div>
         <aside className="hidden w-72 shrink-0 overflow-y-auto border-l border-border lg:block">
@@ -901,6 +916,18 @@ function mergeCandles(existing: TapeCandle[], incoming: TapeCandle[]): TapeCandl
   for (const candle of existing) byTime.set(candle.t, candle)
   for (const candle of incoming) byTime.set(candle.t, candle)
   return [...byTime.values()].sort((left, right) => left.t - right.t)
+}
+
+function useDeskWide(): boolean {
+  return useSyncExternalStore(
+    (notify) => {
+      const query = window.matchMedia("(min-width: 1024px)")
+      query.addEventListener("change", notify)
+      return () => query.removeEventListener("change", notify)
+    },
+    () => window.matchMedia("(min-width: 1024px)").matches,
+    () => false,
+  )
 }
 
 function dragChart(event: ReactPointerEvent<HTMLDivElement>, onChart: (fraction: number) => void) {

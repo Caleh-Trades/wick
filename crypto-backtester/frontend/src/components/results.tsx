@@ -81,7 +81,7 @@ export const Results = memo(function Results({
 
   return (
     <div className="results-stack flex h-full min-h-0 flex-col gap-3">
-      <div className="flex shrink-0 gap-1 overflow-x-auto lg:hidden" role="tablist" aria-label="Results">
+      <div className="flex shrink-0 gap-1 overflow-x-auto" role="tablist" aria-label="Results">
         {VIEWS.map((item) => (
           <Button
             key={item.id}
@@ -102,13 +102,13 @@ export const Results = memo(function Results({
       ) : null}
 
       <div className="results-grid grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-3">
-        <div className={cn("results-equity equity-strip min-w-0 max-lg:h-full max-lg:min-h-[220px] lg:h-[248px] lg:min-h-[248px] lg:shrink-0", view === "equity" ? "flex flex-col" : "hidden lg:flex lg:flex-col")}>
+        <div className={cn("results-equity equity-strip min-h-0 min-w-0 flex-1 max-lg:h-full max-lg:min-h-[220px]", view === "equity" ? "flex flex-col" : "hidden")}>
           <div className="equity-frame min-h-0 flex-1">
             <EquityChart result={result} overlays={overlays} selectedId={selected.id} drawToken={drawToken} />
           </div>
         </div>
 
-        <div className={cn("results-comparison h-full min-h-[180px] min-w-0", view === "comparison" ? "block" : "hidden lg:block")}>
+        <div className={cn("results-comparison h-full min-h-0 min-w-0 flex-1 max-lg:min-h-[180px]", view === "comparison" ? "block" : "hidden")}>
           <Comparison
             rows={rows}
             venue={venue}
@@ -124,7 +124,7 @@ export const Results = memo(function Results({
           />
         </div>
 
-        <div className={cn("results-trades bezel h-full min-h-[180px] min-w-0 flex-col overflow-hidden p-3", view === "trades" ? "flex" : "hidden lg:flex")}>
+        <div className={cn("results-trades bezel h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-3 max-lg:min-h-[180px]", view === "trades" ? "flex" : "hidden")}>
         <p className="mb-3 shrink-0 font-mono text-xs text-muted-foreground uppercase">
           {venue === "perp" ? "Kraken perp" : "Binance spot"}
           {" · "}

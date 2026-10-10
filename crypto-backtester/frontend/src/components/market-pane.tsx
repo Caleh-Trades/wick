@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react"
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react"
 
 import { PriceChart } from "@/components/price-chart"
 import { OrderBook } from "@/components/order-book"
@@ -27,6 +27,7 @@ export function MarketPane({
   onAlert,
   onBookWidth,
   onEnlarge,
+  showBook = true,
 }: {
   symbol: string | null
   candles: TapeCandle[]
@@ -47,6 +48,8 @@ export function MarketPane({
   onAlert: (alert: SlotAlert | null) => void
   onBookWidth: (width: number) => void
   onEnlarge: () => void
+  /** False when the desk draws one book beside the chart and the results. */
+  showBook?: boolean
 }) {
   const rowRef = useRef<HTMLDivElement>(null)
   const [rowWidth, setRowWidth] = useState(0)
@@ -91,26 +94,16 @@ export function MarketPane({
             onEnlarge={onEnlarge}
           />
         </div>
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize chart and book"
-          aria-valuemin={160}
-          aria-valuemax={520}
-          aria-valuenow={Math.round(book)}
-          tabIndex={0}
-          className="relative z-10 hidden w-3 shrink-0 cursor-col-resize items-center md:flex before:absolute before:inset-y-0 before:left-1/2 before:w-px before:bg-border"
-          onPointerDown={(event) => dragBook(event, book, onBookWidth)}
-          onKeyDown={(event) => {
-            if (event.key === "ArrowLeft") onBookWidth(Math.min(520, book + 16))
-            if (event.key === "ArrowRight") onBookWidth(Math.max(160, book - 16))
-          }}
-        />
-        <div className="book-column relative flex min-h-0 w-(--book-width) shrink-0 self-stretch" style={{ "--book-width": `${book}px` } as CSSProperties}>
-          <div className="absolute inset-0 flex min-h-0 w-full">
-            <OrderBook symbol={symbol} venue={venue} />
-          </div>
-        </div>
+        {showBook ? (
+          <>
+            <BookResize book={book} onBookWidth={onBookWidth} />
+            <div className="book-column relative flex min-h-0 w-(--book-width) shrink-0 self-stretch" style={{ "--book-width": `${book}px` } as CSSProperties}>
+              <div className="absolute inset-0 flex min-h-0 w-full">
+                <OrderBook symbol={symbol} venue={venue} />
+              </div>
+            </div>
+          </>
+        ) : null}
       </div>
     </div>
   )
@@ -126,6 +119,71 @@ export function fitBook(rowWidth: number, preferred: number): number {
   const wanted = Math.min(520, Math.max(bookFloor, preferred))
   if (room >= bookFloor) return Math.min(wanted, room)
   return Math.max(200, rowWidth - 120 - handle)
+}
+
+/** One book for the focused slot, from the price chart down through the results panel. */
+export function BookSpan({
+  symbol,
+  venue,
+  preferred,
+  onWidth,
+}: {
+  symbol: string | null
+  venue: Venue
+  preferred: number
+  onWidth: (width: number) => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [padTop, setPadTop] = useState(0)
+  const [book, setBook] = useState(preferred)
+
+  useLayoutEffect(() => {
+    const node = ref.current
+    const stage = node?.parentElement
+    if (!node || !stage) return
+    const measure = () => {
+      const chart = stage.querySelector(".chart-book-row")
+      setBook(fitBook(stage.clientWidth, preferred))
+      if (!chart) return
+      const top = chart.getBoundingClientRect().top - stage.getBoundingClientRect().top
+      setPadTop(Math.max(0, Math.round(top)))
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(stage)
+    const chart = stage.querySelector(".chart-book-row")
+    if (chart) observer.observe(chart)
+    return () => observer.disconnect()
+  }, [preferred])
+
+  return (
+    <div ref={ref} className="book-span flex shrink-0 self-stretch pb-3" style={{ width: book + 12, paddingTop: padTop }}>
+      <BookResize book={book} onBookWidth={onWidth} />
+      <div className="min-h-0 min-w-0 flex-1">
+        <OrderBook symbol={symbol} venue={venue} />
+      </div>
+    </div>
+  )
+}
+
+function BookResize({ book, onBookWidth }: { book: number; onBookWidth: (width: number) => void }) {
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize chart and book"
+      aria-valuemin={160}
+      aria-valuemax={520}
+      aria-valuenow={Math.round(book)}
+      tabIndex={0}
+      className="relative z-10 hidden w-3 shrink-0 cursor-col-resize items-center md:flex before:absolute before:inset-y-0 before:left-1/2 before:w-px before:bg-border"
+      onPointerDown={(event) => dragBook(event, book, onBookWidth)}
+      onKeyDown={(event) => {
+        if (event.key === "ArrowLeft") onBookWidth(Math.min(520, book + 16))
+        if (event.key === "ArrowRight") onBookWidth(Math.max(160, book - 16))
+      }}
+    />
+  )
 }
 
 function dragBook(event: ReactPointerEvent<HTMLDivElement>, bookWidth: number, onBookWidth: (width: number) => void) {

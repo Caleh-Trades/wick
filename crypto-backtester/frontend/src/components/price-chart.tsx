@@ -82,7 +82,7 @@ export const PriceChart = memo(function PriceChart({
 
   if (shown.length === 0) {
     return (
-      <div data-price-summary="" className="price-chart bezel flex h-full min-h-0 flex-col px-3 py-2 lg:h-auto">
+      <div data-price-summary="" className="price-chart bezel flex h-full min-h-0 flex-col px-3 py-2">
         <div className="flex items-baseline gap-3">
           <h3 className="font-heading text-xl">Price</h3>
           <QuotePrice symbol={symbol} venue={venue} />
@@ -95,7 +95,7 @@ export const PriceChart = memo(function PriceChart({
   }
 
   return (
-    <div data-price-summary="" className="price-chart bezel flex h-full min-h-0 flex-col px-3 py-2 lg:h-auto">
+    <div data-price-summary="" className="price-chart bezel flex h-full min-h-0 flex-col px-3 py-2">
       <div className="mb-1 flex shrink-0 flex-col gap-1">
         <div className="flex items-baseline gap-3">
           <div>

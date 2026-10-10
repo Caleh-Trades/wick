@@ -650,11 +650,11 @@ export default function App() {
           <div className={cn("flex min-h-0 min-w-0 flex-1", spanBook ? "desk-span flex-row items-stretch" : "flex-col")}>
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div
-            className={cn("price-split flex min-h-0 min-w-0", shown.length > 1 && "price-split-pair flex-col lg:flex-row")}
-            style={{ flexGrow: 1, flexShrink: 0, flexBasis: "420px" }}
+            className={cn("price-split flex min-h-0 min-w-0 lg:min-h-min", shown.length > 1 && "price-split-pair flex-col lg:flex-row")}
+            style={{ flexGrow: panes.chart, flexShrink: 1, flexBasis: 0 }}
           >
             {shown.map((slot) => (
-              <div key={slot.id} className="min-h-0 min-w-0 flex-1 p-3">
+              <div key={slot.id} className="flex min-h-0 min-w-0 flex-1 flex-col p-3">
                 <MarketPane
                   symbol={slot.symbol}
                   candles={tapes[tapeKey(slot)]?.candles ?? EMPTY_CANDLES}
@@ -691,14 +691,14 @@ export default function App() {
             aria-valuemax={Math.round(CHART_MAX * 100)}
             aria-valuenow={Math.round(panes.chart * 100)}
             tabIndex={0}
-            className="relative z-10 hidden h-3 shrink-0 cursor-row-resize items-center before:absolute before:inset-x-0 before:top-1/2 before:h-px before:bg-border"
+            className="relative z-10 hidden h-3 shrink-0 cursor-row-resize items-center lg:flex before:absolute before:inset-x-0 before:top-1/2 before:h-px before:bg-border"
             onPointerDown={(event) => dragChart(event, (chart) => setPanes((current) => ({ ...current, chart })))}
             onKeyDown={(event) => {
               if (event.key === "ArrowUp") setPanes((current) => ({ ...current, chart: clampChart(current.chart - 0.03) }))
               if (event.key === "ArrowDown") setPanes((current) => ({ ...current, chart: clampChart(current.chart + 0.03) }))
             }}
           />
-          <div className="results-pane flex min-h-0 flex-col overflow-auto px-3 pb-24 lg:overflow-hidden lg:pb-3" style={{ flexGrow: 1, flexShrink: 1, flexBasis: "0%" }}>
+          <div className="results-pane flex min-h-0 flex-col overflow-auto px-3 pb-24 lg:min-h-44 lg:overflow-hidden lg:pb-3" style={{ flexGrow: Math.max(0.2, 1 - panes.chart), flexShrink: 1, flexBasis: 0 }}>
             {loadingKey === activeKey && !activeTape ? (
               <p className="py-4 text-sm text-muted-foreground">Pulling the {phrase} tape. The first look at a pair can take a few seconds.</p>
             ) : null}

@@ -65,7 +65,7 @@ export function MarketPane({
   const book = fitBook(rowWidth, bookWidth)
 
   return (
-    <div className="market-pane flex h-full min-h-0 flex-col lg:h-auto">
+    <div className="market-pane flex h-full min-h-0 flex-col">
       <div className="mb-1 flex flex-col gap-1 px-1">
         {showCaption ? (
           <p className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
@@ -78,7 +78,7 @@ export function MarketPane({
         <AlertControl alert={alert} onChange={onAlert} />
         {symbol ? <AlertWatch symbol={symbol} venue={venue} alert={alert} /> : null}
       </div>
-      <div ref={rowRef} className="chart-book-row flex min-h-0 flex-1 items-stretch lg:h-auto lg:flex-none">
+      <div ref={rowRef} className="chart-book-row flex min-h-0 flex-1 items-stretch">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <PriceChart
             candles={candles}

@@ -108,7 +108,7 @@ export const Results = memo(function Results({
           </div>
         </div>
 
-        <div className={cn("results-comparison h-full min-h-0 min-w-0 flex-1 max-lg:min-h-[180px]", view === "comparison" ? "block" : "hidden")}>
+        <div className={cn("results-comparison h-full min-h-0 min-w-0 flex-1 max-lg:min-h-[180px]", view === "comparison" ? "flex flex-col" : "hidden")}>
           <Comparison
             rows={rows}
             venue={venue}

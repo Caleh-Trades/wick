@@ -359,16 +359,20 @@ button:hover,
 
 @media (min-width: 1024px) {
   .price-split {
-    flex: none !important;
-    height: auto !important;
-    align-items: flex-start;
-    min-height: 0;
+    align-items: stretch;
+    min-height: min-content !important;
     max-height: none;
   }
 
+  .price-split > div,
+  .market-pane,
+  .chart-book-row {
+    min-height: min-content !important;
+  }
+
   .price-split > div {
-    height: auto !important;
-    align-self: flex-start;
+    height: 100%;
+    align-self: stretch;
   }
 
   .desk-span .price-split > div,
@@ -377,9 +381,9 @@ button:hover,
   }
 
   .price-plot {
-    flex: none !important;
-    height: 200px !important;
-    min-height: 200px !important;
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 200px;
   }
 
   .equity-strip .equity-frame,

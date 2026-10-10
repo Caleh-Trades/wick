@@ -122,7 +122,6 @@ export const Results = memo(function Results({
             onSort={onSort}
             lens={lens}
             onLens={setLens}
-            result={result}
           />
         </div>
 
@@ -414,7 +413,6 @@ function Comparison({
   onSort,
   lens,
   onLens,
-  result,
 }: {
   rows: ComparisonRow[]
   venue: Venue
@@ -427,7 +425,6 @@ function Comparison({
   onSort: (key: SortKey) => void
   lens: SampleLens
   onLens: (lens: SampleLens) => void
-  result: BacktestResult
 }) {
   const sliced = lens !== "full"
   return (
@@ -458,7 +455,6 @@ function Comparison({
         <SortText label="Trades" sortKey="trades" active={sortKey} dir={sortDir} onSort={onSort} />
       </div>
       <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto border-t border-border">
-        <WindowTable result={result} />
         <table className="w-full table-fixed border-collapse text-left">
           <caption className="sr-only">Runs on this tape</caption>
           <thead className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">

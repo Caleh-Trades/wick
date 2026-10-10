@@ -595,7 +595,6 @@ function asCombo(value: unknown, primary: string): { rule: string; params: RunPa
     const rule = normalizeRule(String((item as { rule?: unknown }).rule ?? ""))
     if (!rule || rule === primary || combo.some((row) => row.rule === rule)) continue
     combo.push({ rule, params: asParams((item as { params?: unknown }).params) })
-    if (combo.length >= 3) break
   }
   return combo
 }

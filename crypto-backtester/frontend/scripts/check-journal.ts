@@ -154,6 +154,50 @@ assert.equal(keptExport(rich!).market, "perp")
 if (rich) removeKeptRun(rich.id)
 if (kept) removeKeptRun(kept.id)
 
+const stacked = keepRun({
+  name: "Stack",
+  symbol: "BTC",
+  venue: "spot",
+  timeframe: "1d",
+  range: "1Y",
+  rule: "sma_cross",
+  params: { fast: 20, slow: 50 },
+  combo: [
+    { rule: "ema_cross", params: {} },
+    { rule: "donchian", params: {} },
+    { rule: "macd", params: {} },
+    { rule: "supertrend", params: {} },
+    { rule: "sma_cross", params: {} },
+  ],
+  feeBps: 10,
+  capital: 10_000,
+  leverage: 1,
+  riskPct: 1,
+  allowShort: false,
+  metrics: {
+    total_return_pct: 0,
+    cagr_pct: 0,
+    max_drawdown_pct: 0,
+    sharpe: 0,
+    win_rate_pct: 0,
+    profit_factor: null,
+    trades: 0,
+    final_equity: 10_000,
+  },
+})
+assert.deepEqual(
+  stacked?.combo.map((item) => item.rule),
+  ["ema_cross", "donchian", "macd", "supertrend"],
+)
+assert.deepEqual(
+  keptRuns()
+    .find((row) => row.id === stacked?.id)
+    ?.combo.map((item) => item.rule),
+  ["ema_cross", "donchian", "macd", "supertrend"],
+)
+if (stacked) removeKeptRun(stacked.id)
+assert.equal(keptRuns().length, 0)
+
 const before = journalStats(journalEntries())
 const alert = logAlert({ symbol: "BTC", venue: "perp", alertKind: "above", value: 82000.5, threshold: 80000 })
 assert.equal(alert?.kind, "alert")

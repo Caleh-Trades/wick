@@ -16,7 +16,7 @@ import { Separator } from "@/components/ui/separator"
 import { SymbolSelect } from "@/components/symbol-select"
 import { formatMoney } from "@/lib/format"
 import type { RuleId, Run, Venue } from "@/lib/types"
-import { MAX_COMBO, MAX_RUNS, RULES, clampRisk, clampSlippage, paramsForRule, ruleName, ruleParams, runColor, runProblem } from "@/lib/runs"
+import { MAX_RUNS, RULES, clampRisk, clampSlippage, paramsForRule, ruleName, ruleParams, runColor, runProblem } from "@/lib/runs"
 
 type ControlsProps = {
   idPrefix: string
@@ -323,9 +323,7 @@ function ComboEditor({
     <div className="flex flex-col gap-3">
       <div className="flex items-baseline justify-between gap-3">
         <span className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Combined</span>
-        <span className="font-mono text-[10px] text-muted-foreground">
-          {combo.length} of {MAX_COMBO}
-        </span>
+        <span className="font-mono text-[10px] text-muted-foreground">{combo.length}</span>
       </div>
       <p className="text-xs leading-relaxed text-muted-foreground">
         A position opens only when this rule and every strategy below want the same side.
@@ -409,7 +407,6 @@ function ComboEditor({
           <Button
             type="button"
             variant="outline"
-            disabled={combo.length >= MAX_COMBO}
             onClick={() => onChange([...combo, { rule: pending, params: ruleParams(pending) }])}
           >
             Add

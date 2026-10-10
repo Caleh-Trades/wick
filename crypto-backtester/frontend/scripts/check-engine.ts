@@ -179,6 +179,20 @@ assert.equal(agreed.strategy.name, "SMA crossover + Buy and hold")
 assert.equal(agreed.trades.some((trade) => trade.side === "short"), false)
 assert.equal(agreed.trades.some((trade) => trade.side === "long"), true)
 assert.notEqual(fingerprint({ ...cross, combo: [{ rule: "buy_hold", params: {} }] }), fingerprint(cross))
+const stacked = createRun({
+  rule: "sma_cross",
+  combo: [
+    { rule: "ema_cross", params: {} },
+    { rule: "donchian", params: {} },
+    { rule: "macd", params: {} },
+    { rule: "supertrend", params: {} },
+    { rule: "sma_cross", params: {} },
+  ],
+})
+assert.deepEqual(
+  stacked.combo.map((item) => item.rule),
+  ["ema_cross", "donchian", "macd", "supertrend"],
+)
 
 assert.equal(profitFactor([{ pnl: 10 }, { pnl: 4 }]), null)
 assert.equal(profitFactor([]), null)

@@ -3,7 +3,6 @@ import type { ComboRule, MarketId, RangeId, Run, RunParams, RuleId, TapeCandle, 
 
 export const STORAGE_KEY = "wick-runs"
 export const MAX_RUNS = 5
-export const MAX_COMBO = 3
 
 export type ParamField = {
   key: string
@@ -316,7 +315,7 @@ export function normalizeCombo(value: unknown, primary: RuleId): ComboRule[] {
     const rawRule = String((item as { rule?: string }).rule ?? "")
     if (!ruleById(rawRule) && rawRule !== "rsi") continue
     const rule = normalizeRule(rawRule)
-    if (seen.has(rule) || combo.length >= MAX_COMBO) continue
+    if (seen.has(rule)) continue
     seen.add(rule)
     combo.push({ rule, params: ruleParams(rule, (item as { params?: RunParams }).params) })
   }

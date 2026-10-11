@@ -33,6 +33,7 @@ export function MarketPane({
   onAlert,
   onBookWidth,
   onEnlarge,
+  onRetry,
   showBook = true,
   barsPending = true,
   smoothed = false,
@@ -61,6 +62,7 @@ export function MarketPane({
   onAlert: (alert: SlotAlert | null) => void
   onBookWidth: (width: number) => void
   onEnlarge: () => void
+  onRetry?: () => void
   /** False when the desk draws one book beside the chart and the results. */
   showBook?: boolean
   barsPending?: boolean
@@ -118,6 +120,7 @@ export function MarketPane({
             onClearFocus={onClearFocus}
             onEnlarge={onEnlarge}
             pending={barsPending}
+            onRetry={onRetry}
             smoothed={smoothed}
           />
         </div>

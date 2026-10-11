@@ -1,4 +1,5 @@
 import type { SpotMarket } from "@/lib/markets"
+import { fetchPublicTape } from "@/lib/public-tape"
 import type { BacktestResult, Draft, FundingRate, MarketId, Meta, RangeId, Tape, TapeCandle, Timeframe, Venue } from "@/lib/types"
 
 const base = (import.meta.env?.VITE_API_URL as string | undefined) ?? ""
@@ -33,6 +34,22 @@ export async function fetchMeta(): Promise<Meta> {
 }
 
 export async function fetchCandles(
+  symbol: MarketId,
+  interval: Timeframe,
+  options?: { since?: number; days?: number; range?: RangeId; venue?: Venue },
+): Promise<Tape> {
+  try {
+    return await fetchDeskCandles(symbol, interval, options)
+  } catch (reason) {
+    try {
+      return await fetchPublicTape(symbol, interval, options)
+    } catch {
+      throw reason instanceof Error ? reason : new Error("The tape didn't load.")
+    }
+  }
+}
+
+async function fetchDeskCandles(
   symbol: MarketId,
   interval: Timeframe,
   options?: { since?: number; days?: number; range?: RangeId; venue?: Venue },
@@ -156,11 +173,30 @@ async function request<T>(path: string, init?: RequestInit, timeoutMs = 90_000):
       "The desk can't reach the backtester. Start it with uvicorn on port 8000, then run this again.",
     )
   }
-  const body = text ? (JSON.parse(text) as { detail?: unknown }) : null
+  let body: { detail?: unknown } | null = null
+  if (text) {
+    try {
+      body = JSON.parse(text) as { detail?: unknown }
+    } catch {
+      body = null
+    }
+  }
   if (!response.ok) {
     const fallback = path.startsWith("/api/candles") ? "The tape didn't load." : "The backtest didn't run."
-    const detail = body && typeof body.detail === "string" ? body.detail : fallback
-    throw new Error(detail)
+    const detail = detailText(body?.detail)
+    throw new Error(detail ?? (text ? `${fallback} (${response.status})` : fallback))
   }
+  if (body == null) throw new Error(path.startsWith("/api/candles") ? "The tape didn't load." : "The backtest didn't run.")
   return body as T
+}
+
+function detailText(detail: unknown): string | null {
+  if (typeof detail === "string" && detail.trim()) return detail
+  if (!Array.isArray(detail)) return null
+  const parts = detail.flatMap((item) => {
+    if (typeof item === "string" && item.trim()) return [item]
+    if (item && typeof item === "object" && "msg" in item && typeof item.msg === "string" && item.msg.trim()) return [item.msg]
+    return []
+  })
+  return parts.length > 0 ? parts.join(" ") : null
 }

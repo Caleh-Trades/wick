@@ -1,6 +1,8 @@
 import assert from "node:assert/strict"
 
+import { fetchCandles } from "../src/lib/api.ts"
 import { editConcerns } from "../src/lib/bot-edits.ts"
+import { chartCandle, klineCandle, publicSpanDays, resampleCandles } from "../src/lib/public-tape.ts"
 import { crossBookRun } from "../src/lib/cross-book.ts"
 import { tapeForSlot } from "../src/lib/workspace.ts"
 import { dailyReturns, pairedReturns, pearson } from "../src/lib/correlation.ts"
@@ -612,5 +614,78 @@ const wide = {
 const sliced = tapeForSlot({ "perp|4h|6Y|ETHUSDT": wide }, { venue: "perp", timeframe: "4h", range: "5D", symbol: "ETHUSDT" })
 assert.equal(sliced?.candles.length, 1)
 assert.equal(sliced?.candles[0]?.t, 500_000)
+
+assert.equal(publicSpanDays("1d", 366), 366)
+assert.equal(publicSpanDays("4h", 2196), 2196)
+assert.equal(publicSpanDays("1m", 2196), 31)
+assert.equal(publicSpanDays("1d", 0), 365 * 12)
+const parsed = klineCandle([1_700_000_000_000, "10", "12", "9", "11", "4"])
+assert.equal(parsed?.t, 1_700_000_000)
+assert.equal(parsed?.close, 11)
+assert.equal(parsed?.time, "2023-11-14T22:13:20Z")
+assert.equal(klineCandle([1_700_000_000_000, "10", "9", "12", "11", "4"]), null)
+const kraken = chartCandle({ time: 1_750_032_000_000, open: "1", high: "3", low: "1", close: "2", volume: "5" })
+assert.equal(kraken?.t, 1_750_032_000)
+assert.equal(kraken?.close, 2)
+const bundled = resampleCandles(
+  [
+    { t: 0, time: "a", open: 1, high: 2, low: 1, close: 2, volume: 1 },
+    { t: 60, time: "b", open: 2, high: 4, low: 2, close: 3, volume: 1 },
+    { t: 120, time: "c", open: 3, high: 3, low: 2, close: 2, volume: 1 },
+  ],
+  180,
+  60,
+)
+assert.equal(bundled.length, 1)
+assert.equal(bundled[0]?.open, 1)
+assert.equal(bundled[0]?.high, 4)
+assert.equal(bundled[0]?.close, 2)
+
+const originalFetch = globalThis.fetch
+const recent = Math.floor(Date.now() / 1000) - 86_400
+try {
+  const calls: string[] = []
+  globalThis.fetch = async (input) => {
+    const url = String(input)
+    calls.push(url)
+    if (url.includes("/api/candles")) return new Response("", { status: 502 })
+    if (url.includes("data-api.binance.vision")) {
+      return new Response(JSON.stringify([[recent * 1000, "10", "12", "9", "11", "4"]]), { status: 200 })
+    }
+    return new Response("", { status: 404 })
+  }
+  const fallen = await fetchCandles("BTCUSDT", "1d", { days: 366, range: "1Y", venue: "spot" })
+  assert.equal(fallen.source, "binance")
+  assert.equal(fallen.candles.length, 1)
+  assert.equal(fallen.candles[0]?.close, 11)
+  assert.ok(calls.some((url) => url.includes("/api/candles")))
+  assert.ok(calls.some((url) => url.includes("data-api.binance.vision")))
+
+  globalThis.fetch = async (input) => {
+    const url = String(input)
+    if (url.includes("binance.vision") || url.includes("futures.kraken.com")) throw new Error("public tape should stay idle")
+    return new Response(
+      JSON.stringify({
+        source: "binance",
+        seconds: 86_400,
+        periods_per_year: 365,
+        candles: [{ t: recent, time: "2026-01-01T00:00:00Z", open: 1, high: 2, low: 1, close: 2, volume: 1 }],
+      }),
+      { status: 200 },
+    )
+  }
+  const desk = await fetchCandles("BTCUSDT", "1d", { days: 366, range: "1Y", venue: "spot" })
+  assert.equal(desk.source, "binance")
+  assert.equal(desk.candles[0]?.close, 2)
+
+  globalThis.fetch = async (input) => {
+    const url = String(input)
+    if (url.includes("/api/candles")) return new Response(JSON.stringify({ detail: [{ msg: "days too big" }] }), { status: 422 })
+    return new Response("", { status: 404 })
+  }
+  await assert.rejects(() => fetchCandles("BTCUSDT", "1d", { days: 366, range: "1Y", venue: "spot" }), /days too big/)
+} finally {
+  globalThis.fetch = originalFetch
+}
 
 console.log("journal ok")

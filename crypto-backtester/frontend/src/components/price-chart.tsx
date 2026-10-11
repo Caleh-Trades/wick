@@ -30,6 +30,7 @@ export const PriceChart = memo(function PriceChart({
   onRange,
   onClearFocus,
   onEnlarge,
+  onRetry,
   pending = true,
   smoothed = false,
 }: {
@@ -44,6 +45,7 @@ export const PriceChart = memo(function PriceChart({
   onRange?: (range: RangeId) => void
   onClearFocus?: () => void
   onEnlarge: () => void
+  onRetry?: () => void
   /** True while the tape is still on its way. A failed tape says so instead of waiting. */
   pending?: boolean
   /** Heikin-ashi draws the smoothed candles and does not label them as raw price. */
@@ -113,7 +115,17 @@ export const PriceChart = memo(function PriceChart({
           onClearFocus={onClearFocus}
           onEnlarge={onEnlarge}
         />
-        <p className="mt-6 text-sm text-muted-foreground">{pending ? "Waiting for bars." : "The bars didn't load."}</p>
+        <p className="mt-6 text-sm text-muted-foreground">
+          {pending ? "Waiting for bars." : "The bars didn't load."}
+          {!pending && onRetry ? (
+            <>
+              {" "}
+              <button type="button" className="font-semibold tracking-widest text-foreground uppercase underline" onClick={onRetry}>
+                Retry
+              </button>
+            </>
+          ) : null}
+        </p>
       </div>
     )
   }

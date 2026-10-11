@@ -345,6 +345,22 @@ export default function App() {
     }))
   }
 
+  function retryTape(slot: Slot) {
+    const key = tapeKey(slot)
+    tapeTries.current.delete(key)
+    setErrors((current) => {
+      const patch = { ...current }
+      let changed = false
+      for (const item of workspaceRef.current.slots) {
+        if (tapeKey(item) !== key || !patch[item.id]) continue
+        patch[item.id] = null
+        changed = true
+      }
+      return changed ? patch : current
+    })
+    setTapeRetry((current) => current + 1)
+  }
+
   function focusSlot(id: string) {
     setWorkspace((current) => {
       if (id === current.activeId) return current
@@ -1031,7 +1047,10 @@ export default function App() {
         <div className="desk-column flex min-w-0 flex-col lg:min-h-0 lg:flex-1">
           {error ? (
             <div role="alert" className="bezel mx-3 mt-3 shrink-0 px-4 py-3 text-sm text-down">
-              {error}
+              {error}{" "}
+              <button type="button" className="font-semibold tracking-widest text-foreground uppercase underline" onClick={() => active && retryTape(active)}>
+                Retry
+              </button>
             </div>
           ) : null}
           {result ? (
@@ -1089,6 +1108,7 @@ export default function App() {
                   }}
                   showBook={!spanBook}
                   barsPending={!errors[slot.id] && !tapeForSlot(tapes, slot)}
+                  onRetry={() => retryTape(slot)}
                   smoothed={normalizeRule(slot.runs.find((run) => run.id === slot.selectedId)?.rule ?? "sma_cross") === "heikin_ashi"}
                 />
               </div>

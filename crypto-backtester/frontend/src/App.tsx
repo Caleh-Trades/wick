@@ -973,6 +973,7 @@ export default function App() {
                   }}
                   showBook={!spanBook}
                   barsPending={!errors[slot.id]}
+                  smoothed={normalizeRule(slot.runs.find((run) => run.id === slot.selectedId)?.rule ?? "sma_cross") === "heikin_ashi"}
                 />
               </div>
             ))}
@@ -1140,6 +1141,7 @@ export default function App() {
           venue={active.venue}
           metrics={result?.metrics ?? null}
           runName={selected?.name ?? "Run"}
+          smoothed={selected ? normalizeRule(selected.rule) === "heikin_ashi" : false}
           onClose={() => setWorkspace((current) => ({ ...current, enlarged: false }))}
         />
       ) : null}

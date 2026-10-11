@@ -207,6 +207,25 @@ export function Controls({
                   }
                 />
               </div>
+            ) : param.options ? (
+              <div key={param.key} className="flex flex-col gap-1">
+                <Label htmlFor={`${idPrefix}-${param.key}`}>{param.label}</Label>
+                <Select
+                  value={String(selected.params[param.key] ?? param.default)}
+                  onValueChange={(value) => patch({ params: { ...selectedRef.current.params, [param.key]: Number(value) } })}
+                >
+                  <SelectTrigger id={`${idPrefix}-${param.key}`} className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {param.options.map((option) => (
+                      <SelectItem key={option.value} value={String(option.value)}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             ) : (
               <DecimalField
                 key={param.key}
@@ -390,6 +409,31 @@ function ComboEditor({
                           )
                         }
                       />
+                    </div>
+                  ) : param.options ? (
+                    <div key={param.key} className="flex flex-col gap-1">
+                      <Label htmlFor={`${idPrefix}-combo-${item.rule}-${param.key}`}>{param.label}</Label>
+                      <Select
+                        value={String(item.params[param.key] ?? param.default)}
+                        onValueChange={(value) =>
+                          onChange(
+                            combo.map((entry) =>
+                              entry.rule === item.rule ? { ...entry, params: { ...entry.params, [param.key]: Number(value) } } : entry,
+                            ),
+                          )
+                        }
+                      >
+                        <SelectTrigger id={`${idPrefix}-combo-${item.rule}-${param.key}`} className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {param.options.map((option) => (
+                            <SelectItem key={option.value} value={String(option.value)}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                   ) : (
                     <DecimalField

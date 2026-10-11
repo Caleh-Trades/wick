@@ -35,6 +35,7 @@ export function MarketPane({
   onEnlarge,
   showBook = true,
   barsPending = true,
+  smoothed = false,
 }: {
   symbol: string | null
   candles: TapeCandle[]
@@ -63,6 +64,7 @@ export function MarketPane({
   /** False when the desk draws one book beside the chart and the results. */
   showBook?: boolean
   barsPending?: boolean
+  smoothed?: boolean
 }) {
   const rowRef = useRef<HTMLDivElement>(null)
   const [rowWidth, setRowWidth] = useState(0)
@@ -116,6 +118,7 @@ export function MarketPane({
             onClearFocus={onClearFocus}
             onEnlarge={onEnlarge}
             pending={barsPending}
+            smoothed={smoothed}
           />
         </div>
         {showBook ? (

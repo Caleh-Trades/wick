@@ -13,6 +13,7 @@ export type ParamField = {
   default: number
   integer: boolean
   toggle?: boolean
+  options?: { value: number; label: string }[]
 }
 
 export type RuleSpec = {
@@ -183,6 +184,71 @@ export const RULES: RuleSpec[] = [
       period("slow", "Slow", 3, 400, 50),
       period("filter", "Filter length", 4, 600, 200),
     ],
+  },
+  {
+    id: "fair_value_gap",
+    name: "Fair value gap",
+    summary: "A three-candle wick gap is the zone. Long or short on a later revisit, and flat when that gap fills or the opposite gap prints.",
+    params: [scale("gap", "Min gap %", 0.05, 20, 0.05, 0.15)],
+  },
+  {
+    id: "candle_trigger",
+    name: "Candlestick trigger",
+    summary: "Engulfing, hammer, shooting star, or doji is the entry. The position comes off when price trades through an ATR stop. A hammer is long. A shooting star is short.",
+    params: [
+      {
+        key: "pattern",
+        label: "Pattern",
+        min: 0,
+        max: 3,
+        step: 1,
+        default: 0,
+        integer: true,
+        options: [
+          { value: 0, label: "Engulfing" },
+          { value: 1, label: "Hammer" },
+          { value: 2, label: "Shooting star" },
+          { value: 3, label: "Doji" },
+        ],
+      },
+      scale("mult", "ATR multiple", 0.5, 10, 0.1, 1.5),
+    ],
+  },
+  {
+    id: "heikin_ashi",
+    name: "Heikin-ashi trend",
+    summary: "Long while the smoothed candle is green. Flat while it is red. The chart shows that smoothed series.",
+    params: [],
+  },
+  {
+    id: "break_structure",
+    name: "Break of structure",
+    summary: "Long when the close breaks the last swing high. Flat when the close breaks the last swing low.",
+    params: [period("swing", "Swing length", 1, 50, 5)],
+  },
+  {
+    id: "change_character",
+    name: "Change of character",
+    summary: "The first close through the prior swing flips the position. A break of the swing high is long. A break of the swing low is short.",
+    params: [period("swing", "Swing length", 1, 50, 5)],
+  },
+  {
+    id: "supply_demand",
+    name: "Supply and demand",
+    summary: "The base before an ATR impulse is the zone. Enter when price revisits it, and flat once price trades beyond the zone.",
+    params: [scale("mult", "Impulse ATR", 0.5, 10, 0.1, 1.5)],
+  },
+  {
+    id: "rsi_divergence",
+    name: "RSI divergence",
+    summary: "Long when price makes a lower swing low and RSI makes a higher low. Short when price makes a higher swing high and RSI makes a lower high.",
+    params: [period("period", "RSI length", 2, 100, 14), period("swing", "Swing length", 1, 50, 5)],
+  },
+  {
+    id: "renko",
+    name: "Renko trend",
+    summary: "Bricks are built from the close. Brick size is ATR times the multiple. Long on a green brick. Flat on a red brick.",
+    params: [period("atr", "ATR length", 2, 100, 14), scale("mult", "Brick multiple", 0.25, 10, 0.05, 1)],
   },
 ]
 
@@ -386,6 +452,17 @@ export function suggestedName(rule: RuleId, params: RunParams): string {
   if (rule === "vwap") return "VWAP reclaim"
   if (rule === "chandelier") return `Chandelier ${params.period ?? 50}`
   if (rule === "dual_ma") return `Dual MA ${fast}/${slow}`
+  if (rule === "fair_value_gap") return `FVG ${params.gap ?? 0.15}`
+  if (rule === "candle_trigger") {
+    const patterns = ["Engulfing", "Hammer", "Shooting star", "Doji"]
+    return patterns[params.pattern ?? 0] ?? "Engulfing"
+  }
+  if (rule === "heikin_ashi") return "Heikin-ashi"
+  if (rule === "break_structure") return `BOS ${params.swing ?? 5}`
+  if (rule === "change_character") return `CHoCH ${params.swing ?? 5}`
+  if (rule === "supply_demand") return `Supply ${params.mult ?? 1.5}`
+  if (rule === "rsi_divergence") return `RSI div ${params.period ?? 14}`
+  if (rule === "renko") return `Renko ${params.atr ?? 14}`
   return "Buy and hold"
 }
 

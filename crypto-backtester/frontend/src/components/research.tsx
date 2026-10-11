@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { formatAxis, formatPct, formatPlainPct, formatPrice, formatStamp, formatStat, tone } from "@/lib/format"
 import { marketSpec } from "@/lib/markets"
 import { barsLabel } from "@/lib/runs"
+import { heikinAshi } from "@/lib/signals"
 import { useFormingCandles } from "@/lib/use-book"
 import { plotCandles, priceDomain, type PlotBar } from "@/lib/plot"
 import type { Metrics, TapeCandle, Trade, Venue } from "@/lib/types"
@@ -28,6 +29,7 @@ export const ResearchChart = memo(function ResearchChart({
   metrics,
   runName,
   onClose,
+  smoothed = false,
 }: {
   candles: TapeCandle[]
   trades: Trade[]
@@ -37,8 +39,10 @@ export const ResearchChart = memo(function ResearchChart({
   metrics: Metrics | null
   runName: string
   onClose: () => void
+  smoothed?: boolean
 }) {
-  const candles = useFormingCandles(fetched, interval, symbol, venue)
+  const formed = useFormingCandles(fetched, interval, symbol, venue)
+  const candles = useMemo(() => (smoothed ? heikinAshi(formed) : formed), [formed, smoothed])
   const closeRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const frameRef = useRef<HTMLDivElement>(null)
@@ -155,7 +159,7 @@ export const ResearchChart = memo(function ResearchChart({
     () => (settled ? candles.slice(view.start, view.end + 1) : []),
     [settled, candles, view.start, view.end],
   )
-  const bars = useMemo(() => (settled ? plotCandles(slice, trades, 220) : []), [settled, slice, trades])
+  const bars = useMemo(() => (settled ? plotCandles(slice, trades, 220, smoothed) : []), [settled, slice, smoothed, trades])
   const domain = useMemo(() => (settled ? priceDomain(slice) : ([1, 2] as [number, number])), [settled, slice])
   const tick = symbol ? marketSpec(symbol, venue)?.tickSize : undefined
   const windowStart = candles[view.start]
@@ -338,7 +342,7 @@ export const ResearchChart = memo(function ResearchChart({
         <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="flex flex-wrap items-baseline gap-3 text-[0.65rem] font-semibold tracking-[0.18em] text-bench uppercase">
-              <span>Price · {runName}</span>
+              <span>{smoothed ? "Smoothed" : "Price"} · {runName}</span>
               <QuotePrice symbol={symbol} venue={venue} close={candles.at(-1)?.close} />
             </p>
             <p className="mt-1 font-mono text-[11px] tracking-wide text-bench uppercase">

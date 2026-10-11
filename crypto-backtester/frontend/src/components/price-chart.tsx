@@ -8,6 +8,7 @@ import { cumulativeDelta, standDownBar } from "@/lib/desk"
 import { formatAxis, formatPrice, formatStamp } from "@/lib/format"
 import { marketSpec } from "@/lib/markets"
 import { plotCandles, priceDomain, priceTicks, spotTrades, type PlotBar } from "@/lib/plot"
+import { heikinAshi } from "@/lib/signals"
 import { RANGES } from "@/lib/runs"
 import { useBookView, useFormingCandles } from "@/lib/use-book"
 import type { RangeId, TapeCandle, Trade, Venue } from "@/lib/types"
@@ -30,6 +31,7 @@ export const PriceChart = memo(function PriceChart({
   onClearFocus,
   onEnlarge,
   pending = true,
+  smoothed = false,
 }: {
   candles: TapeCandle[]
   trades: Trade[]
@@ -44,6 +46,8 @@ export const PriceChart = memo(function PriceChart({
   onEnlarge: () => void
   /** True while the tape is still on its way. A failed tape says so instead of waiting. */
   pending?: boolean
+  /** Heikin-ashi draws the smoothed candles and does not label them as raw price. */
+  smoothed?: boolean
 }) {
   const book = useBookView(symbol, venue)
   const [shadeSession, setShadeSession] = useState(false)
@@ -53,13 +57,13 @@ export const PriceChart = memo(function PriceChart({
   const livePrice = liveMark(book)?.price
   const windowed = useMemo(() => windowAround(formed, focusTime), [formed, focusTime])
   const includesTail = windowed.length > 0 && windowed[windowed.length - 1] === formed[formed.length - 1]
-  const shown = useMemo(
-    () => (includesTail ? withLivePrice(windowed, livePrice) : windowed),
-    [includesTail, livePrice, windowed],
-  )
+  const shown = useMemo(() => {
+    const priced = includesTail ? withLivePrice(windowed, livePrice) : windowed
+    return smoothed ? heikinAshi(priced) : priced
+  }, [includesTail, livePrice, smoothed, windowed])
   const frameRef = useRef<HTMLDivElement>(null)
   const [plot, setPlot] = useState<PlotBox | null>(null)
-  const bars = useMemo(() => plotCandles(shown, spotTrades(trades, venue), 280), [shown, trades, venue])
+  const bars = useMemo(() => plotCandles(shown, spotTrades(trades, venue), 280, smoothed), [shown, smoothed, trades, venue])
   const domain = useMemo(() => priceDomain(shown), [shown])
   const ticks = useMemo(() => priceTicks(domain), [domain])
   const tick = symbol ? marketSpec(symbol, venue)?.tickSize : undefined
@@ -92,7 +96,7 @@ export const PriceChart = memo(function PriceChart({
     return (
       <div data-price-summary="" className="price-chart bezel flex h-full min-h-0 flex-col px-3 py-2">
         <div className="flex items-baseline gap-3">
-          <h3 className="font-heading text-xl">Price</h3>
+          <h3 className="font-heading text-xl">{smoothed ? "Smoothed" : "Price"}</h3>
           <QuotePrice symbol={symbol} venue={venue} />
         </div>
         {reading && reading.length > 0 ? <p className="font-mono text-[11px] text-muted-foreground">{reading.join(" · ")}</p> : null}
@@ -120,7 +124,7 @@ export const PriceChart = memo(function PriceChart({
         <div className="flex items-baseline gap-3">
           <div>
             <div className="flex items-baseline gap-3">
-              <h3 className="font-heading text-xl">Price</h3>
+              <h3 className="font-heading text-xl">{smoothed ? "Smoothed" : "Price"}</h3>
               <QuotePrice symbol={symbol} venue={venue} close={shown.at(-1)?.close} />
             </div>
             {reading && reading.length > 0 ? <p className="font-mono text-[11px] text-muted-foreground">{reading.join(" · ")}</p> : null}

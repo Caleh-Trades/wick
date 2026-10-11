@@ -159,6 +159,14 @@ export type RuleId =
   | "vwap"
   | "chandelier"
   | "dual_ma"
+  | "fair_value_gap"
+  | "candle_trigger"
+  | "heikin_ashi"
+  | "break_structure"
+  | "change_character"
+  | "supply_demand"
+  | "rsi_divergence"
+  | "renko"
 
 export type MarketId = string
 

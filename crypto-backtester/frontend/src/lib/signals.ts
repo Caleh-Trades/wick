@@ -38,7 +38,11 @@ export function ruleReading(rule: RuleId, candles: TapeCandle[], params: RunPara
   }
   const spec = ruleById(rule)
   if (!spec || spec.params.length === 0) return spec ? [spec.name] : []
-  return spec.params.map((param) => `${param.label} ${params[param.key] ?? param.default}`)
+  return spec.params.map((param) => {
+    const value = params[param.key] ?? param.default
+    const option = param.options?.find((item) => item.value === value)
+    return `${param.label} ${option?.label ?? value}`
+  })
 }
 
 function readingValue(value: number | null | undefined): string {
@@ -102,6 +106,22 @@ function series(rule: RuleId, bars: Bars, params: RunParams): number[] {
       return chandelier(bars, params.period ?? 50, params.mult ?? 3)
     case "dual_ma":
       return dualTrend(bars.closes, params.fast ?? 20, params.slow ?? 50, params.filter ?? 200)
+    case "fair_value_gap":
+      return fairValueGap(bars, params.gap ?? 0.15)
+    case "candle_trigger":
+      return candleTrigger(bars, params.pattern ?? 0, params.mult ?? 1.5)
+    case "heikin_ashi":
+      return heikinTrend(bars)
+    case "break_structure":
+      return structureBreak(bars, params.swing ?? 5, "bos")
+    case "change_character":
+      return structureBreak(bars, params.swing ?? 5, "choch")
+    case "supply_demand":
+      return supplyDemand(bars, params.mult ?? 1.5)
+    case "rsi_divergence":
+      return rsiDivergence(bars, params.period ?? 14, params.swing ?? 5)
+    case "renko":
+      return renkoTrend(bars, params.atr ?? 14, params.mult ?? 1)
     default: {
       const unreachable: never = rule
       return unreachable
@@ -629,6 +649,306 @@ function chandelier(bars: Bars, trendLength: number, mult: number): number[] {
       if (!trendDown) cooledShort = true
     }
     signals.push(state)
+  }
+  return signals
+}
+
+const CANDLE_ATR = 14
+
+export function heikinAshi(candles: TapeCandle[]): TapeCandle[] {
+  let priorOpen = 0
+  let priorClose = 0
+  return candles.map((bar, index) => {
+    const close = (bar.open + bar.high + bar.low + bar.close) / 4
+    const open = index === 0 ? (bar.open + bar.close) / 2 : (priorOpen + priorClose) / 2
+    priorOpen = open
+    priorClose = close
+    return {
+      ...bar,
+      open,
+      close,
+      high: Math.max(bar.high, open, close),
+      low: Math.min(bar.low, open, close),
+    }
+  })
+}
+
+function heikinTrend(bars: Bars): number[] {
+  const smoothed = heikinAshi(
+    bars.closes.map((close, index) => ({
+      t: index,
+      time: String(index),
+      open: bars.opens[index] ?? close,
+      high: bars.highs[index] ?? close,
+      low: bars.lows[index] ?? close,
+      close,
+    })),
+  )
+  return smoothed.map((bar) => (bar.close > bar.open ? 1 : 0))
+}
+
+type Zone = { dir: 1 | -1; low: number; high: number; index: number }
+
+function fairValueGap(bars: Bars, minPct: number): number[] {
+  const signals: number[] = []
+  let bull: Zone | null = null
+  let bear: Zone | null = null
+  let active: Zone | null = null
+  let state = 0
+  for (let index = 0; index < bars.closes.length; index += 1) {
+    const close = bars.closes[index] ?? 0
+    const high = bars.highs[index] ?? close
+    const low = bars.lows[index] ?? close
+    let nextBull: Zone | null = null
+    let nextBear: Zone | null = null
+    if (index >= 2 && close > 0) {
+      const up = low - (bars.highs[index - 2] ?? low)
+      const down = (bars.lows[index - 2] ?? high) - high
+      if (up > 0 && (up / close) * 100 >= minPct) {
+        nextBull = { dir: 1, low: bars.highs[index - 2] ?? low, high: low, index }
+      }
+      if (down > 0 && (down / close) * 100 >= minPct) {
+        nextBear = { dir: -1, low: high, high: bars.lows[index - 2] ?? high, index }
+      }
+    }
+    if (state !== 0 && active) {
+      const filled = state > 0 ? low <= active.low : high >= active.high
+      const opposite = state > 0 ? nextBear != null : nextBull != null
+      if (filled || opposite) {
+        if (bull === active) bull = null
+        if (bear === active) bear = null
+        active = null
+        state = 0
+      }
+    }
+    if (state === 0) {
+      if (bull && low <= bull.low) bull = null
+      if (bear && high >= bear.high) bear = null
+      const zones: Zone[] = []
+      if (bull) zones.push(bull)
+      if (bear) zones.push(bear)
+      zones.sort((left, right) => right.index - left.index)
+      for (const zone of zones) {
+        const overlaps = low <= zone.high && high >= zone.low
+        const filled = zone.dir > 0 ? low <= zone.low : high >= zone.high
+        if (!overlaps || filled) continue
+        state = zone.dir
+        active = zone
+        break
+      }
+    }
+    if (nextBull) bull = nextBull
+    if (nextBear) bear = nextBear
+    signals.push(state)
+  }
+  return signals
+}
+
+function candleSide(bars: Bars, index: number, pattern: number): number {
+  if (index < 1) return 0
+  const open = bars.opens[index] ?? 0
+  const close = bars.closes[index] ?? 0
+  const high = bars.highs[index] ?? close
+  const low = bars.lows[index] ?? close
+  const prevOpen = bars.opens[index - 1] ?? 0
+  const prevClose = bars.closes[index - 1] ?? 0
+  const body = Math.abs(close - open)
+  const upper = high - Math.max(open, close)
+  const lower = Math.min(open, close) - low
+  const span = high - low
+  if (pattern === 1) return body > 0 && lower >= body * 2 && upper <= body ? 1 : 0
+  if (pattern === 2) return body > 0 && upper >= body * 2 && lower <= body ? -1 : 0
+  if (pattern === 3) {
+    if (!(span > 0) || body > span * 0.1) return 0
+    if (prevClose < prevOpen) return 1
+    if (prevClose > prevOpen) return -1
+    return 0
+  }
+  const prevBody = Math.abs(prevClose - prevOpen)
+  const bullish = prevClose < prevOpen && close > open && open <= prevClose && close >= prevOpen && body > prevBody
+  const bearish = prevClose > prevOpen && close < open && open >= prevClose && close <= prevOpen && body > prevBody
+  if (bullish) return 1
+  if (bearish) return -1
+  return 0
+}
+
+function candleTrigger(bars: Bars, pattern: number, mult: number): number[] {
+  const range = atr(bars.highs, bars.lows, bars.closes, CANDLE_ATR)
+  const signals: number[] = []
+  let state = 0
+  let stop = 0
+  const picked = Math.min(3, Math.max(0, Math.round(pattern)))
+  for (let index = 0; index < bars.closes.length; index += 1) {
+    const close = bars.closes[index] ?? 0
+    const high = bars.highs[index] ?? close
+    const low = bars.lows[index] ?? close
+    const width = range[index]
+    if (state > 0 && low <= stop) state = 0
+    else if (state < 0 && high >= stop) state = 0
+    if (state === 0 && width != null && width > 0) {
+      const side = candleSide(bars, index, picked)
+      if (side !== 0) {
+        const next = side > 0 ? close - width * mult : close + width * mult
+        const breached = side > 0 ? low <= next : high >= next
+        if (!breached) {
+          state = side
+          stop = next
+        }
+      }
+    }
+    signals.push(state)
+  }
+  return signals
+}
+
+function confirmedSwing(values: number[], index: number, length: number, kind: "high" | "low"): number | null {
+  const pivot = index - length
+  if (pivot < length) return null
+  const price = values[pivot]
+  if (price == null) return null
+  let leftBeyond = false
+  let rightBeyond = false
+  for (let cursor = pivot - length; cursor <= pivot + length; cursor += 1) {
+    if (cursor === pivot) continue
+    const other = values[cursor]
+    if (other == null) return null
+    const beyond = kind === "high" ? other < price : other > price
+    const through = kind === "high" ? other > price : other < price
+    if (through) return null
+    if (!beyond) continue
+    if (cursor < pivot) leftBeyond = true
+    else rightBeyond = true
+  }
+  return leftBeyond && rightBeyond ? price : null
+}
+
+function structureBreak(bars: Bars, swing: number, mode: "bos" | "choch"): number[] {
+  const length = Math.max(1, Math.round(swing))
+  const signals: number[] = []
+  let lastHigh: number | null = null
+  let lastLow: number | null = null
+  let bias = 0
+  let state = 0
+  for (let index = 0; index < bars.closes.length; index += 1) {
+    const high = confirmedSwing(bars.highs, index, length, "high")
+    const low = confirmedSwing(bars.lows, index, length, "low")
+    if (high != null) lastHigh = high
+    if (low != null) lastLow = low
+    const close = bars.closes[index] ?? 0
+    const brokeHigh = lastHigh != null && close > lastHigh
+    const brokeLow = lastLow != null && close < lastLow
+    if (mode === "bos") {
+      if (brokeHigh) state = 1
+      else if (brokeLow) state = 0
+    } else if (brokeHigh && bias !== 1) {
+      bias = 1
+      state = 1
+    } else if (brokeLow && bias !== -1) {
+      bias = -1
+      state = -1
+    }
+    signals.push(state)
+  }
+  return signals
+}
+
+function supplyDemand(bars: Bars, mult: number): number[] {
+  const range = atr(bars.highs, bars.lows, bars.closes, CANDLE_ATR)
+  const signals: number[] = []
+  let zone: Zone | null = null
+  let active: Zone | null = null
+  let state = 0
+  for (let index = 0; index < bars.closes.length; index += 1) {
+    const close = bars.closes[index] ?? 0
+    const high = bars.highs[index] ?? close
+    const low = bars.lows[index] ?? close
+    const width = range[index]
+    const previous = index > 0 ? (bars.closes[index - 1] ?? close) : close
+    if (index > 0 && width != null && width > 0 && Math.abs(close - previous) >= width * mult) {
+      const dir = close > previous ? 1 : -1
+      const baseLow = bars.lows[index - 1] ?? previous
+      const baseHigh = bars.highs[index - 1] ?? previous
+      if (baseHigh >= baseLow) zone = { dir, low: baseLow, high: baseHigh, index }
+    }
+    if (state !== 0 && active) {
+      const stopped = state > 0 ? low <= active.low : high >= active.high
+      if (stopped) {
+        if (zone === active) zone = null
+        active = null
+        state = 0
+      }
+    }
+    if (state === 0 && zone && zone.index < index) {
+      const overlaps = low <= zone.high && high >= zone.low
+      const stopped = zone.dir > 0 ? low <= zone.low : high >= zone.high
+      if (stopped) zone = null
+      else if (overlaps) {
+        state = zone.dir
+        active = zone
+      }
+    }
+    signals.push(state)
+  }
+  return signals
+}
+
+function rsiDivergence(bars: Bars, length: number, swing: number): number[] {
+  const readings = rsi(bars.closes, length)
+  const span = Math.max(1, Math.round(swing))
+  const signals: number[] = []
+  let state = 0
+  let priorHigh: { price: number; rsi: number } | null = null
+  let priorLow: { price: number; rsi: number } | null = null
+  for (let index = 0; index < bars.closes.length; index += 1) {
+    const highPivot = index - span
+    const lowPivot = highPivot
+    if (confirmedSwing(bars.highs, index, span, "high") != null && highPivot >= 0) {
+      const price = bars.highs[highPivot] ?? 0
+      const reading = readings[highPivot]
+      if (reading != null && priorHigh && price > priorHigh.price && reading < priorHigh.rsi) state = -1
+      if (reading != null) priorHigh = { price, rsi: reading }
+    }
+    if (confirmedSwing(bars.lows, index, span, "low") != null && lowPivot >= 0) {
+      const price = bars.lows[lowPivot] ?? 0
+      const reading = readings[lowPivot]
+      if (reading != null && priorLow && price < priorLow.price && reading > priorLow.rsi) state = 1
+      if (reading != null) priorLow = { price, rsi: reading }
+    }
+    signals.push(state)
+  }
+  return signals
+}
+
+function renkoTrend(bars: Bars, atrLength: number, mult: number): number[] {
+  const range = atr(bars.highs, bars.lows, bars.closes, atrLength)
+  const signals: number[] = []
+  let base: number | null = null
+  let green = false
+  for (let index = 0; index < bars.closes.length; index += 1) {
+    const close = bars.closes[index] ?? 0
+    const width = range[index]
+    const brick = width != null && width > 0 ? width * mult : 0
+    if (!(brick > 0)) {
+      signals.push(green ? 1 : 0)
+      continue
+    }
+    if (base == null) {
+      base = close
+      signals.push(0)
+      continue
+    }
+    let guard = 0
+    while (close >= base + brick && guard < 100) {
+      base += brick
+      green = true
+      guard += 1
+    }
+    while (close <= base - brick && guard < 100) {
+      base -= brick
+      green = false
+      guard += 1
+    }
+    signals.push(green ? 1 : 0)
   }
   return signals
 }

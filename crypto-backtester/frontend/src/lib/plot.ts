@@ -66,7 +66,7 @@ export function priceTicks(domain: [number, number]): number[] {
   return ticks.length >= 2 ? ticks : [min, max]
 }
 
-export function plotCandles(candles: TapeCandle[], trades: Trade[], maxPoints: number): PlotBar[] {
+export function plotCandles(candles: TapeCandle[], trades: Trade[], maxPoints: number, markAtClose = false): PlotBar[] {
   if (candles.length === 0) return []
   const entryAt = new Map<string, { price: number; side: "long" | "short" }>()
   const exitAt = new Map<string, { price: number; side: "long" | "short"; liquidated: boolean }>()
@@ -98,11 +98,11 @@ export function plotCandles(candles: TapeCandle[], trades: Trade[], maxPoints: n
       const entryMark = entryAt.get(bar.time)
       const exitMark = exitAt.get(bar.time)
       if (entryMark) {
-        entry = entryMark.price
+        entry = markAtClose ? bar.close : entryMark.price
         entrySide = entryMark.side
       }
       if (exitMark) {
-        exit = exitMark.price
+        exit = markAtClose ? bar.close : exitMark.price
         exitSide = exitMark.side
         liquidated = exitMark.liquidated
       }

@@ -130,4 +130,83 @@ const flattened = backtest(falling, flatRun, 365)
 assert.equal(flattened.assumptions.allow_short, false)
 assert.equal(flattened.trades.some((trade) => trade.side === "short"), false)
 
+const gapBars = [
+  candle(midnight, 9, 10, 8, 9),
+  candle(midnight + 3600, 10, 12, 10, 11),
+  candle(midnight + 7200, 13, 14, 13, 13.5),
+  candle(midnight + 10_800, 13.2, 13.4, 12.2, 12.6),
+  candle(midnight + 14_400, 12, 12.2, 9, 10),
+]
+assert.deepEqual(buildSignals("fair_value_gap", gapBars, { gap: 1 }), [0, 0, 0, 1, 0])
+
+const structure = [
+  [10, 10, 9, 10],
+  [14, 14, 13, 14],
+  [11, 11, 10, 11],
+  [15, 15, 14, 15],
+  [11, 12, 10.5, 11],
+  [11, 12, 10.5, 11],
+  [7, 8, 7, 7],
+].map(([close, high, low, open], index) => candle(midnight + index * 86_400, open!, high!, low!, close!))
+assert.deepEqual(buildSignals("break_structure", structure, { swing: 1 }), [0, 0, 0, 1, 1, 1, 0])
+assert.deepEqual(buildSignals("change_character", structure, { swing: 1 }), [0, 0, 0, 1, 1, 1, -1])
+assert.ok(buildSignals("break_structure", structure, { swing: 1 }).every((value) => value !== -1))
+
+const smoothed = buildSignals(
+  "heikin_ashi",
+  [
+    candle(midnight, 10, 12, 9, 12),
+    candle(midnight + 86_400, 12, 14, 11, 14),
+    candle(midnight + 172_800, 14, 14, 8, 8),
+  ],
+  {},
+)
+assert.deepEqual(smoothed, [0, 1, 0])
+
+const bricks = Array.from({ length: 8 }, (_, index) => candle(midnight + index * 86_400, 100, 101, 99, 100))
+bricks.push(candle(midnight + 8 * 86_400, 100, 120, 100, 120))
+const renko = buildSignals("renko", bricks, { atr: 2, mult: 1 })
+assert.ok(renko.every((value) => value === 0 || value === 1))
+assert.equal(renko.at(-1), 1)
+
+const trigger: TapeCandle[] = []
+for (let index = 0; index < 16; index += 1) trigger.push(candle(midnight + index * 3600, 100, 101, 99, 100))
+trigger.push(candle(midnight + 16 * 3600, 100, 100.2, 97.8, 98))
+trigger.push(candle(midnight + 17 * 3600, 97.9, 100.6, 99.5, 100.5))
+trigger.push(candle(midnight + 18 * 3600, 100, 100, 90, 95))
+const engulfed = buildSignals("candle_trigger", trigger, { pattern: 0, mult: 1.5 })
+assert.equal(engulfed[17], 1)
+assert.equal(engulfed[18], 0)
+
+const hammer: TapeCandle[] = []
+for (let index = 0; index < 16; index += 1) hammer.push(candle(midnight + index * 3600, 100, 101, 99, 100))
+hammer.push(candle(midnight + 16 * 3600, 100, 101.5, 98, 101))
+const hammered = buildSignals("candle_trigger", hammer, { pattern: 1, mult: 3 })
+assert.equal(hammered[16], 1)
+assert.ok(hammered.every((value) => value === 0 || value === 1))
+
+const starRun = createRun({
+  rule: "candle_trigger",
+  params: { pattern: 2, mult: 1.5 },
+  allowShort: false,
+  feeBps: 0,
+  name: "Star",
+})
+const starred = backtest(sample, starRun, 365)
+assert.equal(starred.trades.some((trade) => trade.side === "short"), false)
+
+const divergenceMoves = [...Array(20).fill(0.2), ...Array(4).fill(8), ...Array(5).fill(-4), ...Array(8).fill(3.2), ...Array(5).fill(-3)]
+let divergencePrice = 100
+const divergence = divergenceMoves.map((delta, index) => {
+  const open = divergencePrice
+  divergencePrice += delta
+  return candle(midnight + index * 3600, open, Math.max(open, divergencePrice) + 0.2, Math.min(open, divergencePrice) - 0.2, divergencePrice)
+})
+const divergenceSignals = buildSignals("rsi_divergence", divergence, { period: 14, swing: 3 })
+assert.ok(divergenceSignals.includes(-1))
+
+const character = createRun({ rule: "change_character", params: { swing: 1 }, allowShort: false, feeBps: 0, name: "CHoCH flat" })
+const characterRun = backtest(structure, character, 365)
+assert.equal(characterRun.trades.some((trade) => trade.side === "short"), false)
+
 console.log("strategy library ok")

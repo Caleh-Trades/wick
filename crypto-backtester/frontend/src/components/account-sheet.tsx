@@ -37,22 +37,25 @@ export function AccountSheet({ session, status, onCreate, onSignIn, onSignOut }:
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button type="button" size="xs" variant="outline" className="max-w-32 truncate normal-case tracking-normal" aria-label="Account">
-          {session ? session.name : "Account"}
+        <Button type="button" size="xs" variant="outline" className="max-w-40 truncate normal-case tracking-normal" aria-label="Account, local only">
+          {session ? `${session.name} · local` : "Account · local"}
         </Button>
       </SheetTrigger>
       <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-md">
         <SheetHeader>
-          <SheetTitle>Account</SheetTitle>
+          <SheetTitle>Account · local</SheetTitle>
           <SheetDescription>
-            Create a name and password, then sign in on another device. The slots, journal, kept runs, favourites, and pane sizes are the same desk.
+            Local only for now. Journal rows and kept runs stay on this host. The Vercel URL and this preview do not share the same trades until a synced sign-in lands.
           </SheetDescription>
         </SheetHeader>
         <div className="flex flex-col gap-5 px-4 pb-8">
+          <p className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase" role="status">
+            local-only
+          </p>
           {session ? (
             <>
               <p className="text-sm leading-relaxed">
-                Signed in as <span className="font-medium">{session.name}</span>. Open Wick on another device and sign in with this name.
+                Signed in as <span className="font-medium">{session.name}</span> on this host. Another device on the same API can use this name. Preview and production stay separate.
               </p>
               <p className="font-mono text-xs text-muted-foreground" role="status">
                 {status || "On this account"}
@@ -61,7 +64,7 @@ export function AccountSheet({ session, status, onCreate, onSignIn, onSignOut }:
                 Sign out
               </Button>
               <p className="text-xs leading-relaxed text-muted-foreground">
-                Signing out leaves a copy on this browser and stops sending changes. The account stays on the server.
+                Signing out leaves a copy on this browser and stops sending changes. The account stays on this host.
               </p>
             </>
           ) : (
@@ -94,7 +97,7 @@ export function AccountSheet({ session, status, onCreate, onSignIn, onSignOut }:
                 </Button>
               </div>
               <p className="text-xs leading-relaxed text-muted-foreground">
-                Create starts the account from the desk on this browser. Sign in replaces this browser with that account. The password is stored as a hash.
+                Create starts the account from the desk on this browser. Sign in replaces this browser with that account on the same host. The password is stored as a hash.
               </p>
             </>
           )}

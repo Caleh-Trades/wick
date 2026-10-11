@@ -253,7 +253,8 @@ function asPosition(value: unknown): BookPosition | null {
   const side = raw.side === "long" || raw.side === "short" ? raw.side : null
   const market = isVenue(raw.market) ? raw.market : null
   if (!symbol || !side || !market || !(Number(raw.size) > 0) || !(Number(raw.entry) > 0) || typeof raw.tradeId !== "string" || !raw.tradeId) return null
-  return { symbol, market, side, size: Number(raw.size), entry: Number(raw.entry), tradeId: raw.tradeId }
+  const stop = raw.stop != null && Number(raw.stop) > 0 ? Number(raw.stop) : null
+  return { symbol, market, side, size: Number(raw.size), entry: Number(raw.entry), stop, tradeId: raw.tradeId }
 }
 
 function asArm(value: unknown, venue: Venue): ArmGate | null {

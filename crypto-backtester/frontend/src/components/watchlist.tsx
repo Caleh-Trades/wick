@@ -156,7 +156,8 @@ function QuoteRow({
   const price = book.quote ?? book.last?.price ?? null
   const stale = book.status === "stale" && price != null
   const change = book.changePct
-  const mark = position && price != null ? openR(position.side, position.entry, trade?.stop ?? Number.NaN, price) : null
+  const stop = position?.stop ?? trade?.stop ?? null
+  const mark = position && price != null && stop != null ? openR(position.side, position.entry, stop, price) : null
   const current = position && price != null ? markReturn(position.side, position.entry, price) : null
   const best = position && price != null && trade ? bestOpenReturn(position.side, position.entry, price, bars, trade.entryTime) : current
   const flagged = current != null && best != null && gaveBack(current, best, giveBack)
@@ -176,7 +177,11 @@ function QuoteRow({
         <span className={cn("shrink-0", change == null ? "text-muted-foreground" : change > 0 ? "text-up" : change < 0 ? "text-down" : "text-muted-foreground")}>
           {change == null ? "—" : `${change > 0 ? "+" : ""}${change.toFixed(2)}%`}
           {stale ? " · stale" : ""}
-          {position && mark != null ? <span className="ml-1 text-foreground">{formatR(mark)}</span> : null}
+          {position && mark != null ? (
+            <span className="ml-1 text-foreground" aria-label="Open R">
+              {formatR(mark)}
+            </span>
+          ) : null}
           {position && flagged ? <span className="ml-1 text-down normal-case">give-back</span> : null}
           {position && price != null ? (
             <button type="button" className="ml-1 uppercase" onClick={() => onFlat(price)}>

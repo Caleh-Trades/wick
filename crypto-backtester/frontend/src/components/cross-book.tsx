@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 
 import { fetchCandles } from "@/lib/api"
+import { isThinSample } from "@/lib/backtest"
 import { computeBacktest } from "@/lib/compute"
 import { CROSS_SYMBOLS, crossBookRun } from "@/lib/cross-book"
 import { marketLabel } from "@/lib/desk"
@@ -22,17 +23,21 @@ export function CrossBookPage({
   venue,
   timeframe,
   range,
+  closedTrades,
 }: {
   run: Run | null
   venue: Venue
   timeframe: Timeframe
   range: RangeId
+  /** Closed trades on the kept or active run. Under ten is a thin sample. */
+  closedTrades: number | null
 }) {
   const [rows, setRows] = useState<Row[]>([])
   const [pending, setPending] = useState(true)
   const runRef = useRef(run)
   runRef.current = run
   const mark = run ? fingerprint(run) : ""
+  const thin = closedTrades != null && isThinSample(closedTrades)
 
   useEffect(() => {
     const current = runRef.current
@@ -85,6 +90,11 @@ export function CrossBookPage({
             {run ? run.name : "The active rule"} on BTC, ETH, and SOL for this window. {marketLabel(venue)}.{" "}
             {venue === "spot" ? "Spot stays long only." : "Perp may short."}
           </p>
+          {thin ? (
+            <p className="mt-2 font-mono text-[10px] text-muted-foreground/70 normal-case" role="status">
+              thin sample · {closedTrades} closed {closedTrades === 1 ? "trade" : "trades"}
+            </p>
+          ) : null}
         </div>
         {!run ? <p className="text-sm text-muted-foreground">Select a run on the desk first.</p> : null}
         {run && pending ? <p className="text-sm text-muted-foreground">Running BTC, ETH, and SOL.</p> : null}

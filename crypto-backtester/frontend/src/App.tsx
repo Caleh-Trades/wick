@@ -787,6 +787,7 @@ export default function App() {
         side: trade.side,
         size: trade.size,
         entry: trade.entryPrice,
+        stop: trade.stop,
         tradeId: trade.id,
       }),
     }))
@@ -1012,7 +1013,13 @@ export default function App() {
           series={(active ? pinsOf(active) : []).map((symbol) => ({ symbol, candles: daily[symbol] ?? [] }))}
         />
       ) : page === "cross" ? (
-        <CrossBookPage run={selected} venue={active?.venue ?? "spot"} timeframe={active?.timeframe ?? "1d"} range={active?.range ?? "1Y"} />
+        <CrossBookPage
+          run={selected}
+          venue={active?.venue ?? "spot"}
+          timeframe={active?.timeframe ?? "1d"}
+          range={active?.range ?? "1Y"}
+          closedTrades={result?.metrics.trades ?? null}
+        />
       ) : page === "diff" ? (
         <DiffPage />
       ) : (

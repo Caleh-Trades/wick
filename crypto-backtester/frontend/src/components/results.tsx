@@ -16,7 +16,7 @@ import {
   formatStat,
   tone,
 } from "@/lib/format"
-import { holdoutWarn, markReturn, monteCarloEquity, windowTradesLabel } from "@/lib/backtest"
+import { holdoutWarn, isThinSample, markReturn, monteCarloEquity, windowTradesLabel } from "@/lib/backtest"
 import { formatR, gaveBack, openR } from "@/lib/open-trade"
 import { clampRisk, fingerprint, marketById, runColor, strategyLabel } from "@/lib/runs"
 import type { BacktestResult, Outcome, Run, SampleSlice, SortKey, Trade, Venue } from "@/lib/types"
@@ -284,7 +284,7 @@ export function RunStrip({
               <span className="text-[11px] font-normal text-muted-foreground normal-case">
                 {closedReturns.length} {closedReturns.length === 1 ? "trade" : "trades"}
               </span>
-              {closedReturns.length < 10 ? (
+              {isThinSample(closedReturns.length) ? (
                 <span className="text-[10px] font-normal text-muted-foreground/70 normal-case">thin sample</span>
               ) : null}
             </>
@@ -418,6 +418,8 @@ export function WindowsPage({
   symbol: string
   venue: Venue
 }) {
+  const closed = result?.metrics.trades ?? null
+  const thin = closed != null && isThinSample(closed)
   return (
     <div className="desk-stack lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
       <div className="mx-auto flex w-full max-w-[1100px] flex-col gap-4 px-4 py-4 pb-16">
@@ -427,6 +429,11 @@ export function WindowsPage({
             {symbol ? `${symbol} · ${venue === "perp" ? "Perp" : "Spot"} · ${runName}. ` : ""}
             In-sample is the first 70% of bars. Holdout is the last 30%. Window 1, Window 2, and Window 3 split that same pass into thirds. Parameters are not fit again.
           </p>
+          {thin && closed != null ? (
+            <p className="mt-2 font-mono text-[10px] text-muted-foreground/70 normal-case" role="status">
+              thin sample · {closed} closed {closed === 1 ? "trade" : "trades"}
+            </p>
+          ) : null}
         </div>
         {result ? (
           <div className="bezel p-4">

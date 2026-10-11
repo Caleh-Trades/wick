@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { isThinSample } from "@/lib/backtest"
 import { ruleDiff, type DiffSide } from "@/lib/diff"
 import { listRuns, watchBook, type KeptListRow } from "@/lib/records"
 
@@ -30,6 +31,9 @@ export function DiffPage() {
   const left = kept.find((row) => row.run.id === leftId) ?? null
   const right = kept.find((row) => row.run.id === rightId) ?? null
   const lines = left && right && left.run.id !== right.run.id ? ruleDiff(sideOf(left), sideOf(right)) : []
+  const thinLeft = left != null && isThinSample(left.run.metrics.trades)
+  const thinRight = right != null && isThinSample(right.run.metrics.trades)
+  const thin = thinLeft || thinRight
 
   return (
     <div className="desk-stack lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
@@ -39,6 +43,14 @@ export function DiffPage() {
           <p className="mt-3 max-w-2xl text-sm text-muted-foreground">
             Two kept runs. Only the params, return, drawdown, win rate, and trade count that differ are listed.
           </p>
+          {thin ? (
+            <p className="mt-2 font-mono text-[10px] text-muted-foreground/70 normal-case" role="status">
+              thin sample
+              {thinLeft ? ` · left ${left!.run.metrics.trades}` : ""}
+              {thinRight ? ` · right ${right!.run.metrics.trades}` : ""}
+              {" "}closed trades
+            </p>
+          ) : null}
         </div>
         {kept.length < 2 ? (
           <p className="text-sm text-muted-foreground">Keep two runs from the desk, then pick them here.</p>

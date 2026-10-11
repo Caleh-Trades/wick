@@ -529,6 +529,13 @@ function closedReturns(trades: Array<{ pnl: number; return_pct?: number; status?
   )
 }
 
+/** Closed trades below this count are a thin sample. Monte Carlo, Windows, Cross, and Diff use the same line. */
+export const THIN_SAMPLE_TRADES = 10
+
+export function isThinSample(trades: number): boolean {
+  return trades < THIN_SAMPLE_TRADES
+}
+
 /** 5th percentile ending equity. Each path redraws the closed-trade returns with replacement and compounds them from the starting balance. A pure shuffle cannot move the product, so the paths are redraws. */
 export function monteCarloEquity(returns: number[], capital: number, paths = 500): number | null {
   const usable = returns.filter((value) => Number.isFinite(value))

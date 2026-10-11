@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 
-import { backtest, liquidationPrice, markReturn, monteCarloEquity, profitFactor, tradeExpectancy, windowTradesLabel } from "../src/lib/backtest.ts"
+import { backtest, isThinSample, liquidationPrice, markReturn, monteCarloEquity, profitFactor, tradeExpectancy, windowTradesLabel } from "../src/lib/backtest.ts"
 import { formatFactor } from "../src/lib/format.ts"
 import { createRun, fingerprint, mergeCandles, nudgeFast } from "../src/lib/runs.ts"
 import type { TapeCandle } from "../src/lib/types.ts"
@@ -230,6 +230,8 @@ assert.ok(mixed != null && mixed > 0 && mixed < 7_500)
 assert.equal(monteCarloEquity([50, -50], 10_000), mixed)
 assert.equal(windowTradesLabel(0), "open position, no closed trade")
 assert.equal(windowTradesLabel(2), null)
+assert.equal(isThinSample(9), true)
+assert.equal(isThinSample(10), false)
 const nudged = nudgeFast(createRun({ rule: "sma_cross", params: { fast: 20, slow: 50 }, name: "SMA" }))
 assert.deepEqual(
   nudged?.map((step) => step.params.fast),

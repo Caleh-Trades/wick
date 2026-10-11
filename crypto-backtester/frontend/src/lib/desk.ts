@@ -13,6 +13,8 @@ export type BookPosition = {
   side: "long" | "short"
   size: number
   entry: number
+  /** Stop on the open journal row. Open R needs this with the mark. */
+  stop: number | null
   tradeId: string
 }
 

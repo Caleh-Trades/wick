@@ -10,7 +10,7 @@ import { missingBars } from "@/lib/plot"
 import { TIMEFRAMES, barsLabel, marketById, windowNote } from "@/lib/runs"
 import type { SessionLight } from "@/lib/desk"
 
-export type DeskPage = "desk" | "journal" | "windows" | "replay" | "paper" | "correlation"
+export type DeskPage = "desk" | "journal" | "windows" | "replay" | "paper" | "correlation" | "cross" | "diff"
 import type { MarketId, RangeId, Tape, Timeframe, Venue } from "@/lib/types"
 
 type DeskBarProps = {
@@ -97,7 +97,7 @@ export function DeskBar({
           <BotSettings />
         </div>
 
-        <div className="flex shrink-0 gap-1" role="group" aria-label="Page">
+        <div className="flex max-w-[372px] min-w-0 shrink gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="group" aria-label="Page">
           {(
             [
               ["desk", "Desk"],
@@ -105,6 +105,8 @@ export function DeskBar({
               ["windows", "Windows"],
               ["replay", "Replay"],
               ["paper", "Paper"],
+              ["cross", "Cross"],
+              ["diff", "Diff"],
               ...(showCorrelation ? [["correlation", "Correlation"] as const] : []),
             ] as Array<[DeskPage, string]>
           ).map(([item, label]) => (
@@ -113,7 +115,7 @@ export function DeskBar({
               type="button"
               size="xs"
               variant={page === item ? "default" : "outline"}
-              className="px-2 normal-case tracking-normal"
+              className="px-1.5 normal-case tracking-normal"
               aria-pressed={page === item}
               onClick={() => onPage(item)}
             >

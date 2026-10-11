@@ -39,6 +39,8 @@ type ControlsProps = {
   onNudge: () => void
   lossLimit: number
   onLossLimit: (limit: number) => void
+  giveBack: number
+  onGiveBack: (percent: number) => void
 }
 
 export function Controls({
@@ -62,6 +64,8 @@ export function Controls({
   onNudge,
   lossLimit,
   onLossLimit,
+  giveBack,
+  onGiveBack,
 }: ControlsProps) {
   const full = runs.length >= MAX_RUNS
   const rule = RULES.find((item) => item.id === selected.rule)
@@ -282,6 +286,17 @@ export function Controls({
         integer
         onValue={onLossLimit}
         hint={<p className="text-xs leading-relaxed text-muted-foreground">Closed journal losses in a row. The session stands down and Arm stays dark until you clear it.</p>}
+      />
+
+      <DecimalField
+        id={`${idPrefix}-give-back`}
+        label="Give-back (%)"
+        value={giveBack}
+        min={1}
+        max={100}
+        integer
+        onValue={onGiveBack}
+        hint={<p className="text-xs leading-relaxed text-muted-foreground">If open profit falls below this share of the best open profit, the row is marked give-back. Nothing closes on its own.</p>}
       />
 
       {venue === "perp" ? (

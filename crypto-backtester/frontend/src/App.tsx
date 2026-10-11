@@ -22,6 +22,8 @@ import { fetchCandles, mergeFunding, requestFailure } from "@/lib/api"
 import { ackBotEdits, fetchBotInbox } from "@/lib/bot-api"
 import { applyBotEdits, editConcerns } from "@/lib/bot-edits"
 import { CorrelationPage } from "@/components/correlation"
+import { CrossBookPage } from "@/components/cross-book"
+import { DiffPage } from "@/components/diff"
 import { JournalPage } from "@/components/journal"
 import { PaperPage } from "@/components/paper"
 import { ReplayPage } from "@/components/replay"
@@ -992,6 +994,10 @@ export default function App() {
           pending={dailyPending}
           series={(active ? pinsOf(active) : []).map((symbol) => ({ symbol, candles: daily[symbol] ?? [] }))}
         />
+      ) : page === "cross" ? (
+        <CrossBookPage run={selected} venue={active?.venue ?? "spot"} timeframe={active?.timeframe ?? "1d"} range={active?.range ?? "1Y"} />
+      ) : page === "diff" ? (
+        <DiffPage />
       ) : (
       <>
       <WorkspaceBar
@@ -1018,6 +1024,8 @@ export default function App() {
           onFlat={(symbol, venue, price) => void flatMarket(symbol, venue, price)}
           positions={workspace.positions}
           openTrades={openTrades}
+          tapes={tapes}
+          giveBack={workspace.giveBack}
         />
         <div className="desk-column flex min-w-0 flex-col lg:min-h-0 lg:flex-1">
           {error ? (
@@ -1138,6 +1146,7 @@ export default function App() {
                 onFocusTrade={setFocusTrade}
                 drawToken={drawToken}
                 nudge={nudge && selected && nudge.runId === selected.id ? nudge.rows : null}
+                giveBack={workspace.giveBack}
               />
               </div>
             ) : null}
@@ -1189,6 +1198,8 @@ export default function App() {
                 onNudge={() => void runNudge()}
                 lossLimit={workspace.lossLimit}
                 onLossLimit={(lossLimit) => setWorkspace((current) => ({ ...current, lossLimit }))}
+                giveBack={workspace.giveBack}
+                onGiveBack={(giveBack) => setWorkspace((current) => ({ ...current, giveBack }))}
               />
             ) : (
               <EmptyRuns onAdd={addSlot} />
@@ -1236,6 +1247,8 @@ export default function App() {
                   onNudge={() => void runNudge()}
                   lossLimit={workspace.lossLimit}
                   onLossLimit={(lossLimit) => setWorkspace((current) => ({ ...current, lossLimit }))}
+                  giveBack={workspace.giveBack}
+                  onGiveBack={(giveBack) => setWorkspace((current) => ({ ...current, giveBack }))}
                 />
               ) : null}
             </div>

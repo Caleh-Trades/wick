@@ -16,7 +16,8 @@ import {
   formatStat,
   tone,
 } from "@/lib/format"
-import { holdoutWarn, monteCarloEquity, windowTradesLabel } from "@/lib/backtest"
+import { holdoutWarn, markReturn, monteCarloEquity, windowTradesLabel } from "@/lib/backtest"
+import { formatR, gaveBack, openR } from "@/lib/open-trade"
 import { clampRisk, fingerprint, marketById, runColor, strategyLabel } from "@/lib/runs"
 import type { BacktestResult, Outcome, Run, SampleSlice, SortKey, Trade, Venue } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -52,6 +53,7 @@ type ResultsProps = {
   onFocusTrade: (trade: Trade) => void
   drawToken: number
   nudge: NudgeReturn[] | null
+  giveBack: number
 }
 
 export const Results = memo(function Results({
@@ -70,6 +72,7 @@ export const Results = memo(function Results({
   onFocusTrade,
   drawToken,
   nudge,
+  giveBack,
 }: ResultsProps) {
   const market = marketById(result.symbol, venue)
   const trades = venue === "spot" ? result.trades.filter((trade) => trade.side !== "short") : result.trades
@@ -165,7 +168,9 @@ export const Results = memo(function Results({
                   <span>Fee {trade.fee_paid == null ? "—" : formatMoney(trade.fee_paid, 2)}</span>
                   <span className="text-right">Slip {trade.slippage_paid == null ? "—" : formatMoney(trade.slippage_paid, 2)}</span>
                 </p>
-                {trade.status === "open" ? null : (
+                {trade.status === "open" ? (
+                  <OpenMark trade={trade} giveBack={giveBack} />
+                ) : (
                   <p className="mt-0.5 grid grid-cols-2 gap-2 font-mono text-[11px] tabular-nums text-muted-foreground">
                     <span className={toneClass(trade.mae ?? 0)}>MAE {formatPct(trade.mae)}</span>
                     <span className={cn("text-right", toneClass(trade.mfe ?? 0))}>MFE {formatPct(trade.mfe)}</span>
@@ -181,6 +186,20 @@ export const Results = memo(function Results({
     </div>
   )
 })
+
+function OpenMark({ trade, giveBack }: { trade: Trade; giveBack: number }) {
+  const mark = trade.exit_price
+  const r = mark != null && trade.stop != null ? openR(trade.side, trade.entry_price, trade.stop, mark) : null
+  const current = mark != null ? markReturn(trade.side, trade.entry_price, mark) : trade.return_pct
+  const flagged = gaveBack(current, trade.mfe ?? current, giveBack)
+  if (r == null && !flagged) return null
+  return (
+    <p className="mt-0.5 flex items-baseline justify-between gap-2 font-mono text-[11px] tabular-nums">
+      {r == null ? <span /> : <span>{formatR(r)}</span>}
+      {flagged ? <span className="text-down normal-case">give-back</span> : null}
+    </p>
+  )
+}
 
 export function RunStrip({
   result,

@@ -1,6 +1,8 @@
 import {
   asRiskMode,
+  clampGiveBack,
   clampLossLimit,
+  DEFAULT_GIVE_BACK,
   DEFAULT_LOSS_LIMIT,
   isSessionLight,
   pinsOf,
@@ -51,6 +53,8 @@ export type Workspace = {
   session: SessionLight | null
   /** Closed journal losses in a row before the session stands down. */
   lossLimit: number
+  /** Share of the best open profit. Below it, the open row is marked give-back. */
+  giveBack: number
   /** Latched by the loss halt. Clearing is the only way back. */
   lossHalt: boolean
   /** Exit time of the loss the halt was cleared through. Older losses do not count. */
@@ -90,6 +94,7 @@ export function defaultWorkspace(): Workspace {
     riskMode: "NORMAL",
     session: null,
     lossLimit: DEFAULT_LOSS_LIMIT,
+    giveBack: DEFAULT_GIVE_BACK,
     lossHalt: false,
     lossHaltAck: null,
     positions: [],
@@ -155,6 +160,7 @@ export function fromDesk(desk: DeskState): Workspace {
     riskMode: "NORMAL",
     session: null,
     lossLimit: DEFAULT_LOSS_LIMIT,
+    giveBack: DEFAULT_GIVE_BACK,
     lossHalt: false,
     lossHaltAck: null,
     positions: [],
@@ -176,6 +182,7 @@ function sanitizeWorkspace(value: unknown): Workspace {
     riskMode: asRiskMode(raw.riskMode),
     session: isSessionLight(raw.session) ? raw.session : null,
     lossLimit: clampLossLimit(raw.lossLimit),
+    giveBack: clampGiveBack(raw.giveBack),
     lossHalt: raw.lossHalt === true,
     lossHaltAck: typeof raw.lossHaltAck === "string" && raw.lossHaltAck ? raw.lossHaltAck : null,
     positions: Array.isArray(raw.positions) ? raw.positions.map(asPosition).filter((item) => item != null) : [],

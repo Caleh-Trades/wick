@@ -80,7 +80,8 @@ export function backtest(
       if (target !== 0 && account.cash > 1) {
         const raw = bar.open
         const fill = openFill(raw, target, slip)
-        const opened = account.open(target, fill, leverage, riskPct / 100, stopDistance(candles, index - 1, fill))
+        const distance = stopDistance(candles, index - 1, fill)
+        const opened = account.open(target, fill, leverage, riskPct / 100, distance)
         if (opened.quantity > 0) {
           open = {
             entryTime: bar.time,
@@ -93,6 +94,7 @@ export function backtest(
             fundingPaid: 0,
             mae: 0,
             mfe: 0,
+            stop: target > 0 ? fill - distance : fill + distance,
           }
         }
       }
@@ -150,6 +152,7 @@ export function backtest(
         status: "open",
         mae: open.mae,
         mfe: open.mfe,
+        stop: open.stop,
         funding_paid: open.fundingPaid,
         fee_paid: open.entryFee,
         slippage_paid: open.entrySlippage,
@@ -216,6 +219,7 @@ type OpenTrade = {
   fundingPaid: number
   mae: number
   mfe: number
+  stop: number
 }
 
 /** Open return in percent. Long uses the mark above the fill. Short uses the mark below it. */

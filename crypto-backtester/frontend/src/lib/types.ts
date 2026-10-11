@@ -104,6 +104,8 @@ export type Trade = {
   mae?: number
   /** Best open return, in percent, while the trade was on. Closed trades only. */
   mfe?: number
+  /** Stop price known at the fill. Open R is the mark's distance from entry, in these risk units. */
+  stop?: number
   bars_held: number
   status: "open" | "closed" | "liquidated"
   /** Funding charged while this position was open. Zero on spot. */

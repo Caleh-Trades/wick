@@ -65,6 +65,13 @@ export function armAllowed(session: SessionLight): boolean {
 }
 
 export const DEFAULT_LOSS_LIMIT = 4
+export const DEFAULT_GIVE_BACK = 40
+
+export function clampGiveBack(value: unknown): number {
+  const next = Math.round(Number(value))
+  if (!Number.isFinite(next)) return DEFAULT_GIVE_BACK
+  return Math.min(100, Math.max(1, next))
+}
 
 export function clampLossLimit(value: unknown): number {
   const limit = Math.round(Number(value))

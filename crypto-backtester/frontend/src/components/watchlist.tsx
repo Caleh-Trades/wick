@@ -1,12 +1,14 @@
+import { markReturn } from "@/lib/backtest"
 import { formatPrice } from "@/lib/format"
 import { pinsOf, positionFor, slotUnsynced, type BookPosition } from "@/lib/desk"
 import { useFavourites } from "@/lib/favourites"
+import { bestOpenReturn, formatR, gaveBack, openR } from "@/lib/open-trade"
 import { SLOTS_MAX, SLOTS_MIN, clampSlots } from "@/lib/panes"
 import { marketById } from "@/lib/runs"
 import { marketSpec } from "@/lib/markets"
 import { holdBook, useBookView } from "@/lib/use-book"
-import type { Slot } from "@/lib/workspace"
-import type { MarketId, Venue } from "@/lib/types"
+import { tapeKey, type Slot } from "@/lib/workspace"
+import type { MarketId, Tape, Venue } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { useEffect, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react"
 
@@ -21,6 +23,8 @@ export function Watchlist({
   onFlat,
   positions,
   openTrades,
+  tapes,
+  giveBack,
 }: {
   slots: Slot[]
   activeId: string
@@ -31,7 +35,9 @@ export function Watchlist({
   onSymbol: (id: string, symbol: MarketId) => void
   onFlat: (symbol: string, venue: Venue, price: number) => void
   positions: BookPosition[]
-  openTrades: { id: string; exitTime: string | null }[]
+  openTrades: { id: string; exitTime: string | null; side: "long" | "short"; entryTime: string; stop: number | null }[]
+  tapes: Record<string, Tape>
+  giveBack: number
 }) {
   const favourites = useFavourites()
   const covered = new Set(slots.map((slot) => slot.symbol))
@@ -63,7 +69,10 @@ export function Watchlist({
                   active={symbol === slot.symbol}
                   label={slot.venue === "perp" ? "Perp" : "Spot"}
                   unsynced={slotUnsynced(symbol, slot.venue, positions, openTrades)}
-                  positioned={positionFor(positions, symbol, slot.venue) != null}
+                  position={positionFor(positions, symbol, slot.venue)}
+                  trade={openTrades.find((trade) => trade.id === positionFor(positions, symbol, slot.venue)?.tradeId) ?? null}
+                  bars={tapes[tapeKey({ venue: slot.venue, timeframe: slot.timeframe, range: slot.range, symbol })]?.candles ?? []}
+                  giveBack={giveBack}
                   onClick={() => {
                     onFocus(slot.id)
                     onSymbol(slot.id, symbol)
@@ -86,7 +95,10 @@ export function Watchlist({
                 active={false}
                 label="Spot"
                 unsynced={false}
-                positioned={false}
+                position={null}
+                trade={null}
+                bars={[]}
+                giveBack={giveBack}
                 onClick={() => onOpen(id as MarketId, "spot")}
                 onFlat={() => undefined}
               />
@@ -119,7 +131,10 @@ function QuoteRow({
   active,
   label,
   unsynced,
-  positioned,
+  position,
+  trade,
+  bars,
+  giveBack,
   onClick,
   onFlat,
 }: {
@@ -128,7 +143,10 @@ function QuoteRow({
   active: boolean
   label: string
   unsynced: boolean
-  positioned: boolean
+  position: BookPosition | null
+  trade: { side: "long" | "short"; entryTime: string; stop: number | null } | null
+  bars: Array<{ time: string; high: number; low: number }>
+  giveBack: number
   onClick: () => void
   onFlat: (price: number) => void
 }) {
@@ -138,6 +156,10 @@ function QuoteRow({
   const price = book.quote ?? book.last?.price ?? null
   const stale = book.status === "stale" && price != null
   const change = book.changePct
+  const mark = position && price != null ? openR(position.side, position.entry, trade?.stop ?? Number.NaN, price) : null
+  const current = position && price != null ? markReturn(position.side, position.entry, price) : null
+  const best = position && price != null && trade ? bestOpenReturn(position.side, position.entry, price, bars, trade.entryTime) : current
+  const flagged = current != null && best != null && gaveBack(current, best, giveBack)
   return (
     <div className="flex w-full min-w-0 flex-col gap-0.5 overflow-hidden text-left">
       <span className="flex min-w-0 items-baseline justify-between gap-2">
@@ -154,7 +176,9 @@ function QuoteRow({
         <span className={cn("shrink-0", change == null ? "text-muted-foreground" : change > 0 ? "text-up" : change < 0 ? "text-down" : "text-muted-foreground")}>
           {change == null ? "—" : `${change > 0 ? "+" : ""}${change.toFixed(2)}%`}
           {stale ? " · stale" : ""}
-          {positioned && price != null ? (
+          {position && mark != null ? <span className="ml-1 text-foreground">{formatR(mark)}</span> : null}
+          {position && flagged ? <span className="ml-1 text-down normal-case">give-back</span> : null}
+          {position && price != null ? (
             <button type="button" className="ml-1 uppercase" onClick={() => onFlat(price)}>
               Flat
             </button>

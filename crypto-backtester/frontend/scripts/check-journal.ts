@@ -1,7 +1,10 @@
 import assert from "node:assert/strict"
 
 import { editConcerns } from "../src/lib/bot-edits.ts"
+import { crossBookRun } from "../src/lib/cross-book.ts"
 import { dailyReturns, pairedReturns, pearson } from "../src/lib/correlation.ts"
+import { ruleDiff } from "../src/lib/diff.ts"
+import { bestOpenReturn, gaveBack, openR } from "../src/lib/open-trade.ts"
 import { replayTrades } from "../src/lib/replay.ts"
 import { alertEntries, logAlert, removeAlert } from "../src/lib/journal.ts"
 import {
@@ -557,5 +560,39 @@ if (keptSample) {
   assert.equal(paper[0]?.mae, -1)
   assert.equal(paper[0]?.mfe, 12)
 }
+
+assert.equal(openR("long", 100, 90, 110), 1)
+assert.equal(openR("short", 100, 110, 90), 1)
+assert.equal(openR("long", 100, 110, 105), null)
+assert.equal(gaveBack(3, 10, 40), true)
+assert.equal(gaveBack(5, 10, 40), false)
+assert.equal(gaveBack(-1, 0, 40), false)
+const best = bestOpenReturn("long", 100, 105, [{ time: "2026-01-02T00:00:00Z", high: 120, low: 99 }], "2026-01-01T00:00:00Z")
+assert.ok(Math.abs(best - 20) < 1e-9)
+
+const lines = ruleDiff(
+  { rule: "sma_cross", params: { fast: 20, slow: 50 }, totalReturn: 4, maxDrawdown: -6, winRate: 40, trades: 3 },
+  { rule: "sma_cross", params: { fast: 10, slow: 50 }, totalReturn: 4, maxDrawdown: -8, winRate: 40, trades: 5 },
+)
+assert.deepEqual(lines.map((line) => line.field), ["Fast", "Drawdown", "Trades"])
+
+const base = {
+  id: "run",
+  name: "SMA",
+  symbol: "BTCUSDT",
+  rule: "sma_cross",
+  params: {},
+  combo: [],
+  feeBps: 10,
+  slippageBps: 5,
+  capital: 10_000,
+  leverage: 1,
+  riskPct: 1,
+  allowShort: true,
+  hidden: false,
+} as const
+assert.equal(crossBookRun(base, "ETHUSDT", "spot").allowShort, false)
+assert.equal(crossBookRun(base, "ETHUSDT", "spot").symbol, "ETHUSDT")
+assert.equal(crossBookRun(base, "SOLUSDT", "perp").allowShort, true)
 
 console.log("journal ok")

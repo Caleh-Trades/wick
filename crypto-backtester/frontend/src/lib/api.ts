@@ -41,7 +41,7 @@ export async function fetchCandles(
   const params = new URLSearchParams({ symbol, interval, venue })
   if (options?.since != null) params.set("since", String(options.since))
   else if (options?.days != null) params.set("days", String(options.days))
-  const body = await request<TapePayload>(`/api/candles?${params.toString()}`)
+  const body = await request<TapePayload>(`/api/candles?${params.toString()}`, undefined, 20_000)
   return {
     symbol,
     interval,
@@ -128,7 +128,7 @@ function timedOut(reason: unknown): boolean {
   return name === "TimeoutError" || message === "signal timed out"
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestInit, timeoutMs = 90_000): Promise<T> {
   let response: Response
   try {
     response = await fetch(`${base}${path}`, {
@@ -138,7 +138,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         "Content-Type": "application/json",
         ...(init?.headers ?? {}),
       },
-      signal: AbortSignal.timeout(90_000),
+      signal: AbortSignal.timeout(timeoutMs),
     })
   } catch (reason) {
     if (timedOut(reason)) throw new Error("The tape took too long.")

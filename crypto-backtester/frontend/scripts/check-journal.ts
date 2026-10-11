@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 
 import { editConcerns } from "../src/lib/bot-edits.ts"
 import { crossBookRun } from "../src/lib/cross-book.ts"
+import { tapeForSlot } from "../src/lib/workspace.ts"
 import { dailyReturns, pairedReturns, pearson } from "../src/lib/correlation.ts"
 import { ruleDiff } from "../src/lib/diff.ts"
 import { bestOpenReturn, gaveBack, openR } from "../src/lib/open-trade.ts"
@@ -594,5 +595,22 @@ const base = {
 assert.equal(crossBookRun(base, "ETHUSDT", "spot").allowShort, false)
 assert.equal(crossBookRun(base, "ETHUSDT", "spot").symbol, "ETHUSDT")
 assert.equal(crossBookRun(base, "SOLUSDT", "perp").allowShort, true)
+
+const wide = {
+  symbol: "ETHUSDT",
+  interval: "4h",
+  range: "6Y",
+  source: "kraken-perp",
+  venue: "perp",
+  seconds: 14400,
+  periodsPerYear: 2190,
+  candles: [
+    { t: 1_000, time: "a", open: 1, high: 1, low: 1, close: 1 },
+    { t: 500_000, time: "b", open: 2, high: 2, low: 2, close: 2 },
+  ],
+} as const
+const sliced = tapeForSlot({ "perp|4h|6Y|ETHUSDT": wide }, { venue: "perp", timeframe: "4h", range: "5D", symbol: "ETHUSDT" })
+assert.equal(sliced?.candles.length, 1)
+assert.equal(sliced?.candles[0]?.t, 500_000)
 
 console.log("journal ok")

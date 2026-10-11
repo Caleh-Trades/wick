@@ -104,7 +104,7 @@ export function MarketPane({
         {symbol ? <AlertWatch symbol={symbol} venue={venue} alert={alert} deltaAlert={deltaAlert} session={session} /> : null}
       </div>
       <div ref={rowRef} className="chart-book-row flex min-h-0 flex-1 items-stretch">
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
           <PriceChart
             candles={candles}
             trades={trades}

@@ -11,8 +11,8 @@ import {
   type RiskMode,
   type SessionLight,
 } from "./desk.ts"
-import { clampRisk, clampSlippage, createRun, isRange, isTimeframe, isVenue, loadDesk, MAX_RUNS, normalizeCombo, normalizeRule, type DeskState } from "./runs.ts"
-import type { MarketId, RangeId, Run, Timeframe, Venue } from "./types.ts"
+import { clampRisk, clampSlippage, createRun, isRange, isTimeframe, isVenue, loadDesk, MAX_RUNS, normalizeCombo, normalizeRule, rangeDays, type DeskState } from "./runs.ts"
+import type { MarketId, RangeId, Run, Tape, Timeframe, Venue } from "./types.ts"
 
 export const MAX_SLOTS = 4
 const WORKSPACE_KEY = "wick-runs"
@@ -65,6 +65,26 @@ export type Workspace = {
 
 export function tapeKey(slot: Pick<Slot, "venue" | "timeframe" | "range" | "symbol">): string {
   return `${slot.venue}|${slot.timeframe}|${slot.range}|${slot.symbol}`
+}
+
+/** Exact tape, or a wider loaded window of the same pair and bar size, cut to this range. */
+export function tapeForSlot(tapes: Record<string, Tape>, slot: Pick<Slot, "venue" | "timeframe" | "range" | "symbol">): Tape | null {
+  const exact = tapes[tapeKey(slot)]
+  if (exact && exact.candles.length > 0) return exact
+  const prefix = `${slot.venue}|${slot.timeframe}|`
+  const suffix = `|${slot.symbol}`
+  let best: Tape | null = null
+  for (const [key, tape] of Object.entries(tapes)) {
+    if (!key.startsWith(prefix) || !key.endsWith(suffix) || tape.candles.length === 0) continue
+    if (!best || tape.candles.length > best.candles.length) best = tape
+  }
+  if (!best) return exact ?? null
+  const days = rangeDays(slot.range)
+  if (!days) return best
+  const last = best.candles[best.candles.length - 1]?.t ?? 0
+  const candles = best.candles.filter((candle) => candle.t >= last - days * 86_400)
+  if (candles.length === 0) return exact ?? null
+  return { ...best, range: slot.range, candles }
 }
 
 export function createSlot(symbol: MarketId, venue: Venue, timeframe: Timeframe, range: RangeId): Slot {

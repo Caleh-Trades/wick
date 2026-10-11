@@ -80,6 +80,7 @@ import {
   createSlot,
   loadWorkspace,
   saveWorkspace,
+  tapeForSlot,
   tapeKey,
   visibleSlots,
   type Slot,
@@ -233,7 +234,7 @@ export default function App() {
             attempt.retry = true
             tapeTries.current.set(key, tries + 1)
             window.setTimeout(() => {
-              if (!cancel) setTapeRetry((current) => current + 1)
+              setTapeRetry((current) => current + 1)
             }, 400)
             return
           }
@@ -1060,7 +1061,7 @@ export default function App() {
               <div key={slot.id} className="flex min-w-0 flex-col p-3 lg:min-h-0 lg:flex-1">
                 <MarketPane
                   symbol={slot.symbol}
-                  candles={tapes[tapeKey(slot)]?.candles ?? EMPTY_CANDLES}
+                  candles={tapeForSlot(tapes, slot)?.candles ?? EMPTY_CANDLES}
                   trades={tradesFor(slot, outcomes)}
                   interval={slot.timeframe}
                   venue={slot.venue}
@@ -1087,7 +1088,7 @@ export default function App() {
                     setWorkspace((current) => ({ ...current, enlarged: true }))
                   }}
                   showBook={!spanBook}
-                  barsPending={!errors[slot.id]}
+                  barsPending={!errors[slot.id] && !tapeForSlot(tapes, slot)}
                   smoothed={normalizeRule(slot.runs.find((run) => run.id === slot.selectedId)?.rule ?? "sma_cross") === "heikin_ashi"}
                 />
               </div>

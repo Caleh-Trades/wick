@@ -104,8 +104,15 @@ function emit() {
   for (const listener of listeners) listener()
 }
 
+const blanks = new Map<string, LiveView>()
+
 function blank(symbol: string, venue: Venue, status: BookStatus): LiveView {
-  return { ...EMPTY, symbol, venue, status }
+  const key = `${venue}:${symbol}:${status}`
+  const cached = blanks.get(key)
+  if (cached) return cached
+  const view = { ...EMPTY, symbol, venue, status }
+  blanks.set(key, view)
+  return view
 }
 
 function getView(symbol: string | null, venue: Venue): LiveView {

@@ -2,7 +2,7 @@ import { profitFactor, tradeExpectancy } from "./backtest.ts"
 import type { BotOp } from "./bot-edits.ts"
 import { asRiskMode, isSessionLight, type RiskMode, type SessionLight } from "./desk.ts"
 import { normalizeSymbol } from "./markets.ts"
-import { isRange, isTimeframe, isVenue, normalizeCombo, normalizeRule, ruleParams } from "./runs.ts"
+import { isRange, isTimeframe, isVenue, normalizeCombo, normalizeRule, ruleById, ruleParams } from "./runs.ts"
 import type { RunParams, SampleSlice, Trade, Venue } from "./types.ts"
 
 export const PAGE_SIZE = 50
@@ -84,6 +84,8 @@ export type TradeRecord = {
   pnl: number | null
   returnPct: number | null
   note: string
+  /** Free-text strategy from a working ticket. A linked strategy name is used when this is blank. */
+  strategyName: string
   source: TradeSource
   /** Spot and perp are different logs. A perp fill never lands in the spot log. */
   market: Venue
@@ -372,15 +374,17 @@ export async function logBookTrade(input: {
   const fee = Number.isFinite(input.fee) ? Number(input.fee) : 0
   const slippage = Number.isFinite(input.slippage) ? Number(input.slippage) : 0
   const move = exitPrice == null ? null : side === "long" ? exitPrice - input.entryPrice : input.entryPrice - exitPrice
+  const strategyName = input.strategyName?.trim().slice(0, 48) ?? ""
   let strategyId = input.strategyId ?? ""
-  if (!strategyId && input.strategyName?.trim()) {
+  const known = ruleById(input.rule?.trim() ?? "")
+  if (!strategyId && known) {
     const strategy = await saveStrategy({
-      name: input.strategyName,
+      name: strategyName || known.name,
       symbol,
       market: isVenue(input.market) ? input.market : isVenue(input.venue) ? input.venue : "spot",
       timeframe: "1d",
       range: "1Y",
-      rule: input.rule?.trim() || input.strategyName,
+      rule: known.id,
       params: {},
       fee: 0,
       slippage: 0,
@@ -405,6 +409,7 @@ export async function logBookTrade(input: {
     pnl: move == null ? null : move * input.size - fee - slippage,
     returnPct: move == null || !(input.entryPrice > 0) ? null : (move / input.entryPrice) * 100,
     note: (input.note ?? "").trim().slice(0, 280),
+    strategyName,
     source: input.source === "bot" ? "bot" : "desk",
     market: isVenue(input.market) ? input.market : isVenue(input.venue) ? input.venue : "spot",
     stop: input.stop != null && input.stop > 0 ? input.stop : null,
@@ -602,6 +607,7 @@ async function journalForTicket(ticket: WorkingTicket, fillPrice: number | null,
       ticketId: ticket.id,
       market: ticket.market,
       note: note ? line : existing.note,
+      strategyName: existing.strategyName || ticket.strategy,
     }
     memory.trades.set(existing.id, next)
     await persistOne("trades", next)
@@ -959,6 +965,7 @@ function tradeFromBacktest(trade: Trade, strategyId: string, runId: string | nul
     pnl: open ? null : trade.pnl,
     returnPct: open ? null : trade.return_pct,
     note: "",
+    strategyName: "",
     source: "desk",
     market: "spot",
     stop: null,
@@ -1041,6 +1048,7 @@ function sanitizeTrade(value: unknown): TradeRecord | null {
     pnl: exitPrice == null || raw.pnl == null || !Number.isFinite(Number(raw.pnl)) ? null : Number(raw.pnl),
     returnPct: exitPrice == null || raw.returnPct == null || !Number.isFinite(Number(raw.returnPct)) ? null : Number(raw.returnPct),
     note: typeof raw.note === "string" ? raw.note.slice(0, 280) : "",
+    strategyName: typeof raw.strategyName === "string" ? raw.strategyName.slice(0, 48) : "",
     source: raw.source === "bot" ? "bot" : "desk",
     ...tradeStamp(raw),
   }
@@ -1146,6 +1154,7 @@ function absorbLegacy(raw: { journal?: unknown; kept?: unknown; working?: unknow
         pnl: move == null ? null : move * size,
         returnPct: move == null ? null : (move / entryPrice) * 100,
         note: typeof legacy.note === "string" ? legacy.note.slice(0, 280) : "",
+        strategyName: typeof legacy.strategy === "string" ? legacy.strategy.slice(0, 48) : "",
         source: "desk",
         market: isVenue(legacy.venue) ? legacy.venue : "spot",
         stop: null,

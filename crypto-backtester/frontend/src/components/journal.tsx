@@ -565,7 +565,12 @@ function TradeTableRow({
       <TableCell>
         <Badge variant={trade.side === "long" ? "default" : "secondary"}>{trade.side === "long" ? "Long" : "Short"}</Badge>
       </TableCell>
-      <TableCell className="max-w-40 truncate">{strategyName}</TableCell>
+      <TableCell className="max-w-40">
+        <div className="truncate">{trade.strategyName || strategyName}</div>
+        {trade.note || trade.ticketId ? (
+          <div className="truncate font-mono text-[10px] text-muted-foreground">{trade.note || `ticket ${trade.ticketId}`}</div>
+        ) : null}
+      </TableCell>
       <TableCell className="font-mono text-[10px] tracking-wide uppercase">
         {trade.riskMode}
         {stale ? " · stale" : ""}

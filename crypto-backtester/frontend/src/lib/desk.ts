@@ -64,7 +64,7 @@ export function armAllowed(session: SessionLight): boolean {
   return session !== "stand-down"
 }
 
-export const DEFAULT_LOSS_LIMIT = 3
+export const DEFAULT_LOSS_LIMIT = 4
 
 export function clampLossLimit(value: unknown): number {
   const limit = Math.round(Number(value))

@@ -64,6 +64,32 @@ export function armAllowed(session: SessionLight): boolean {
   return session !== "stand-down"
 }
 
+export const DEFAULT_LOSS_LIMIT = 3
+
+export function clampLossLimit(value: unknown): number {
+  const limit = Math.round(Number(value))
+  if (!Number.isFinite(limit)) return DEFAULT_LOSS_LIMIT
+  return Math.min(20, Math.max(1, limit))
+}
+
+/** Closed journal losses in a row, newest exit first. A win breaks the run. An ack ignores that loss and anything older. */
+export function lossStreak(
+  trades: Array<{ runId?: string | null; source?: string; exitTime: string | null; pnl: number | null }>,
+  ack: string | null,
+): number {
+  const ackMs = ack ? Date.parse(ack) : Number.NaN
+  const closed = trades
+    .filter((trade) => trade.runId == null && trade.source !== "paper" && trade.exitTime != null && trade.pnl != null && trade.pnl !== 0)
+    .sort((left, right) => Date.parse(right.exitTime ?? "") - Date.parse(left.exitTime ?? ""))
+  let count = 0
+  for (const trade of closed) {
+    if (Number.isFinite(ackMs) && Date.parse(trade.exitTime ?? "") <= ackMs) break
+    if ((trade.pnl ?? 0) > 0) break
+    count += 1
+  }
+  return count
+}
+
 export function pinsOf(slot: { symbol: string; pins?: string[] | null }): string[] {
   const listed = Array.isArray(slot.pins) ? slot.pins.filter((item) => typeof item === "string" && item.endsWith("USDT")) : []
   const unique = [...new Set(listed)]

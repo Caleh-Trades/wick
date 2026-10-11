@@ -8,7 +8,7 @@ import type { RunParams, SampleSlice, Trade, Venue } from "./types.ts"
 export const PAGE_SIZE = 50
 
 export type TradeSide = "long" | "short"
-export type TradeSource = "desk" | "bot"
+export type TradeSource = "desk" | "bot" | "paper"
 
 export type StrategyRecord = {
   id: string
@@ -66,6 +66,10 @@ export type RunRecord = {
   note: string
   sample: RunSample | null
   costs: RunCosts | null
+  /** Scored forward on each new closed candle. The backtest row stays put. */
+  paper: boolean
+  /** Last candle time when paper was turned on. Older closes stay in the backtest. */
+  paperSince: string | null
 }
 
 export type TradeRecord = {
@@ -83,6 +87,10 @@ export type TradeRecord = {
   slippage: number
   pnl: number | null
   returnPct: number | null
+  /** Worst open return, percent. Null when the path was not on the tape. */
+  mae: number | null
+  /** Best open return, percent. Null when the path was not on the tape. */
+  mfe: number | null
   note: string
   /** Free-text strategy from a working ticket. A linked strategy name is used when this is blank. */
   strategyName: string
@@ -180,7 +188,7 @@ export function emptyPage(): TradePage {
 
 /** A journal row is one you logged, or a bot logged. A backtest fill belongs to its run. */
 export function isJournalTrade(trade: TradeRecord): boolean {
-  return trade.runId == null
+  return trade.runId == null && trade.source !== "paper"
 }
 
 export function tradeMatches(trade: TradeRecord, query: TradeQuery): boolean {
@@ -408,6 +416,8 @@ export async function logBookTrade(input: {
     slippage,
     pnl: move == null ? null : move * input.size - fee - slippage,
     returnPct: move == null || !(input.entryPrice > 0) ? null : (move / input.entryPrice) * 100,
+    mae: null,
+    mfe: null,
     note: (input.note ?? "").trim().slice(0, 280),
     strategyName,
     source: input.source === "bot" ? "bot" : "desk",
@@ -703,6 +713,8 @@ export async function keepDeskRun(input: {
     note: input.note.trim().slice(0, 280),
     sample: asSample(input.sample),
     costs: asCosts(input.costs),
+    paper: false,
+    paperSince: null,
   }
   memory.runs.set(run.id, run)
   for (const trade of input.trades) {
@@ -712,6 +724,50 @@ export async function keepDeskRun(input: {
   await persistAll()
   emit()
   return { strategy, run }
+}
+
+export async function setRunPaper(id: string, on: boolean, since: string): Promise<RunRecord | null> {
+  await bookReady()
+  const run = memory.runs.get(id)
+  if (!run) return null
+  const next: RunRecord = on
+    ? { ...run, paper: true, paperSince: run.paper && run.paperSince ? run.paperSince : since }
+    : { ...run, paper: false }
+  memory.runs.set(id, next)
+  await persistOne("runs", next)
+  emit()
+  return next
+}
+
+export async function syncPaperTrades(input: {
+  runId: string
+  strategyId: string
+  symbol: string
+  market: Venue
+  since: string
+  trades: Trade[]
+}): Promise<void> {
+  await bookReady()
+  const existing = [...memory.trades.values()].filter((trade) => trade.runId === input.runId && trade.source === "paper")
+  const byKey = new Map(existing.map((trade) => [`${trade.entryTime}|${trade.side}`, trade]))
+  let changed = false
+  for (const trade of input.trades) {
+    if (trade.status === "open" || !trade.exit_time || trade.exit_time <= input.since) continue
+    const key = `${trade.entry_time}|${trade.side}`
+    const prior = byKey.get(key)
+    if (prior && prior.exitTime === trade.exit_time && prior.pnl === trade.pnl) continue
+    const row = tradeFromBacktest(trade, input.strategyId, input.runId, input.symbol)
+    if (!row) continue
+    row.source = "paper"
+    row.market = input.market
+    if (prior) row.id = prior.id
+    memory.trades.set(row.id, row)
+    byKey.set(key, row)
+    changed = true
+  }
+  if (!changed) return
+  await persistAll()
+  emit()
 }
 
 export async function setRunNote(id: string, note: string): Promise<void> {
@@ -830,6 +886,8 @@ export function tradesCsv(rows: TradeRecord[]): string {
       trade.side,
       trade.returnPct ?? "",
       trade.pnl ?? "",
+      trade.mae ?? "",
+      trade.mfe ?? "",
       trade.fee,
       trade.slippage,
       trade.size,
@@ -838,7 +896,7 @@ export function tradesCsv(rows: TradeRecord[]): string {
       trade.source,
     ].join(","),
   )
-  return ["entry,exit,side,return,pnl,fee,slippage,size,symbol,note,source", ...lines].join("\n")
+  return ["entry,exit,side,return,pnl,mae,mfe,fee,slippage,size,symbol,note,source", ...lines].join("\n")
 }
 
 export function downloadText(filename: string, text: string, type: string): void {
@@ -964,6 +1022,8 @@ function tradeFromBacktest(trade: Trade, strategyId: string, runId: string | nul
     slippage: trade.slippage_paid ?? 0,
     pnl: open ? null : trade.pnl,
     returnPct: open ? null : trade.return_pct,
+    mae: open || trade.mae == null || !Number.isFinite(trade.mae) ? null : trade.mae,
+    mfe: open || trade.mfe == null || !Number.isFinite(trade.mfe) ? null : trade.mfe,
     note: "",
     strategyName: "",
     source: "desk",
@@ -1020,6 +1080,8 @@ function sanitizeRun(value: unknown): RunRecord | null {
     note: typeof raw.note === "string" ? raw.note.trim().slice(0, 280) : "",
     sample: asSample(raw.sample),
     costs: asCosts(raw.costs),
+    paper: raw.paper === true,
+    paperSince: typeof raw.paperSince === "string" && raw.paperSince ? raw.paperSince : null,
   }
 }
 
@@ -1047,9 +1109,11 @@ function sanitizeTrade(value: unknown): TradeRecord | null {
     slippage: Number.isFinite(Number(raw.slippage)) ? Number(raw.slippage) : 0,
     pnl: exitPrice == null || raw.pnl == null || !Number.isFinite(Number(raw.pnl)) ? null : Number(raw.pnl),
     returnPct: exitPrice == null || raw.returnPct == null || !Number.isFinite(Number(raw.returnPct)) ? null : Number(raw.returnPct),
+    mae: finite(raw.mae),
+    mfe: finite(raw.mfe),
     note: typeof raw.note === "string" ? raw.note.slice(0, 280) : "",
     strategyName: typeof raw.strategyName === "string" ? raw.strategyName.slice(0, 48) : "",
-    source: raw.source === "bot" ? "bot" : "desk",
+    source: raw.source === "paper" ? "paper" : raw.source === "bot" ? "bot" : "desk",
     ...tradeStamp(raw),
   }
 }
@@ -1095,6 +1159,8 @@ function absorbLegacy(raw: { journal?: unknown; kept?: unknown; working?: unknow
         note: typeof source.note === "string" ? source.note.slice(0, 280) : "",
         sample: asSample(source.sample),
         costs: asCosts(source.costs),
+        paper: false,
+        paperSince: null,
       }
       memory.runs.set(run.id, run)
       const embedded = Array.isArray(source.trades) ? source.trades : []
@@ -1153,6 +1219,8 @@ function absorbLegacy(raw: { journal?: unknown; kept?: unknown; working?: unknow
         slippage: 0,
         pnl: move == null ? null : move * size,
         returnPct: move == null ? null : (move / entryPrice) * 100,
+        mae: null,
+        mfe: null,
         note: typeof legacy.note === "string" ? legacy.note.slice(0, 280) : "",
         strategyName: typeof legacy.strategy === "string" ? legacy.strategy.slice(0, 48) : "",
         source: "desk",

@@ -100,6 +100,10 @@ export type Trade = {
   quantity: number
   pnl: number
   return_pct: number
+  /** Worst open return, in percent, while the trade was on. Closed trades only. */
+  mae?: number
+  /** Best open return, in percent, while the trade was on. Closed trades only. */
+  mfe?: number
   bars_held: number
   status: "open" | "closed" | "liquidated"
   /** Funding charged while this position was open. Zero on spot. */

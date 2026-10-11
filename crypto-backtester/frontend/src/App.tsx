@@ -21,7 +21,11 @@ import { WorkspaceBar } from "@/components/workspace-bar"
 import { fetchCandles, mergeFunding, requestFailure } from "@/lib/api"
 import { ackBotEdits, fetchBotInbox } from "@/lib/bot-api"
 import { applyBotEdits, editConcerns } from "@/lib/bot-edits"
+import { CorrelationPage } from "@/components/correlation"
 import { JournalPage } from "@/components/journal"
+import { PaperPage } from "@/components/paper"
+import { ReplayPage } from "@/components/replay"
+import type { DeskPage } from "@/components/desk-bar"
 import {
   downloadBacktestCsv,
   downloadLiveRun,
@@ -34,10 +38,12 @@ import {
   getRun,
   getStrategy,
   keepDeskRun,
+  listRuns,
   liveTicket,
   logTradeOp,
   matchingTrades,
   promoteWorkingTicket,
+  syncPaperTrades,
   tradesCsv,
   tradesForRun,
   watchBook,
@@ -64,7 +70,8 @@ import {
   suggestedName,
   uniqueName,
 } from "@/lib/runs"
-import { dropPosition, nextSession, pinSymbol, pinsOf, resolveSession, ticketFills, upsertPosition, type ArmGate } from "@/lib/desk"
+import { dropPosition, lossStreak, nextSession, pinSymbol, pinsOf, resolveSession, ticketFills, upsertPosition, type ArmGate } from "@/lib/desk"
+import { runFromKept } from "@/lib/paper"
 import { holdBook, useBookView } from "@/lib/use-book"
 import {
   MAX_SLOTS,
@@ -99,7 +106,9 @@ export default function App() {
   const [sortKey, setSortKey] = useState<SortKey | null>(null)
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc")
   const [drawToken, setDrawToken] = useState(0)
-  const [page, setPage] = useState<"desk" | "journal" | "windows">("desk")
+  const [page, setPage] = useState<DeskPage>("desk")
+  const [daily, setDaily] = useState<Record<string, TapeCandle[]>>({})
+  const [dailyPending, setDailyPending] = useState(false)
   const [nudge, setNudge] = useState<{ runId: string; rows: NudgeReturn[] } | null>(null)
   const [nudging, setNudging] = useState(false)
   const [focusTrade, setFocusTrade] = useState<Trade | null>(null)
@@ -809,8 +818,71 @@ export default function App() {
   }
 
   const phrase = phraseFor(active?.timeframe ?? "1d")
-  const session = resolveSession(workspace.session)
   const openTrades = useOpenJournal()
+  const journalTrades = useJournalTrades()
+  const streak = lossStreak(journalTrades, workspace.lossHaltAck)
+  const lossHalted = workspace.lossHalt || streak >= workspace.lossLimit
+  useEffect(() => {
+    if (streak < workspace.lossLimit || workspace.lossHalt) return
+    setWorkspace((current) => (current.lossHalt ? current : { ...current, lossHalt: true }))
+  }, [streak, workspace.lossLimit, workspace.lossHalt])
+  const session = lossHalted ? "stand-down" : resolveSession(workspace.session)
+  const showCorrelation = active != null && pinsOf(active).length >= 2
+  const pinKey = active ? `${active.venue}:${pinsOf(active).join(",")}` : ""
+  useEffect(() => {
+    if (page === "correlation" && !showCorrelation) setPage("desk")
+  }, [page, showCorrelation])
+  const scoredCandle = useRef(new Map<string, string>())
+  useEffect(() => {
+    let cancel = false
+    void (async () => {
+      const kept = await listRuns()
+      if (cancel) return
+      for (const row of kept) {
+        if (!row.run.paper || !row.run.paperSince) continue
+        const tape = Object.values(tapesRef.current).find(
+          (item) => item.symbol === row.strategy.symbol && item.venue === row.strategy.market && item.interval === row.strategy.timeframe,
+        )
+        const last = tape?.candles.at(-1)?.time
+        if (!tape || !last || tape.candles.length < 3) continue
+        if (scoredCandle.current.get(row.run.id) === last) continue
+        const outcome = await computeBacktest(runFromKept(row), tape)
+        if (cancel || !outcome.ok) continue
+        scoredCandle.current.set(row.run.id, last)
+        await syncPaperTrades({
+          runId: row.run.id,
+          strategyId: row.strategy.id,
+          symbol: row.strategy.symbol,
+          market: row.strategy.market,
+          since: row.run.paperSince,
+          trades: outcome.result.trades,
+        })
+      }
+    })()
+    return () => {
+      cancel = true
+    }
+  }, [tapes])
+  useEffect(() => {
+    if (page !== "correlation" || !active || pinsOf(active).length < 2) return
+    let cancel = false
+    const symbols = pinsOf(active)
+    const venue = active.venue
+    setDailyPending(true)
+    void Promise.all(symbols.map((symbol) => fetchCandles(symbol, "1d", { days: 45, venue }).catch(() => null))).then((rows) => {
+      if (cancel) return
+      const next: Record<string, TapeCandle[]> = {}
+      symbols.forEach((symbol, index) => {
+        const tape = rows[index]
+        if (tape) next[symbol] = tape.candles
+      })
+      setDaily(next)
+      setDailyPending(false)
+    })
+    return () => {
+      cancel = true
+    }
+  }, [page, pinKey, active])
   const workingDraft =
     active && selected
       ? {
@@ -848,7 +920,22 @@ export default function App() {
           stale={stale}
           lastFetchAt={clocks[active.id] ?? null}
           session={session}
-          onSession={() => setWorkspace((current) => ({ ...current, session: nextSession(resolveSession(current.session)) }))}
+          onSession={() => {
+            if (lossHalted) return
+            setWorkspace((current) => ({ ...current, session: nextSession(resolveSession(current.session)) }))
+          }}
+          lossCount={streak}
+          lossLimit={workspace.lossLimit}
+          lossHalted={lossHalted}
+          onClearHalt={() => {
+            const newest = journalTrades
+              .filter((trade) => trade.runId == null && trade.source !== "paper" && trade.exitTime && trade.pnl != null && trade.pnl < 0)
+              .map((trade) => trade.exitTime ?? "")
+              .sort()
+              .at(-1)
+            setWorkspace((current) => ({ ...current, lossHalt: false, lossHaltAck: newest || new Date().toISOString() }))
+          }}
+          showCorrelation={showCorrelation}
           onSymbol={(symbol) => patchSlot(active.id, { symbol })}
           onTimeframe={(timeframe) => patchSlot(active.id, { timeframe })}
           onVenue={(venue) => patchSlot(active.id, { venue })}
@@ -885,6 +972,26 @@ export default function App() {
         />
       ) : page === "windows" ? (
         <WindowsPage result={result} runName={selected?.name ?? "Run"} symbol={active?.symbol ?? ""} venue={active?.venue ?? "spot"} />
+      ) : page === "replay" ? (
+        <ReplayPage
+          candles={activeTape?.candles ?? EMPTY_CANDLES}
+          trades={selectedOutcome?.ok ? selectedOutcome.result.trades : []}
+          venue={active?.venue ?? "spot"}
+          name={selected ? `${selected.name} · ${strategyLabel(selected)}` : "No run"}
+          pending={!activeTape && !error}
+        />
+      ) : page === "paper" ? (
+        <PaperPage
+          sinceFor={(symbol, venue, timeframe) => {
+            const tape = Object.values(tapes).find((item) => item.symbol === symbol && item.venue === venue && item.interval === timeframe)
+            return tape?.candles.at(-1)?.time ?? new Date().toISOString()
+          }}
+        />
+      ) : page === "correlation" ? (
+        <CorrelationPage
+          pending={dailyPending}
+          series={(active ? pinsOf(active) : []).map((symbol) => ({ symbol, candles: daily[symbol] ?? [] }))}
+        />
       ) : (
       <>
       <WorkspaceBar
@@ -1080,6 +1187,8 @@ export default function App() {
                 onDeltaAlert={(deltaAlert) => patchSlot(active.id, { deltaAlert })}
                 nudging={nudging}
                 onNudge={() => void runNudge()}
+                lossLimit={workspace.lossLimit}
+                onLossLimit={(lossLimit) => setWorkspace((current) => ({ ...current, lossLimit }))}
               />
             ) : (
               <EmptyRuns onAdd={addSlot} />
@@ -1125,6 +1234,8 @@ export default function App() {
                   onDeltaAlert={(deltaAlert) => patchSlot(active.id, { deltaAlert })}
                   nudging={nudging}
                   onNudge={() => void runNudge()}
+                  lossLimit={workspace.lossLimit}
+                  onLossLimit={(lossLimit) => setWorkspace((current) => ({ ...current, lossLimit }))}
                 />
               ) : null}
             </div>
@@ -1153,6 +1264,25 @@ export default function App() {
 
 function pinKeys(workspace: Workspace): string[] {
   return [...new Set(workspace.slots.flatMap((slot) => pinsOf(slot).map((symbol) => `${slot.venue}:${symbol}`)))]
+}
+
+function useJournalTrades(): TradeRecord[] {
+  const [rows, setRows] = useState<TradeRecord[]>([])
+  useEffect(() => {
+    let cancel = false
+    const load = () => {
+      void matchingTrades(emptyQuery()).then((next) => {
+        if (!cancel) setRows(next)
+      })
+    }
+    load()
+    const stop = watchBook(load)
+    return () => {
+      cancel = true
+      stop()
+    }
+  }, [])
+  return rows
 }
 
 function useOpenJournal(): TradeRecord[] {

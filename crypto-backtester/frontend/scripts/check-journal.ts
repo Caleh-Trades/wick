@@ -1,11 +1,14 @@
 import assert from "node:assert/strict"
 
 import { editConcerns } from "../src/lib/bot-edits.ts"
+import { dailyReturns, pairedReturns, pearson } from "../src/lib/correlation.ts"
+import { replayTrades } from "../src/lib/replay.ts"
 import { alertEntries, logAlert, removeAlert } from "../src/lib/journal.ts"
 import {
   armAllowed,
   cumulativeDelta,
   defaultSession,
+  lossStreak,
   pinSymbol,
   rowIsStale,
   slotUnsynced,
@@ -25,6 +28,8 @@ import {
   logBookTrade,
   logTradeOp,
   matchingTrades,
+  setRunPaper,
+  syncPaperTrades,
   promoteWorkingTicket,
   removeRun,
   removeStrategy,
@@ -197,7 +202,7 @@ assert.ok(shorts.total > 0)
 assert.ok(shorts.rows.every((trade) => trade.side === "short" && trade.exitTime == null))
 assert.ok(shorts.rows.length <= PAGE_SIZE)
 const csv = tradesCsv(await matchingTrades({ ...emptyQuery(), symbol: "ETH", side: "long", state: "closed" }))
-assert.equal(csv.split("\n")[0], "entry,exit,side,return,pnl,fee,slippage,size,symbol,note,source")
+assert.equal(csv.split("\n")[0], "entry,exit,side,return,pnl,mae,mfe,fee,slippage,size,symbol,note,source")
 assert.ok(csv.includes("ETHUSDT"))
 assert.equal(csv.includes("BTCUSDT"), false)
 
@@ -481,5 +486,76 @@ assert.equal(armAllowed("stand-down"), false)
 assert.equal(armAllowed("open"), true)
 assert.deepEqual(cumulativeDelta([{ side: "buy", size: 2 }, { side: "sell", size: 0.5 }, { side: "buy", size: 1 }]), [2, 1.5, 2.5])
 assert.deepEqual(cumulativeDelta([]), [])
+
+const streakTrades = [
+  { runId: null, source: "desk", exitTime: "2026-01-03T00:00:00Z", pnl: -1 },
+  { runId: null, source: "desk", exitTime: "2026-01-02T00:00:00Z", pnl: -2 },
+  { runId: null, source: "desk", exitTime: "2026-01-01T00:00:00Z", pnl: 5 },
+  { runId: "backtest", source: "desk", exitTime: "2026-01-04T00:00:00Z", pnl: -9 },
+  { runId: "paper-run", source: "paper", exitTime: "2026-01-05T00:00:00Z", pnl: -9 },
+]
+assert.equal(lossStreak(streakTrades, null), 2)
+assert.equal(lossStreak(streakTrades, "2026-01-03T00:00:00.000Z"), 0)
+
+const fromReturns = (returns: number[]) => {
+  const candles: Array<{ t: number; close: number }> = [{ t: 1_700_000_000, close: 100 }]
+  let close = 100
+  returns.forEach((value, index) => {
+    close *= 1 + value
+    candles.push({ t: 1_700_000_000 + (index + 1) * 86_400, close })
+  })
+  return candles
+}
+const up = fromReturns([0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08])
+const down = fromReturns([-0.01, -0.02, -0.03, -0.04, -0.05, -0.06, -0.07, -0.08])
+const same = pearson(pairedReturns(dailyReturns(up, 30), dailyReturns(up, 30)))
+const opposite = pearson(pairedReturns(dailyReturns(up, 30), dailyReturns(down, 30)))
+assert.ok(same != null && same > 0.99)
+assert.ok(opposite != null && opposite < -0.99)
+
+const replayed = replayTrades(
+  [
+    { entry_time: "a", exit_time: "c", side: "long", entry_price: 1, exit_price: 2, quantity: 1, pnl: 1, return_pct: 1, bars_held: 2, status: "closed", funding_paid: 0 },
+    { entry_time: "d", exit_time: null, side: "long", entry_price: 2, exit_price: null, quantity: 1, pnl: 0, return_pct: 0, bars_held: 0, status: "open", funding_paid: 0 },
+  ],
+  "b",
+)
+assert.equal(replayed.length, 1)
+assert.equal(replayed[0]?.status, "open")
+assert.equal(replayed[0]?.exit_time, null)
+
+if (keptSample) {
+  await setRunPaper(keptSample.run.id, true, "2026-01-01T00:00:00Z")
+  await syncPaperTrades({
+    runId: keptSample.run.id,
+    strategyId: keptSample.strategy.id,
+    symbol: keptSample.strategy.symbol,
+    market: keptSample.strategy.market,
+    since: "2026-01-01T00:00:00Z",
+    trades: [
+      {
+        entry_time: "2026-02-01T00:00:00Z",
+        exit_time: "2026-02-02T00:00:00Z",
+        side: "long",
+        entry_price: 10,
+        exit_price: 11,
+        quantity: 1,
+        pnl: 1,
+        return_pct: 10,
+        mae: -1,
+        mfe: 12,
+        bars_held: 1,
+        status: "closed",
+        funding_paid: 0,
+      },
+    ],
+  })
+  const journal = await matchingTrades(emptyQuery())
+  assert.equal(journal.some((trade) => trade.source === "paper"), false)
+  const paper = (await tradesForRun(keptSample.run.id)).filter((trade) => trade.source === "paper")
+  assert.equal(paper.length, 1)
+  assert.equal(paper[0]?.mae, -1)
+  assert.equal(paper[0]?.mfe, 12)
+}
 
 console.log("journal ok")

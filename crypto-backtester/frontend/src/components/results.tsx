@@ -165,6 +165,12 @@ export const Results = memo(function Results({
                   <span>Fee {trade.fee_paid == null ? "—" : formatMoney(trade.fee_paid, 2)}</span>
                   <span className="text-right">Slip {trade.slippage_paid == null ? "—" : formatMoney(trade.slippage_paid, 2)}</span>
                 </p>
+                {trade.status === "open" ? null : (
+                  <p className="mt-0.5 grid grid-cols-2 gap-2 font-mono text-[11px] tabular-nums text-muted-foreground">
+                    <span className={toneClass(trade.mae ?? 0)}>MAE {formatPct(trade.mae)}</span>
+                    <span className={cn("text-right", toneClass(trade.mfe ?? 0))}>MFE {formatPct(trade.mfe)}</span>
+                  </p>
+                )}
                 </button>
               </li>
             ))}
@@ -228,7 +234,7 @@ export function RunStrip({
         />
         <Metric
           label="Profit factor"
-          hint="Gross winning return divided by gross losing return, on the same closed trades as expectancy. An open trade stays out. An em dash when nothing lost money. Click to sort the comparison."
+          hint="Gross winning dollars divided by gross losing dollars, on the same closed trades as expectancy. An open trade stays out. An em dash when nothing lost money. Click to sort the comparison."
           value={formatFactor(metrics.profit_factor)}
           active={sortKey === "profit_factor"}
           dir={sortDir}

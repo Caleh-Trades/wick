@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 
-import { backtest, liquidationPrice, monteCarloEquity, profitFactor, tradeExpectancy, windowTradesLabel } from "../src/lib/backtest.ts"
+import { backtest, liquidationPrice, markReturn, monteCarloEquity, profitFactor, tradeExpectancy, windowTradesLabel } from "../src/lib/backtest.ts"
 import { formatFactor } from "../src/lib/format.ts"
 import { createRun, fingerprint, mergeCandles, nudgeFast } from "../src/lib/runs.ts"
 import type { TapeCandle } from "../src/lib/types.ts"
@@ -28,6 +28,9 @@ assert.ok(Math.abs(held.metrics.benchmark_return_pct - 29.93503248375813) < 1e-6
 assert.ok(held.metrics.total_return_pct > 0 && held.metrics.total_return_pct < held.metrics.benchmark_return_pct)
 assert.ok(Math.abs((held.trades[0]?.entry_price ?? 0) - 100.05) < 1e-9)
 assert.equal(held.trades[0]?.status, "open")
+assert.equal(markReturn("long", 100, 110), 10)
+assert.equal(markReturn("short", 100, 90), 10)
+assert.ok((held.trades[0]?.mfe ?? 0) > (held.trades[0]?.mae ?? 0))
 const holdFill = 100.05
 const holdQty = (10_000 * 0.01) / (holdFill * 0.02)
 assert.ok(Math.abs((held.trades[0]?.quantity ?? 0) - holdQty) < 1e-6)
@@ -206,12 +209,13 @@ const quoted = [
   { pnl: 9000, return_pct: 40, status: "open" as const },
 ]
 const quotedFactor = 0.8 / (13.8 + 2.6)
-assert.ok(Math.abs((profitFactor(quoted) ?? 0) - quotedFactor) < 1e-12)
-assert.ok((profitFactor(quoted) ?? 1) < 1)
-assert.notEqual(formatFactor(profitFactor(quoted)), "0.04")
-assert.equal(formatFactor(quotedFactor), "0.049")
 const dollarFactor = 10 / (5000 + 400)
-assert.ok(Math.abs((profitFactor(quoted) ?? 0) - dollarFactor) > 0.04)
+assert.ok(Math.abs((profitFactor(quoted) ?? 0) - dollarFactor) < 1e-12)
+assert.ok(Math.abs((profitFactor(quoted) ?? 0) - quotedFactor) > 0.04)
+assert.ok((profitFactor(quoted) ?? 1) < 1)
+assert.notEqual(formatFactor(quotedFactor), "0.04")
+assert.equal(formatFactor(quotedFactor), "0.049")
+assert.equal(formatFactor(profitFactor(quoted)), "0.002")
 const withOpen = tradeExpectancy(quoted)
 const closedExpectancy = tradeExpectancy(quoted.slice(0, 3))
 assert.ok(withOpen != null && Math.abs(withOpen - closedExpectancy!) < 1e-9)

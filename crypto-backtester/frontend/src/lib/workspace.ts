@@ -1,5 +1,6 @@
 import {
   asRiskMode,
+  clampLossLimit,
   isSessionLight,
   pinsOf,
   type ArmGate,
@@ -47,6 +48,12 @@ export type Workspace = {
   riskMode: RiskMode
   /** Null uses the weekend default. Stand-down blocks Arm. */
   session: SessionLight | null
+  /** Closed journal losses in a row before the session stands down. */
+  lossLimit: number
+  /** Latched by the loss halt. Clearing is the only way back. */
+  lossHalt: boolean
+  /** Exit time of the loss the halt was cleared through. Older losses do not count. */
+  lossHaltAck: string | null
   /** One open position per symbol and market. Flat is the absence of a row. */
   positions: BookPosition[]
 }
@@ -74,7 +81,18 @@ export function createSlot(symbol: MarketId, venue: Venue, timeframe: Timeframe,
 
 export function defaultWorkspace(): Workspace {
   const slot = createSlot("BTCUSDT", "spot", "1d", "1Y")
-  return { slots: [slot], activeId: slot.id, pinnedId: null, enlarged: false, riskMode: "NORMAL", session: null, positions: [] }
+  return {
+    slots: [slot],
+    activeId: slot.id,
+    pinnedId: null,
+    enlarged: false,
+    riskMode: "NORMAL",
+    session: null,
+    lossLimit: 3,
+    lossHalt: false,
+    lossHaltAck: null,
+    positions: [],
+  }
 }
 
 export function visibleSlots(workspace: Workspace): Slot[] {
@@ -128,7 +146,18 @@ export function fromDesk(desk: DeskState): Workspace {
   }))
   if (slots.length === 0) return defaultWorkspace()
   const active = slots.find((slot) => slot.runs.some((run) => run.id === desk.selectedId)) ?? slots[0]!
-  return { slots, activeId: active.id, pinnedId: null, enlarged: desk.enlarged, riskMode: "NORMAL", session: null, positions: [] }
+  return {
+    slots,
+    activeId: active.id,
+    pinnedId: null,
+    enlarged: desk.enlarged,
+    riskMode: "NORMAL",
+    session: null,
+    lossLimit: 3,
+    lossHalt: false,
+    lossHaltAck: null,
+    positions: [],
+  }
 }
 
 function sanitizeWorkspace(value: unknown): Workspace {
@@ -145,6 +174,9 @@ function sanitizeWorkspace(value: unknown): Workspace {
     enlarged: Boolean(raw.enlarged),
     riskMode: asRiskMode(raw.riskMode),
     session: isSessionLight(raw.session) ? raw.session : null,
+    lossLimit: clampLossLimit(raw.lossLimit),
+    lossHalt: raw.lossHalt === true,
+    lossHaltAck: typeof raw.lossHaltAck === "string" && raw.lossHaltAck ? raw.lossHaltAck : null,
     positions: Array.isArray(raw.positions) ? raw.positions.map(asPosition).filter((item) => item != null) : [],
   }
 }

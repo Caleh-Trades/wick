@@ -9,6 +9,8 @@ import { useBookView } from "@/lib/use-book"
 import { missingBars } from "@/lib/plot"
 import { TIMEFRAMES, barsLabel, marketById, windowNote } from "@/lib/runs"
 import type { SessionLight } from "@/lib/desk"
+
+export type DeskPage = "desk" | "journal" | "windows" | "replay" | "paper" | "correlation"
 import type { MarketId, RangeId, Tape, Timeframe, Venue } from "@/lib/types"
 
 type DeskBarProps = {
@@ -25,8 +27,13 @@ type DeskBarProps = {
   onSymbol: (symbol: MarketId) => void
   onTimeframe: (timeframe: Timeframe) => void
   onVenue: (venue: Venue) => void
-  page: "desk" | "journal" | "windows"
-  onPage: (page: "desk" | "journal" | "windows") => void
+  page: DeskPage
+  onPage: (page: DeskPage) => void
+  lossCount: number
+  lossLimit: number
+  lossHalted: boolean
+  onClearHalt: () => void
+  showCorrelation: boolean
   accountSession: AccountSession | null
   accountStatus: string
   onCreateAccount: (name: string, password: string) => Promise<void>
@@ -50,6 +57,11 @@ export function DeskBar({
   onVenue,
   page,
   onPage,
+  lossCount,
+  lossLimit,
+  lossHalted,
+  onClearHalt,
+  showCorrelation,
   accountSession,
   accountStatus,
   onCreateAccount,
@@ -86,17 +98,26 @@ export function DeskBar({
         </div>
 
         <div className="flex shrink-0 gap-1" role="group" aria-label="Page">
-          {(["desk", "journal", "windows"] as const).map((item) => (
+          {(
+            [
+              ["desk", "Desk"],
+              ["journal", "Journal"],
+              ["windows", "Windows"],
+              ["replay", "Replay"],
+              ["paper", "Paper"],
+              ...(showCorrelation ? [["correlation", "Correlation"] as const] : []),
+            ] as Array<[DeskPage, string]>
+          ).map(([item, label]) => (
             <Button
               key={item}
               type="button"
               size="xs"
               variant={page === item ? "default" : "outline"}
-              className="normal-case tracking-normal"
+              className="px-2 normal-case tracking-normal"
               aria-pressed={page === item}
               onClick={() => onPage(item)}
             >
-              {item === "desk" ? "Desk" : item === "journal" ? "Journal" : "Windows"}
+              {label}
             </Button>
           ))}
         </div>
@@ -146,6 +167,14 @@ export function DeskBar({
           >
             {session}
           </button>
+          <span aria-label="Consecutive losses">
+            {lossCount}/{lossLimit}
+          </span>
+          {lossHalted ? (
+            <button type="button" className="text-foreground normal-case" onClick={onClearHalt}>
+              Clear
+            </button>
+          ) : null}
           <span>{venue === "perp" ? "Kraken perp" : "Binance spot"}</span>
           {tape && last && first ? (
             <>

@@ -72,7 +72,9 @@ export function backtest(
     if (sign(account.qty) !== target) {
       if (account.qty !== 0 && open) {
         const raw = bar.open
-        pushClose(trades, exits, open, account, closeFill(raw, account.qty, slip), raw, bar.time, index, "closed")
+        const fill = closeFill(raw, account.qty, slip)
+        notePrice(open, fill)
+        pushClose(trades, exits, open, account, fill, raw, bar.time, index, "closed")
         open = null
       }
       if (target !== 0 && account.cash > 1) {
@@ -89,12 +91,16 @@ export function backtest(
             quantity: opened.quantity,
             side: target > 0 ? "long" : "short",
             fundingPaid: 0,
+            mae: 0,
+            mfe: 0,
           }
         }
       }
     }
 
     if (open && account.qty !== 0) {
+      notePrice(open, bar.high)
+      notePrice(open, bar.low)
       const end = barEnd(candles, index)
       while (fundIndex < funding.length && funding[fundIndex]!.t <= bar.t) fundIndex += 1
       while (fundIndex < funding.length && funding[fundIndex]!.t <= end) {
@@ -106,6 +112,7 @@ export function backtest(
       const liq = liquidationPrice(open.entryPrice, open.side, leverage)
       const hit = open.side === "long" ? bar.low <= liq : bar.high >= liq
       if (venue === "perp" && hit) {
+        notePrice(open, liq)
         pushClose(trades, exits, open, account, liq, liq, bar.time, index, "liquidated")
         open = null
       }
@@ -141,6 +148,8 @@ export function backtest(
         return_pct: notional ? (unrealized / notional) * 100 : 0,
         bars_held: hi - open.entryIndex,
         status: "open",
+        mae: open.mae,
+        mfe: open.mfe,
         funding_paid: open.fundingPaid,
         fee_paid: open.entryFee,
         slippage_paid: open.entrySlippage,
@@ -205,6 +214,21 @@ type OpenTrade = {
   quantity: number
   side: "long" | "short"
   fundingPaid: number
+  mae: number
+  mfe: number
+}
+
+/** Open return in percent. Long uses the mark above the fill. Short uses the mark below it. */
+export function markReturn(side: "long" | "short", entry: number, price: number): number {
+  if (!(entry > 0) || !Number.isFinite(price)) return 0
+  const move = side === "long" ? price - entry : entry - price
+  return (move / entry) * 100
+}
+
+function notePrice(open: OpenTrade, price: number) {
+  const ret = markReturn(open.side, open.entryPrice, price)
+  open.mfe = Math.max(open.mfe, ret)
+  open.mae = Math.min(open.mae, ret)
 }
 
 function pushClose(
@@ -233,6 +257,8 @@ function pushClose(
     return_pct: notional ? (pnl / notional) * 100 : 0,
     bars_held: index - open.entryIndex,
     status,
+    mae: open.mae,
+    mfe: open.mfe,
     funding_paid: open.fundingPaid,
     fee_paid: open.entryFee + exitFee,
     slippage_paid: open.entrySlippage + exitSlippage,
@@ -476,15 +502,14 @@ function measure(
   }
 }
 
-/** Gross winning return divided by gross losing return. Same closed trades as expectancy. An open trade stays out. No losses is null. */
+/** Gross winning dollars divided by gross losing dollars. Same closed trades as expectancy. An open trade stays out. No losses is null. */
 export function profitFactor(trades: Array<{ pnl: number; return_pct?: number; status?: string }>): number | null {
   const sampled = closedReturns(trades)
   let grossWin = 0
   let grossLoss = 0
   for (const trade of sampled) {
-    const ret = trade.return_pct ?? 0
-    if (ret > 0) grossWin += ret
-    else if (ret < 0) grossLoss += Math.abs(ret)
+    if (trade.pnl > 0) grossWin += trade.pnl
+    else if (trade.pnl < 0) grossLoss += Math.abs(trade.pnl)
   }
   if (!(grossLoss > 0)) return null
   return grossWin / grossLoss

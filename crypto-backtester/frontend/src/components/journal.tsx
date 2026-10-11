@@ -426,6 +426,8 @@ function TradesPanel({
                 <TableHead className="text-right">Exit</TableHead>
                 <TableHead className="text-right">Size</TableHead>
                 <TableHead className="text-right">Return</TableHead>
+                <TableHead className="text-right">MAE</TableHead>
+                <TableHead className="text-right">MFE</TableHead>
                 <TableHead className="text-right">P&L</TableHead>
                 <TableHead>Source</TableHead>
                 <TableHead className="w-8" />
@@ -582,6 +584,12 @@ function TradeTableRow({
       <TableCell className="text-right font-mono text-xs tabular-nums">{formatSize(trade.size)}</TableCell>
       <TableCell className={cn("text-right font-mono text-xs tabular-nums", trade.returnPct != null && moneyTone(trade.returnPct) === "up" && "text-up", trade.returnPct != null && moneyTone(trade.returnPct) === "down" && "text-down")}>
         {open ? "—" : formatPlainPct(trade.returnPct, 1)}
+      </TableCell>
+      <TableCell className={cn("text-right font-mono text-xs tabular-nums", trade.mae != null && moneyTone(trade.mae) === "down" && "text-down")}>
+        {open ? "—" : formatPct(trade.mae)}
+      </TableCell>
+      <TableCell className={cn("text-right font-mono text-xs tabular-nums", trade.mfe != null && moneyTone(trade.mfe) === "up" && "text-up")}>
+        {open ? "—" : formatPct(trade.mfe)}
       </TableCell>
       <TableCell className={cn("text-right font-mono text-xs tabular-nums", trade.pnl != null && moneyTone(trade.pnl) === "up" && "text-up", trade.pnl != null && moneyTone(trade.pnl) === "down" && "text-down")}>
         {open || trade.pnl == null ? "—" : signedMoney(trade.pnl)}

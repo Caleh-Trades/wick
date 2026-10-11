@@ -37,6 +37,8 @@ type ControlsProps = {
   onDeltaAlert: (value: number | null) => void
   nudging: boolean
   onNudge: () => void
+  lossLimit: number
+  onLossLimit: (limit: number) => void
 }
 
 export function Controls({
@@ -58,6 +60,8 @@ export function Controls({
   onDeltaAlert,
   nudging,
   onNudge,
+  lossLimit,
+  onLossLimit,
 }: ControlsProps) {
   const full = runs.length >= MAX_RUNS
   const rule = RULES.find((item) => item.id === selected.rule)
@@ -267,6 +271,17 @@ export function Controls({
         max={5}
         onValue={(riskPct) => patch({ riskPct })}
         hint={<p className="text-xs leading-relaxed text-muted-foreground">{riskCopy(selected.capital, clampRisk(selected.riskPct))}</p>}
+      />
+
+      <DecimalField
+        id={`${idPrefix}-loss-limit`}
+        label="Loss halt"
+        value={lossLimit}
+        min={1}
+        max={20}
+        integer
+        onValue={onLossLimit}
+        hint={<p className="text-xs leading-relaxed text-muted-foreground">Closed journal losses in a row. The session stands down and Arm stays dark until you clear it.</p>}
       />
 
       {venue === "perp" ? (

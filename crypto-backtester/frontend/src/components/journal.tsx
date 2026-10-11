@@ -17,6 +17,7 @@ import {
   exportFiltered,
   exportFilteredCsv,
   exportRunFile,
+  listJournalStrategies,
   listRuns,
   listStrategies,
   logBookTrade,
@@ -119,34 +120,25 @@ export function JournalPage({
           </div>
           <p className="mt-3 max-w-2xl text-sm text-muted-foreground">
             {tab === "trades"
-              ? "Trades from the desk and the bot, newest first. A blank exit is still open. Filters apply to the table and to both exports."
-              : "Strategies stored on their own. Save the one on the desk, or write the rule, the market, and why it is holding up. Opening a row puts that setup on a slot."}
+              ? "Trades you log, and trades a bot logs. Newest first. A blank exit is still open. A backtest kept from the desk is not listed here. Filters apply to this table and to both exports."
+              : "Strategies you save, and runs you keep from the desk. Keeping a run does not add its fills to the trade log. Opening a row puts that setup on a slot."}
           </p>
         </div>
         {tab === "working" ? (
-          <WorkingPanel key={workingDraftKey(draft)} symbol={symbol} venue={venue} draft={draft} onOpen={onOpenWorking} />
+          <WorkingPanel key={workingDraftKey(draft)} symbol={symbol} venue={venue} draft={draft} onOpen={onOpenWorking} onRestore={onRestore} />
         ) : (
-          <TradesPanel symbol={symbol} venue={venue} onRestore={onRestore} />
+          <TradesPanel symbol={symbol} venue={venue} />
         )}
       </div>
     </div>
   )
 }
 
-function TradesPanel({
-  symbol,
-  venue,
-  onRestore,
-}: {
-  symbol: string
-  venue: Venue
-  onRestore: (ids: { strategyId: string; runId: string }) => void
-}) {
+function TradesPanel({ symbol, venue }: { symbol: string; venue: Venue }) {
   const [query, setQuery] = useState<TradeQuery>(emptyQuery)
   const [loadedQuery, setLoadedQuery] = useState<TradeQuery>(emptyQuery)
   const [page, setPage] = useState<TradePage>(emptyPage)
   const [strategies, setStrategies] = useState<StrategyRecord[]>([])
-  const [kept, setKept] = useState<KeptListRow[]>([])
   const [alerts, setAlerts] = useState(alertEntries)
   const [market, setMarket] = useState(symbol)
   const [side, setSide] = useState<TradeSide>("long")
@@ -177,11 +169,8 @@ function TradesPanel({
           setLoading(false)
           setError(reason instanceof Error ? reason.message : "The trades didn't load.")
         })
-      void listStrategies().then((next) => {
+      void listJournalStrategies().then((next) => {
         if (!cancel) setStrategies(next)
-      })
-      void listRuns().then((next) => {
-        if (!cancel) setKept(next)
       })
     }
     load()
@@ -247,19 +236,6 @@ function TradesPanel({
           value={formatPct(page.expectancy)}
           toneName={page.expectancy == null ? "ink" : moneyTone(page.expectancy)}
         />
-      </section>
-
-      <section aria-label="Kept runs">
-        <p className="font-mono text-[11px] tracking-wide text-muted-foreground uppercase">Kept runs</p>
-        {kept.length === 0 ? (
-          <p className="mt-2 text-sm text-muted-foreground">Keep a run from the desk. The list shows the strategy, the symbol, the return, and the note. Reopening loads that strategy and that run.</p>
-        ) : (
-          <ul className="mt-2 flex flex-col gap-2">
-            {kept.map((row) => (
-              <KeptRow key={row.run.id} row={row} onRestore={onRestore} />
-            ))}
-          </ul>
-        )}
       </section>
 
       <form
@@ -496,13 +472,16 @@ function WorkingPanel({
   venue,
   draft,
   onOpen,
+  onRestore,
 }: {
   symbol: string
   venue: Venue
   draft: WorkingDraft | null
   onOpen: (strategyId: string) => void
+  onRestore: (ids: { strategyId: string; runId: string }) => void
 }) {
   const [rows, setRows] = useState<StrategyRecord[]>([])
+  const [kept, setKept] = useState<KeptListRow[]>([])
   const [name, setName] = useState(draft?.name ?? "SMA 20/50")
   const [nameTouched, setNameTouched] = useState(false)
   const [market, setMarket] = useState(draft?.symbol ?? symbol)
@@ -528,6 +507,9 @@ function WorkingPanel({
     const load = () => {
       void listStrategies().then((next) => {
         if (!cancel) setRows(next)
+      })
+      void listRuns().then((next) => {
+        if (!cancel) setKept(next)
       })
     }
     load()
@@ -783,6 +765,19 @@ function WorkingPanel({
           {error ? <p className="text-sm text-down">{error}</p> : null}
         </div>
       </form>
+
+      <section aria-label="Kept runs">
+        <p className="font-mono text-[11px] tracking-wide text-muted-foreground uppercase">Kept runs</p>
+        {kept.length === 0 ? (
+          <p className="mt-2 text-sm text-muted-foreground">Keep a run from the desk. The list shows the strategy, the symbol, the return, and the note. Reopening loads that strategy and that run. The fills stay on the run.</p>
+        ) : (
+          <ul className="mt-2 flex flex-col gap-2">
+            {kept.map((row) => (
+              <KeptRow key={row.run.id} row={row} onRestore={onRestore} />
+            ))}
+          </ul>
+        )}
+      </section>
 
       <section aria-label="Working strategies">
         <p className="font-mono text-[11px] tracking-wide text-muted-foreground uppercase">Saved</p>

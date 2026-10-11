@@ -114,7 +114,13 @@ export function emptyPage(): TradePage {
   return { rows: [], total: 0, closed: 0, open: 0, profitFactor: null, expectancy: null }
 }
 
+/** A journal row is one you logged, or a bot logged. A backtest fill belongs to its run. */
+export function isJournalTrade(trade: TradeRecord): boolean {
+  return trade.runId == null
+}
+
 export function tradeMatches(trade: TradeRecord, query: TradeQuery): boolean {
+  if (!isJournalTrade(trade)) return false
   if (query.symbol && !trade.symbol.toLowerCase().includes(query.symbol.trim().toLowerCase())) return false
   if (query.strategyId && trade.strategyId !== query.strategyId) return false
   if (query.side && trade.side !== query.side) return false
@@ -223,6 +229,15 @@ export async function listRuns(): Promise<KeptListRow[]> {
 export async function listStrategies(): Promise<StrategyRecord[]> {
   await bookReady()
   return [...memory.strategies.values()].sort((left, right) => left.name.localeCompare(right.name) || left.symbol.localeCompare(right.symbol))
+}
+
+/** Strategies that have a trade in the journal, not only a kept backtest. */
+export async function listJournalStrategies(): Promise<StrategyRecord[]> {
+  await bookReady()
+  const ids = new Set(
+    [...memory.trades.values()].filter((trade) => isJournalTrade(trade) && trade.strategyId).map((trade) => trade.strategyId),
+  )
+  return (await listStrategies()).filter((strategy) => ids.has(strategy.id))
 }
 
 export async function getStrategy(id: string): Promise<StrategyRecord | null> {

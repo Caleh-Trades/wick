@@ -1,8 +1,9 @@
 import { profitFactor, tradeExpectancy } from "./backtest.ts"
 import type { BotOp } from "./bot-edits.ts"
+import { asRiskMode, isSessionLight, type RiskMode, type SessionLight } from "./desk.ts"
 import { normalizeSymbol } from "./markets.ts"
 import { isRange, isTimeframe, isVenue, normalizeCombo, normalizeRule, ruleParams } from "./runs.ts"
-import type { RunParams, Trade, Venue } from "./types.ts"
+import type { RunParams, SampleSlice, Trade, Venue } from "./types.ts"
 
 export const PAGE_SIZE = 50
 
@@ -40,6 +41,21 @@ export type RunMetrics = {
   final_equity: number
 }
 
+/** In-sample, holdout, and three windows of the same pass. Small enough to keep on the row. */
+export type RunSample = {
+  inSample: SampleSlice
+  holdout: SampleSlice
+  windows: SampleSlice[]
+}
+
+/** Before fees, fees, slippage, and the return after those costs. */
+export type RunCosts = {
+  beforeFees: number
+  fees: number
+  slippage: number
+  afterCosts: number
+}
+
 /** A run points at its trades by id. It does not embed them or any candles. */
 export type RunRecord = {
   id: string
@@ -48,6 +64,8 @@ export type RunRecord = {
   metrics: RunMetrics
   createdAt: string
   note: string
+  sample: RunSample | null
+  costs: RunCosts | null
 }
 
 export type TradeRecord = {
@@ -67,6 +85,30 @@ export type TradeRecord = {
   returnPct: number | null
   note: string
   source: TradeSource
+  /** Spot and perp are different logs. A perp fill never lands in the spot log. */
+  market: Venue
+  stop: number | null
+  r: number | null
+  riskMode: RiskMode
+  ticketId: string | null
+}
+
+export type WorkingTicket = {
+  id: string
+  symbol: string
+  market: Venue
+  side: TradeSide
+  strategy: string
+  entry: number
+  stop: number
+  size: number
+  r: number
+  riskMode: RiskMode
+  session: SessionLight
+  armed: boolean
+  tradeId: string | null
+  createdAt: string
+  filledAt: string | null
 }
 
 export type TradeQuery = {
@@ -76,7 +118,23 @@ export type TradeQuery = {
   from: string
   to: string
   state: "" | "open" | "closed"
+  market: "" | Venue
+  riskMode: "" | RiskMode
   page: number
+}
+
+export type TicketQuery = {
+  symbol: string
+  strategy: string
+  side: "" | TradeSide
+  riskMode: "" | RiskMode
+  session: "" | SessionLight
+  page: number
+}
+
+export type TicketPage = {
+  rows: WorkingTicket[]
+  total: number
 }
 
 export type TradePage = {
@@ -107,7 +165,11 @@ function emit(): void {
 }
 
 export function emptyQuery(page = 0): TradeQuery {
-  return { symbol: "", strategyId: "", side: "", from: "", to: "", state: "", page }
+  return { symbol: "", strategyId: "", side: "", from: "", to: "", state: "", market: "", riskMode: "", page }
+}
+
+export function emptyTicketQuery(page = 0): TicketQuery {
+  return { symbol: "", strategy: "", side: "", riskMode: "", session: "", page }
 }
 
 export function emptyPage(): TradePage {
@@ -124,6 +186,8 @@ export function tradeMatches(trade: TradeRecord, query: TradeQuery): boolean {
   if (query.symbol && !trade.symbol.toLowerCase().includes(query.symbol.trim().toLowerCase())) return false
   if (query.strategyId && trade.strategyId !== query.strategyId) return false
   if (query.side && trade.side !== query.side) return false
+  if (query.market && trade.market !== query.market) return false
+  if (query.riskMode && trade.riskMode !== query.riskMode) return false
   if (query.state === "open" && trade.exitTime != null) return false
   if (query.state === "closed" && trade.exitTime == null) return false
   const from = query.from ? Date.parse(`${query.from}T00:00:00.000Z`) : null
@@ -172,10 +236,11 @@ type Memory = {
   strategies: Map<string, StrategyRecord>
   runs: Map<string, RunRecord>
   trades: Map<string, TradeRecord>
+  tickets: Map<string, WorkingTicket>
 }
 
 function createMemory(): Memory {
-  return { strategies: new Map(), runs: new Map(), trades: new Map() }
+  return { strategies: new Map(), runs: new Map(), trades: new Map(), tickets: new Map() }
 }
 
 let memory = createMemory()
@@ -293,6 +358,11 @@ export async function logBookTrade(input: {
   rule?: string
   entryTime?: string
   venue?: string
+  market?: string
+  stop?: number | null
+  r?: number | null
+  riskMode?: string
+  ticketId?: string | null
 }): Promise<TradeRecord | null> {
   await bookReady()
   const symbol = asSymbol(input.symbol)
@@ -307,7 +377,7 @@ export async function logBookTrade(input: {
     const strategy = await saveStrategy({
       name: input.strategyName,
       symbol,
-      market: isVenue(input.venue) ? input.venue : "spot",
+      market: isVenue(input.market) ? input.market : isVenue(input.venue) ? input.venue : "spot",
       timeframe: "1d",
       range: "1Y",
       rule: input.rule?.trim() || input.strategyName,
@@ -336,6 +406,11 @@ export async function logBookTrade(input: {
     returnPct: move == null || !(input.entryPrice > 0) ? null : (move / input.entryPrice) * 100,
     note: (input.note ?? "").trim().slice(0, 280),
     source: input.source === "bot" ? "bot" : "desk",
+    market: isVenue(input.market) ? input.market : isVenue(input.venue) ? input.venue : "spot",
+    stop: input.stop != null && input.stop > 0 ? input.stop : null,
+    r: input.r != null && input.r > 0 ? input.r : null,
+    riskMode: asRiskMode(input.riskMode),
+    ticketId: input.ticketId ?? null,
   }
   memory.trades.set(row.id, row)
   await persistOne("trades", row)
@@ -356,10 +431,207 @@ export async function logTradeOp(op: BotOp): Promise<boolean> {
     strategyName: typeof op.strategy === "string" ? op.strategy : "",
     rule: typeof op.strategy === "string" ? op.strategy : "",
     venue: typeof op.venue === "string" ? op.venue : "spot",
+    market: typeof op.venue === "string" ? op.venue : "spot",
+    riskMode: typeof op.riskMode === "string" ? op.riskMode : "NORMAL",
+    stop: op.stop == null ? null : Number(op.stop),
+    r: op.r == null ? null : Number(op.r),
     entryTime: typeof op.time === "string" ? op.time : undefined,
     source: "bot",
   })
   return row != null
+}
+
+export async function closeJournalTrade(id: string, exitPrice: number): Promise<TradeRecord | null> {
+  await bookReady()
+  const trade = memory.trades.get(id)
+  if (!trade || trade.runId != null || !(exitPrice > 0)) return null
+  if (trade.exitTime != null) return trade
+  const settled = settle(trade.side, trade.entryPrice, exitPrice, trade.size, trade.fee, trade.slippage)
+  const next: TradeRecord = {
+    ...trade,
+    exitPrice,
+    exitTime: new Date().toISOString(),
+    pnl: settled.pnl,
+    returnPct: settled.returnPct,
+  }
+  memory.trades.set(id, next)
+  await persistOne("trades", next)
+  emit()
+  return next
+}
+
+export async function setTradeNote(id: string, note: string): Promise<TradeRecord | null> {
+  await bookReady()
+  const trade = memory.trades.get(id)
+  if (!trade || trade.runId != null) return null
+  const next = { ...trade, note: note.trim().slice(0, 280) }
+  memory.trades.set(id, next)
+  await persistOne("trades", next)
+  emit()
+  return next
+}
+
+export async function saveTicket(input: {
+  symbol: string
+  market: Venue
+  side: string
+  strategy: string
+  entry: number
+  stop: number
+  size: number
+  r: number
+  riskMode?: string
+  session?: string
+}): Promise<WorkingTicket | null> {
+  await bookReady()
+  const symbol = asSymbol(input.symbol)
+  const side = asTradeSide(input.side)
+  const strategy = input.strategy.trim().slice(0, 48)
+  if (!symbol || !side || !strategy || !(input.entry > 0) || !(input.stop > 0) || !(input.size > 0) || !(input.r > 0)) return null
+  const row: WorkingTicket = {
+    id: crypto.randomUUID(),
+    symbol,
+    market: input.market === "perp" ? "perp" : "spot",
+    side,
+    strategy,
+    entry: input.entry,
+    stop: input.stop,
+    size: input.size,
+    r: input.r,
+    riskMode: asRiskMode(input.riskMode),
+    session: isSessionLight(input.session) ? input.session : "open",
+    armed: false,
+    tradeId: null,
+    createdAt: new Date().toISOString(),
+    filledAt: null,
+  }
+  memory.tickets.set(row.id, row)
+  await persistOne("tickets", row)
+  emit()
+  return row
+}
+
+export function ticketMatches(ticket: WorkingTicket, query: TicketQuery): boolean {
+  if (query.symbol && !ticket.symbol.toLowerCase().includes(query.symbol.trim().toLowerCase())) return false
+  if (query.strategy && !ticket.strategy.toLowerCase().includes(query.strategy.trim().toLowerCase())) return false
+  if (query.side && ticket.side !== query.side) return false
+  if (query.riskMode && ticket.riskMode !== query.riskMode) return false
+  if (query.session && ticket.session !== query.session) return false
+  return true
+}
+
+export async function searchTickets(query: TicketQuery): Promise<TicketPage> {
+  await bookReady()
+  const matched = [...memory.tickets.values()].filter((ticket) => ticketMatches(ticket, query)).sort(byTicketNewest)
+  const start = Math.max(0, query.page) * PAGE_SIZE
+  return { rows: matched.slice(start, start + PAGE_SIZE), total: matched.length }
+}
+
+/** The newest ticket on this market that has not filled. Each pinned symbol keeps one of these. */
+export async function liveTicket(symbol: string, market: Venue): Promise<WorkingTicket | null> {
+  await bookReady()
+  const id = asSymbol(symbol)
+  if (!id) return null
+  const rows = [...memory.tickets.values()]
+    .filter((ticket) => ticket.symbol === id && ticket.market === market && ticket.filledAt == null)
+    .sort(byTicketNewest)
+  return rows[0] ?? null
+}
+
+export async function fillWorkingTicket(id: string, fillPrice: number): Promise<{ ticket: WorkingTicket; trade: TradeRecord } | null> {
+  return withTicketLock(id, async () => {
+    await bookReady()
+    const ticket = memory.tickets.get(id)
+    if (!ticket || !(fillPrice > 0)) return null
+    if (ticket.filledAt && ticket.tradeId) {
+      const existing = memory.trades.get(ticket.tradeId)
+      if (existing) return { ticket, trade: existing }
+    }
+    const trade = await journalForTicket(ticket, fillPrice, false)
+    if (!trade) return null
+    const next: WorkingTicket = { ...ticket, tradeId: trade.id, filledAt: ticket.filledAt ?? new Date().toISOString() }
+    memory.tickets.set(id, next)
+    await persistOne("tickets", next)
+    emit()
+    return { ticket: next, trade }
+  })
+}
+
+export async function promoteWorkingTicket(id: string): Promise<{ ticket: WorkingTicket; trade: TradeRecord } | null> {
+  return withTicketLock(id, async () => {
+    await bookReady()
+    const ticket = memory.tickets.get(id)
+    if (!ticket) return null
+    const trade = await journalForTicket(ticket, null, true)
+    if (!trade) return null
+    const next: WorkingTicket = { ...ticket, armed: true, tradeId: trade.id }
+    memory.tickets.set(id, next)
+    await persistOne("tickets", next)
+    emit()
+    return { ticket: next, trade }
+  })
+}
+
+const ticketLocks = new Map<string, Promise<unknown>>()
+
+function withTicketLock<T>(id: string, run: () => Promise<T>): Promise<T> {
+  const previous = ticketLocks.get(id) ?? Promise.resolve()
+  const next = previous.then(run, run)
+  ticketLocks.set(
+    id,
+    next.then(
+      () => undefined,
+      () => undefined,
+    ),
+  )
+  return next
+}
+
+/** One journal row per ticket. A fill sets the entry to the fill price. Promote writes the shared id into the note. */
+async function journalForTicket(ticket: WorkingTicket, fillPrice: number | null, note: boolean): Promise<TradeRecord | null> {
+  const line = `ticket ${ticket.id}`
+  const existing = ticket.tradeId ? memory.trades.get(ticket.tradeId) : null
+  if (existing && existing.runId == null) {
+    const entryPrice = fillPrice != null && fillPrice > 0 ? fillPrice : existing.entryPrice
+    const next: TradeRecord = {
+      ...existing,
+      entryPrice,
+      stop: ticket.stop,
+      r: ticket.r,
+      riskMode: ticket.riskMode,
+      ticketId: ticket.id,
+      market: ticket.market,
+      note: note ? line : existing.note,
+    }
+    memory.trades.set(existing.id, next)
+    await persistOne("trades", next)
+    return next
+  }
+  return logBookTrade({
+    symbol: ticket.symbol,
+    side: ticket.side,
+    entryPrice: fillPrice != null && fillPrice > 0 ? fillPrice : ticket.entry,
+    size: ticket.size,
+    market: ticket.market,
+    venue: ticket.market,
+    strategyName: ticket.strategy,
+    rule: ticket.strategy,
+    stop: ticket.stop,
+    r: ticket.r,
+    riskMode: ticket.riskMode,
+    ticketId: ticket.id,
+    note: note ? line : "",
+    source: "desk",
+  })
+}
+
+function byTicketNewest(left: WorkingTicket, right: WorkingTicket): number {
+  return right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
+}
+
+function settle(side: TradeSide, entry: number, exit: number, size: number, fee: number, slippage: number) {
+  const move = side === "long" ? exit - entry : entry - exit
+  return { pnl: move * size - fee - slippage, returnPct: entry > 0 ? (move / entry) * 100 : 0 }
 }
 
 export async function saveStrategy(
@@ -395,6 +667,8 @@ export async function keepDeskRun(input: {
   note: string
   metrics: RunMetrics
   trades: Trade[]
+  sample?: RunSample | null
+  costs?: RunCosts | null
 }): Promise<{ strategy: StrategyRecord; run: RunRecord } | null> {
   const strategy = await saveStrategy({
     name: input.name,
@@ -421,6 +695,8 @@ export async function keepDeskRun(input: {
     metrics: input.metrics,
     createdAt: new Date().toISOString(),
     note: input.note.trim().slice(0, 280),
+    sample: asSample(input.sample),
+    costs: asCosts(input.costs),
   }
   memory.runs.set(run.id, run)
   for (const trade of input.trades) {
@@ -483,6 +759,7 @@ export type BookDump = {
   strategies: StrategyRecord[]
   runs: RunRecord[]
   trades: TradeRecord[]
+  tickets: WorkingTicket[]
 }
 
 export async function dumpBook(): Promise<BookDump> {
@@ -491,6 +768,7 @@ export async function dumpBook(): Promise<BookDump> {
     strategies: [...memory.strategies.values()],
     runs: [...memory.runs.values()],
     trades: [...memory.trades.values()],
+    tickets: [...memory.tickets.values()],
   }
 }
 
@@ -498,6 +776,7 @@ export async function replaceBook(raw: {
   strategies?: unknown
   runs?: unknown
   trades?: unknown
+  tickets?: unknown
   journal?: unknown
   kept?: unknown
   working?: unknown
@@ -506,6 +785,7 @@ export async function replaceBook(raw: {
   const strategies = new Map<string, StrategyRecord>()
   const runs = new Map<string, RunRecord>()
   const trades = new Map<string, TradeRecord>()
+  const tickets = new Map<string, WorkingTicket>()
   if (Array.isArray(raw.strategies)) {
     for (const item of raw.strategies) {
       const row = sanitizeStrategy(item)
@@ -524,7 +804,13 @@ export async function replaceBook(raw: {
       if (row) trades.set(row.id, row)
     }
   }
-  memory = { strategies, runs, trades }
+  if (Array.isArray(raw.tickets)) {
+    for (const item of raw.tickets) {
+      const row = sanitizeTicket(item)
+      if (row) tickets.set(row.id, row)
+    }
+  }
+  memory = { strategies, runs, trades, tickets }
   if (strategies.size + runs.size + trades.size === 0) absorbLegacy(raw)
   await persistAll()
   emit()
@@ -674,6 +960,11 @@ function tradeFromBacktest(trade: Trade, strategyId: string, runId: string | nul
     returnPct: open ? null : trade.return_pct,
     note: "",
     source: "desk",
+    market: "spot",
+    stop: null,
+    r: null,
+    riskMode: "NORMAL",
+    ticketId: null,
   }
 }
 
@@ -720,6 +1011,8 @@ function sanitizeRun(value: unknown): RunRecord | null {
     metrics,
     createdAt: stamp(typeof raw.createdAt === "string" ? raw.createdAt : undefined),
     note: typeof raw.note === "string" ? raw.note.trim().slice(0, 280) : "",
+    sample: asSample(raw.sample),
+    costs: asCosts(raw.costs),
   }
 }
 
@@ -749,6 +1042,7 @@ function sanitizeTrade(value: unknown): TradeRecord | null {
     returnPct: exitPrice == null || raw.returnPct == null || !Number.isFinite(Number(raw.returnPct)) ? null : Number(raw.returnPct),
     note: typeof raw.note === "string" ? raw.note.slice(0, 280) : "",
     source: raw.source === "bot" ? "bot" : "desk",
+    ...tradeStamp(raw),
   }
 }
 
@@ -791,6 +1085,8 @@ function absorbLegacy(raw: { journal?: unknown; kept?: unknown; working?: unknow
         metrics,
         createdAt: stamp(typeof source.time === "string" ? source.time : undefined),
         note: typeof source.note === "string" ? source.note.slice(0, 280) : "",
+        sample: asSample(source.sample),
+        costs: asCosts(source.costs),
       }
       memory.runs.set(run.id, run)
       const embedded = Array.isArray(source.trades) ? source.trades : []
@@ -851,6 +1147,11 @@ function absorbLegacy(raw: { journal?: unknown; kept?: unknown; working?: unknow
         returnPct: move == null ? null : (move / entryPrice) * 100,
         note: typeof legacy.note === "string" ? legacy.note.slice(0, 280) : "",
         source: "desk",
+        market: isVenue(legacy.venue) ? legacy.venue : "spot",
+        stop: null,
+        r: null,
+        riskMode: "NORMAL",
+        ticketId: null,
       }
       memory.trades.set(trade.id, trade)
     }
@@ -890,7 +1191,84 @@ function readJson(key: string): unknown {
 }
 
 const DB_NAME = "wick-records"
-const DB_VERSION = 2
+const DB_VERSION = 3
+const STORES = ["strategies", "runs", "trades", "tickets"] as const
+
+function sanitizeTicket(value: unknown): WorkingTicket | null {
+  if (!value || typeof value !== "object") return null
+  const raw = value as Partial<WorkingTicket>
+  const symbol = asSymbol(typeof raw.symbol === "string" ? raw.symbol : "")
+  const side = raw.side === "long" || raw.side === "short" ? raw.side : null
+  const strategy = typeof raw.strategy === "string" ? raw.strategy.trim().slice(0, 48) : ""
+  const entry = Number(raw.entry)
+  const stop = Number(raw.stop)
+  const size = Number(raw.size)
+  const r = Number(raw.r)
+  if (!symbol || !side || !strategy || !(entry > 0) || !(stop > 0) || !(size > 0) || !(r > 0)) return null
+  return {
+    id: typeof raw.id === "string" && raw.id.trim() ? raw.id : crypto.randomUUID(),
+    symbol,
+    market: raw.market === "perp" ? "perp" : "spot",
+    side,
+    strategy,
+    entry,
+    stop,
+    size,
+    r,
+    riskMode: asRiskMode(raw.riskMode),
+    session: isSessionLight(raw.session) ? raw.session : "open",
+    armed: raw.armed === true,
+    tradeId: typeof raw.tradeId === "string" && raw.tradeId ? raw.tradeId : null,
+    createdAt: stamp(typeof raw.createdAt === "string" ? raw.createdAt : undefined),
+    filledAt: typeof raw.filledAt === "string" && !Number.isNaN(Date.parse(raw.filledAt)) ? new Date(raw.filledAt).toISOString() : null,
+  }
+}
+
+function asSample(value: unknown): RunSample | null {
+  if (!value || typeof value !== "object") return null
+  const raw = value as Partial<RunSample>
+  const inSample = asSlice(raw.inSample)
+  const holdout = asSlice(raw.holdout)
+  const windows = Array.isArray(raw.windows) ? raw.windows.map(asSlice).filter((item) => item != null) : []
+  if (!inSample || !holdout || windows.length !== 3) return null
+  return { inSample, holdout, windows }
+}
+
+function asSlice(value: unknown): SampleSlice | null {
+  if (!value || typeof value !== "object") return null
+  const raw = value as Partial<SampleSlice>
+  const total = Number(raw.total_return_pct)
+  const drawdown = Number(raw.max_drawdown_pct)
+  const trades = Number(raw.trades)
+  if (!Number.isFinite(total) || !Number.isFinite(drawdown) || !Number.isFinite(trades)) return null
+  return {
+    total_return_pct: total,
+    max_drawdown_pct: drawdown,
+    sharpe: finite(raw.sharpe),
+    trades,
+  }
+}
+
+function asCosts(value: unknown): RunCosts | null {
+  if (!value || typeof value !== "object") return null
+  const raw = value as Partial<RunCosts>
+  const beforeFees = Number(raw.beforeFees)
+  const fees = Number(raw.fees)
+  const slippage = Number(raw.slippage)
+  const afterCosts = Number(raw.afterCosts)
+  if (![beforeFees, fees, slippage, afterCosts].every(Number.isFinite)) return null
+  return { beforeFees, fees, slippage, afterCosts }
+}
+
+function tradeStamp(raw: Partial<TradeRecord> & { venue?: unknown }): Pick<TradeRecord, "market" | "stop" | "r" | "riskMode" | "ticketId"> {
+  return {
+    market: isVenue(raw.market) ? raw.market : isVenue(raw.venue) ? raw.venue : "spot",
+    stop: raw.stop != null && Number(raw.stop) > 0 ? Number(raw.stop) : null,
+    r: raw.r != null && Number(raw.r) > 0 ? Number(raw.r) : null,
+    riskMode: asRiskMode(raw.riskMode),
+    ticketId: typeof raw.ticketId === "string" && raw.ticketId ? raw.ticketId : null,
+  }
+}
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -908,6 +1286,7 @@ function openDatabase(): Promise<IDBDatabase> {
         trades.createIndex("runId", "runId", { unique: false })
         trades.createIndex("strategyId", "strategyId", { unique: false })
       }
+      if (!db.objectStoreNames.contains("tickets")) db.createObjectStore("tickets", { keyPath: "id" })
     }
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error)
@@ -928,6 +1307,10 @@ async function readDb(): Promise<Memory> {
   await readStore(db, "trades", (value) => {
     const row = sanitizeTrade(value)
     if (row) next.trades.set(row.id, row)
+  })
+  await readStore(db, "tickets", (value) => {
+    const row = sanitizeTicket(value)
+    if (row) next.tickets.set(row.id, row)
   })
   db.close()
   return next
@@ -995,11 +1378,12 @@ async function searchDb(query: TradeQuery): Promise<TradePage> {
 async function writeDb(source: Memory): Promise<void> {
   const db = await openDatabase()
   await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(["strategies", "runs", "trades"], "readwrite")
-    for (const name of ["strategies", "runs", "trades"] as const) tx.objectStore(name).clear()
+    const tx = db.transaction([...STORES], "readwrite")
+    for (const name of STORES) tx.objectStore(name).clear()
     for (const row of source.strategies.values()) tx.objectStore("strategies").put(stripRun(row))
     for (const row of source.runs.values()) tx.objectStore("runs").put(row)
     for (const row of source.trades.values()) tx.objectStore("trades").put(row)
+    for (const row of source.tickets.values()) tx.objectStore("tickets").put(row)
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error)
   })
@@ -1014,7 +1398,7 @@ async function persistAll(): Promise<void> {
   if (hasIndexedDb()) await writeDb(memory)
 }
 
-async function persistOne(store: "strategies" | "runs" | "trades", row: { id: string }): Promise<void> {
+async function persistOne(store: (typeof STORES)[number], row: { id: string }): Promise<void> {
   if (!hasIndexedDb()) return
   const db = await openDatabase()
   await new Promise<void>((resolve, reject) => {

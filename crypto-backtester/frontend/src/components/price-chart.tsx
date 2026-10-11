@@ -4,6 +4,7 @@ import { CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis
 import { QuotePrice } from "@/components/quote-price"
 import { Button } from "@/components/ui/button"
 import { liveMark } from "@/lib/book"
+import { cumulativeDelta, standDownBar } from "@/lib/desk"
 import { formatAxis, formatPrice, formatStamp } from "@/lib/format"
 import { marketSpec } from "@/lib/markets"
 import { plotCandles, priceDomain, priceTicks, spotTrades, type PlotBar } from "@/lib/plot"
@@ -45,6 +46,9 @@ export const PriceChart = memo(function PriceChart({
   pending?: boolean
 }) {
   const book = useBookView(symbol, venue)
+  const [shadeSession, setShadeSession] = useState(false)
+  const [showCvd, setShowCvd] = useState(false)
+  const cvd = useMemo(() => cumulativeDelta([...book.prints].reverse()), [book.prints])
   const formed = useFormingCandles(candles, interval, symbol, venue)
   const livePrice = liveMark(book)?.price
   const windowed = useMemo(() => windowAround(formed, focusTime), [formed, focusTime])
@@ -92,7 +96,19 @@ export const PriceChart = memo(function PriceChart({
           <QuotePrice symbol={symbol} venue={venue} />
         </div>
         {reading && reading.length > 0 ? <p className="font-mono text-[11px] text-muted-foreground">{reading.join(" · ")}</p> : null}
-        <ChartTools venue={venue} focusTime={focusTime} range={range} onRange={onRange} onClearFocus={onClearFocus} onEnlarge={onEnlarge} />
+        <ChartTools
+          venue={venue}
+          focusTime={focusTime}
+          range={range}
+          shadeSession={shadeSession}
+          showCvd={showCvd}
+          tapeReady={book.prints.length > 0}
+          onShade={() => setShadeSession((current) => !current)}
+          onCvd={() => setShowCvd((current) => !current)}
+          onRange={onRange}
+          onClearFocus={onClearFocus}
+          onEnlarge={onEnlarge}
+        />
         <p className="mt-6 text-sm text-muted-foreground">{pending ? "Waiting for bars." : "The bars didn't load."}</p>
       </div>
     )
@@ -110,7 +126,19 @@ export const PriceChart = memo(function PriceChart({
             {reading && reading.length > 0 ? <p className="font-mono text-[11px] text-muted-foreground">{reading.join(" · ")}</p> : null}
           </div>
         </div>
-        <ChartTools venue={venue} focusTime={focusTime} range={range} onRange={onRange} onClearFocus={onClearFocus} onEnlarge={onEnlarge} />
+        <ChartTools
+          venue={venue}
+          focusTime={focusTime}
+          range={range}
+          shadeSession={shadeSession}
+          showCvd={showCvd}
+          tapeReady={book.prints.length > 0}
+          onShade={() => setShadeSession((current) => !current)}
+          onCvd={() => setShowCvd((current) => !current)}
+          onRange={onRange}
+          onClearFocus={onClearFocus}
+          onEnlarge={onEnlarge}
+        />
       </div>
       <div ref={frameRef} className="price-plot relative min-h-0 flex-1">
         <ResponsiveContainer width="100%" height="100%">
@@ -141,7 +169,7 @@ export const PriceChart = memo(function PriceChart({
             <Line type="linear" dataKey="close" stroke="transparent" dot={false} activeDot={false} isAnimationActive={false} />
           </ComposedChart>
         </ResponsiveContainer>
-        {plot ? <CandleLayer bars={bars} domain={domain} plot={plot} /> : null}
+        {plot ? <CandleLayer bars={bars} domain={domain} plot={plot} shade={shadeSession} cvd={showCvd && cvd.length > 0 ? cvd : null} /> : null}
       </div>
     </div>
   )
@@ -151,6 +179,11 @@ function ChartTools({
   venue,
   focusTime,
   range,
+  shadeSession,
+  showCvd,
+  tapeReady,
+  onShade,
+  onCvd,
   onRange,
   onClearFocus,
   onEnlarge,
@@ -158,12 +191,17 @@ function ChartTools({
   venue: Venue
   focusTime?: string | null
   range?: RangeId
+  shadeSession: boolean
+  showCvd: boolean
+  tapeReady: boolean
+  onShade: () => void
+  onCvd: () => void
   onRange?: (range: RangeId) => void
   onClearFocus?: () => void
   onEnlarge: () => void
 }) {
   return (
-    <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto lg:flex-wrap lg:overflow-visible">
+    <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto">
       {range && onRange ? (
         <div className="flex shrink-0 gap-1 lg:flex-wrap" role="group" aria-label="Range">
           {RANGES.map((item) => (
@@ -187,6 +225,14 @@ function ChartTools({
         {focusTime ? (
           <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={onClearFocus}>
             Full tape
+          </Button>
+        ) : null}
+        <Button type="button" size="xs" variant={shadeSession ? "default" : "outline"} className="normal-case tracking-normal" aria-pressed={shadeSession} onClick={onShade}>
+          Session
+        </Button>
+        {tapeReady ? (
+          <Button type="button" size="xs" variant={showCvd ? "default" : "outline"} className="normal-case tracking-normal" aria-pressed={showCvd} onClick={onCvd}>
+            CVD
           </Button>
         ) : null}
         <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={onEnlarge}>
@@ -218,7 +264,33 @@ function withLivePrice(candles: TapeCandle[], price: number | null | undefined):
   return next
 }
 
-function CandleLayer({ bars, domain, plot }: { bars: PlotBar[]; domain: [number, number]; plot: PlotBox }) {
+function cvdPath(values: number[], width: number, height: number): string {
+  if (values.length === 0) return ""
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  const span = max - min || 1
+  return values
+    .map((value, index) => {
+      const x = values.length === 1 ? width / 2 : (index / (values.length - 1)) * width
+      const y = ((max - value) / span) * (height - 8) + 4
+      return `${index === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`
+    })
+    .join("")
+}
+
+function CandleLayer({
+  bars,
+  domain,
+  plot,
+  shade,
+  cvd,
+}: {
+  bars: PlotBar[]
+  domain: [number, number]
+  plot: PlotBox
+  shade: boolean
+  cvd: number[] | null
+}) {
   const [min, max] = domain
   const span = max - min || 1
   const slot = plot.width / Math.max(bars.length, 1)
@@ -250,6 +322,14 @@ function CandleLayer({ bars, domain, plot }: { bars: PlotBar[]; domain: [number,
   }
   return (
     <svg className="pointer-events-none absolute" style={{ left: plot.left, top: plot.top, width: plot.width, height: plot.height }} aria-hidden="true">
+      {shade
+        ? bars.map((bar, index) =>
+            standDownBar(bar.time) ? (
+              <rect key={bar.time} x={index * slot} y={0} width={slot} height={plot.height} fill="#c56a32" opacity={0.12} />
+            ) : null,
+          )
+        : null}
+      {cvd && cvd.length > 0 ? <path d={cvdPath(cvd, plot.width, plot.height)} stroke="#c56a32" strokeWidth={1.25} fill="none" /> : null}
       <path d={upWicks} stroke="#3ee0a2" strokeWidth={1} fill="none" />
       <path d={downWicks} stroke="#ff5d73" strokeWidth={1} fill="none" />
       <path d={upBodies} fill="#3ee0a2" />

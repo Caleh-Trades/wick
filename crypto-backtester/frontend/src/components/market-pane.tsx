@@ -4,6 +4,7 @@ import { PriceChart } from "@/components/price-chart"
 import { OrderBook } from "@/components/order-book"
 import { AlertControl, AlertWatch, FundingQuote } from "@/components/slot-tools"
 import { formatClock } from "@/lib/format"
+import type { ArmGate, RiskMode, SessionLight } from "@/lib/desk"
 import type { FundingRate, RangeId, TapeCandle, Trade, Venue } from "@/lib/types"
 import type { SlotAlert } from "@/lib/workspace"
 
@@ -18,6 +19,10 @@ export function MarketPane({
   showCaption,
   alert,
   deltaAlert,
+  session,
+  riskMode,
+  arm,
+  onRisk,
   funding,
   fundingStale,
   focusTime,
@@ -41,6 +46,10 @@ export function MarketPane({
   showCaption: boolean
   alert: SlotAlert | null
   deltaAlert: number | null
+  session: SessionLight
+  riskMode: RiskMode
+  arm: ArmGate | null
+  onRisk: (mode: RiskMode) => void
   funding?: FundingRate[] | null
   fundingStale?: boolean
   focusTime?: string | null
@@ -79,8 +88,18 @@ export function MarketPane({
           </p>
         ) : null}
         {venue === "perp" && symbol ? <FundingQuote rates={funding} stale={fundingStale === true} /> : null}
-        <AlertControl alert={alert} deltaAlert={deltaAlert} symbol={symbol} venue={venue} onChange={onAlert} />
-        {symbol ? <AlertWatch symbol={symbol} venue={venue} alert={alert} deltaAlert={deltaAlert} /> : null}
+        <AlertControl
+          alert={alert}
+          deltaAlert={deltaAlert}
+          symbol={symbol}
+          venue={venue}
+          session={session}
+          riskMode={riskMode}
+          arm={arm}
+          onRisk={onRisk}
+          onChange={onAlert}
+        />
+        {symbol ? <AlertWatch symbol={symbol} venue={venue} alert={alert} deltaAlert={deltaAlert} session={session} /> : null}
       </div>
       <div ref={rowRef} className="chart-book-row flex min-h-0 flex-1 items-stretch">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">

@@ -8,6 +8,7 @@ import { formatClock, formatDay, formatPrice } from "@/lib/format"
 import { useBookView } from "@/lib/use-book"
 import { missingBars } from "@/lib/plot"
 import { TIMEFRAMES, barsLabel, marketById, windowNote } from "@/lib/runs"
+import type { SessionLight } from "@/lib/desk"
 import type { MarketId, RangeId, Tape, Timeframe, Venue } from "@/lib/types"
 
 type DeskBarProps = {
@@ -19,6 +20,8 @@ type DeskBarProps = {
   loading: boolean
   stale: boolean
   lastFetchAt: Date | null
+  session: SessionLight
+  onSession: () => void
   onSymbol: (symbol: MarketId) => void
   onTimeframe: (timeframe: Timeframe) => void
   onVenue: (venue: Venue) => void
@@ -40,6 +43,8 @@ export function DeskBar({
   loading,
   stale,
   lastFetchAt,
+  session,
+  onSession,
   onSymbol,
   onTimeframe,
   onVenue,
@@ -133,6 +138,14 @@ export function DeskBar({
         </div>
 
         <div className="ml-auto flex min-w-0 flex-1 items-center gap-x-3 overflow-hidden font-mono text-[11px] tracking-wide whitespace-nowrap text-muted-foreground uppercase">
+          <button
+            type="button"
+            className={session === "open" ? "text-up" : session === "stand-down" ? "text-down" : "text-muted-foreground"}
+            aria-label={`Session ${session}`}
+            onClick={onSession}
+          >
+            {session}
+          </button>
           <span>{venue === "perp" ? "Kraken perp" : "Binance spot"}</span>
           {tape && last && first ? (
             <>

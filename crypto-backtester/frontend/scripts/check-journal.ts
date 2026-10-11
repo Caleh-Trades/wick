@@ -3,20 +3,36 @@ import assert from "node:assert/strict"
 import { editConcerns } from "../src/lib/bot-edits.ts"
 import { alertEntries, logAlert, removeAlert } from "../src/lib/journal.ts"
 import {
+  armAllowed,
+  cumulativeDelta,
+  defaultSession,
+  pinSymbol,
+  rowIsStale,
+  slotUnsynced,
+  ticketFills,
+} from "../src/lib/desk.ts"
+import {
   PAGE_SIZE,
+  closeJournalTrade,
   dumpBook,
   emptyQuery,
+  emptyTicketQuery,
+  fillWorkingTicket,
   findRun,
   keepDeskRun,
   listStrategies,
+  liveTicket,
   logBookTrade,
   logTradeOp,
   matchingTrades,
+  promoteWorkingTicket,
   removeRun,
   removeStrategy,
   replaceBook,
   resetBookForTests,
   saveStrategy,
+  saveTicket,
+  searchTickets,
   searchTrades,
   setRunNote,
   setStrategyNote,
@@ -315,5 +331,152 @@ await replaceBook({ strategies: "nope", runs: [], trades: [] })
 assert.equal((await listStrategies()).length, 0)
 
 if (quoted) await removeRun(quoted.run.id)
+
+resetBookForTests()
+const perp = await logBookTrade({ symbol: "BTC", side: "short", entryPrice: 100, size: 1, venue: "perp", market: "perp" })
+const spot = await logBookTrade({ symbol: "BTC", side: "long", entryPrice: 100, size: 1, venue: "spot", market: "spot" })
+assert.equal(perp?.market, "perp")
+assert.equal(spot?.market, "spot")
+const spotLog = await searchTrades({ ...emptyQuery(), market: "spot" })
+assert.equal(spotLog.total, 1)
+assert.equal(spotLog.rows[0]?.id, spot?.id)
+const perpLog = await searchTrades({ ...emptyQuery(), market: "perp" })
+assert.equal(perpLog.total, 1)
+assert.equal(perpLog.rows[0]?.id, perp?.id)
+assert.equal(perpLog.rows[0]?.riskMode, "NORMAL")
+
+const ticket = await saveTicket({
+  symbol: "ETH",
+  market: "perp",
+  side: "long",
+  strategy: "ORB",
+  entry: 200,
+  stop: 190,
+  size: 2,
+  r: 2,
+  riskMode: "PRESS",
+  session: "open",
+})
+assert.ok(ticket)
+assert.equal((await liveTicket("ETHUSDT", "perp"))?.id, ticket?.id)
+assert.equal(ticketFills("long", 200, 201), false)
+assert.equal(ticketFills("long", 200, 199), true)
+const filled = await fillWorkingTicket(ticket!.id, 198.5)
+assert.ok(filled)
+assert.equal(filled?.trade.entryPrice, 198.5)
+assert.equal(filled?.trade.stop, 190)
+assert.equal(filled?.trade.r, 2)
+assert.equal(filled?.trade.exitTime, null)
+assert.equal(filled?.trade.market, "perp")
+assert.equal(filled?.trade.ticketId, ticket?.id)
+assert.equal(filled?.trade.riskMode, "PRESS")
+const again = await fillWorkingTicket(ticket!.id, 10)
+assert.equal(again?.trade.id, filled?.trade.id)
+assert.equal(again?.trade.entryPrice, 198.5)
+const spotAfterFill = await searchTrades({ ...emptyQuery(), market: "spot" })
+assert.equal(spotAfterFill.rows.some((row) => row.id === filled?.trade.id), false)
+
+const planned = await saveTicket({
+  symbol: "SOL",
+  market: "spot",
+  side: "long",
+  strategy: "Fade",
+  entry: 80,
+  stop: 76,
+  size: 1,
+  r: 1.5,
+  riskMode: "DEFENSIVE",
+  session: "closed",
+})
+const promoted = await promoteWorkingTicket(planned!.id)
+assert.equal(promoted?.ticket.armed, true)
+assert.equal(promoted?.trade.note, `ticket ${planned?.id}`)
+assert.equal(promoted?.trade.ticketId, planned?.id)
+assert.equal(promoted?.ticket.tradeId, promoted?.trade.id)
+const filledPlan = await fillWorkingTicket(planned!.id, 79)
+assert.equal(filledPlan?.trade.id, promoted?.trade.id)
+assert.equal(filledPlan?.trade.entryPrice, 79)
+assert.equal(filledPlan?.trade.stop, 76)
+assert.equal(filledPlan?.trade.note, `ticket ${planned?.id}`)
+assert.equal(filledPlan?.trade.exitTime, null)
+
+assert.equal(rowIsStale({ id: promoted!.trade.id, symbol: "SOLUSDT", market: "spot", exitTime: null }, []), true)
+assert.equal(
+  rowIsStale(
+    { id: promoted!.trade.id, symbol: "SOLUSDT", market: "spot", exitTime: null },
+    [{ symbol: "SOLUSDT", market: "spot", side: "long", size: 1, entry: 79, tradeId: promoted!.trade.id }],
+  ),
+  false,
+)
+assert.equal(slotUnsynced("SOLUSDT", "spot", [{ symbol: "SOLUSDT", market: "spot", side: "long", size: 1, entry: 79, tradeId: "missing" }], []), true)
+const closed = await closeJournalTrade(filledPlan!.trade.id, 90)
+assert.equal(closed?.exitPrice, 90)
+assert.ok((closed?.returnPct ?? 0) > 0)
+
+const defensive = await searchTrades({ ...emptyQuery(), riskMode: "DEFENSIVE" })
+assert.ok(defensive.rows.every((row) => row.riskMode === "DEFENSIVE"))
+const press = await searchTickets({ ...emptyTicketQuery(), riskMode: "PRESS", session: "open" })
+assert.equal(press.total, 1)
+assert.equal(press.rows[0]?.strategy, "ORB")
+
+const keptSample = await keepDeskRun({
+  name: "Walk",
+  symbol: "BTC",
+  venue: "spot",
+  timeframe: "1d",
+  range: "1Y",
+  rule: "sma_cross",
+  params: { fast: 20, slow: 50 },
+  combo: [],
+  fee: 10,
+  slippage: 5,
+  capital: 10_000,
+  leverage: 1,
+  risk: 1,
+  allowShort: false,
+  note: "",
+  metrics: {
+    total_return_pct: 4.1,
+    cagr_pct: null,
+    max_drawdown_pct: -6,
+    sharpe: 0.1,
+    win_rate_pct: 40,
+    profit_factor: 0.04878048780487805,
+    expectancy: -5.2,
+    trades: 3,
+    final_equity: 10410,
+  },
+  trades: [],
+  sample: {
+    inSample: { total_return_pct: 2, max_drawdown_pct: -1, sharpe: 0.2, trades: 2 },
+    holdout: { total_return_pct: -0.4, max_drawdown_pct: -2, sharpe: -0.1, trades: 1 },
+    windows: [
+      { total_return_pct: 1, max_drawdown_pct: -1, sharpe: 0.1, trades: 1 },
+      { total_return_pct: 0.5, max_drawdown_pct: -0.5, sharpe: 0.1, trades: 1 },
+      { total_return_pct: -0.2, max_drawdown_pct: -0.4, sharpe: null, trades: 1 },
+    ],
+  },
+  costs: { beforeFees: 4.4, fees: 12, slippage: 1.2, afterCosts: 4.1 },
+})
+assert.equal(keptSample?.run.sample?.windows.length, 3)
+assert.equal(keptSample?.run.costs?.afterCosts, 4.1)
+assert.equal("candles" in (keptSample?.run ?? {}), false)
+assert.equal("walk_forward" in (keptSample?.run ?? {}), false)
+
+const pins = pinSymbol(["BTCUSDT"], "BTCUSDT", "ETHUSDT")
+const withSol = pinSymbol(pins.pins, "ETHUSDT", "SOLUSDT")
+const swapped = pinSymbol(withSol.pins, "ETHUSDT", "XRPUSDT")
+assert.deepEqual(withSol.pins, ["BTCUSDT", "ETHUSDT", "SOLUSDT"])
+assert.deepEqual(swapped.pins, ["BTCUSDT", "XRPUSDT", "SOLUSDT"])
+assert.equal(swapped.symbol, "XRPUSDT")
+assert.equal(pinSymbol(swapped.pins, "XRPUSDT", "BTCUSDT").pins.length, 3)
+
+assert.equal(defaultSession(new Date("2026-10-10T12:00:00Z")), "stand-down")
+assert.equal(defaultSession(new Date("2026-10-11T12:00:00Z")), "stand-down")
+assert.equal(defaultSession(new Date("2026-10-12T12:00:00Z")), "open")
+assert.equal(armAllowed("stand-down"), false)
+assert.equal(armAllowed("open"), true)
+assert.deepEqual(cumulativeDelta([{ side: "buy", size: 2 }, { side: "sell", size: 0.5 }, { side: "buy", size: 1 }]), [2, 1.5, 2.5])
+assert.deepEqual(cumulativeDelta([]), [])
 
 console.log("journal ok")

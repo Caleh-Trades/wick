@@ -1,3 +1,12 @@
+import {
+  asRiskMode,
+  isSessionLight,
+  pinsOf,
+  type ArmGate,
+  type BookPosition,
+  type RiskMode,
+  type SessionLight,
+} from "./desk.ts"
 import { clampRisk, clampSlippage, createRun, isRange, isTimeframe, isVenue, loadDesk, MAX_RUNS, normalizeCombo, normalizeRule, type DeskState } from "./runs.ts"
 import type { MarketId, RangeId, Run, Timeframe, Venue } from "./types.ts"
 
@@ -23,6 +32,10 @@ export type Slot = {
   alert: SlotAlert | null
   /** 60-second book delta. A cross appends a journal row and does not send an order. */
   deltaAlert: number | null
+  /** Up to three symbols. Changing the active one leaves the others subscribed. */
+  pins: MarketId[]
+  /** Levels copied onto this slot by Promote. */
+  armGate: ArmGate | null
 }
 
 export type Workspace = {
@@ -30,6 +43,12 @@ export type Workspace = {
   activeId: string
   pinnedId: string | null
   enlarged: boolean
+  /** Stamped onto journal rows and working tickets. */
+  riskMode: RiskMode
+  /** Null uses the weekend default. Stand-down blocks Arm. */
+  session: SessionLight | null
+  /** One open position per symbol and market. Flat is the absence of a row. */
+  positions: BookPosition[]
 }
 
 export function tapeKey(slot: Pick<Slot, "venue" | "timeframe" | "range" | "symbol">): string {
@@ -48,12 +67,14 @@ export function createSlot(symbol: MarketId, venue: Venue, timeframe: Timeframe,
     selectedId: run.id,
     alert: null,
     deltaAlert: null,
+    pins: [symbol],
+    armGate: null,
   }
 }
 
 export function defaultWorkspace(): Workspace {
   const slot = createSlot("BTCUSDT", "spot", "1d", "1Y")
-  return { slots: [slot], activeId: slot.id, pinnedId: null, enlarged: false }
+  return { slots: [slot], activeId: slot.id, pinnedId: null, enlarged: false, riskMode: "NORMAL", session: null, positions: [] }
 }
 
 export function visibleSlots(workspace: Workspace): Slot[] {
@@ -102,10 +123,12 @@ export function fromDesk(desk: DeskState): Workspace {
     selectedId: runs.some((run) => run.id === desk.selectedId) ? desk.selectedId : runs[0]!.id,
     alert: null,
     deltaAlert: null,
+    pins: [symbol as MarketId],
+    armGate: null,
   }))
   if (slots.length === 0) return defaultWorkspace()
   const active = slots.find((slot) => slot.runs.some((run) => run.id === desk.selectedId)) ?? slots[0]!
-  return { slots, activeId: active.id, pinnedId: null, enlarged: desk.enlarged }
+  return { slots, activeId: active.id, pinnedId: null, enlarged: desk.enlarged, riskMode: "NORMAL", session: null, positions: [] }
 }
 
 function sanitizeWorkspace(value: unknown): Workspace {
@@ -115,7 +138,15 @@ function sanitizeWorkspace(value: unknown): Workspace {
   if (slots.length === 0) return defaultWorkspace()
   const activeId = slots.some((slot) => slot.id === raw.activeId) ? String(raw.activeId) : slots[0]!.id
   const pinnedId = slots.some((slot) => slot.id === raw.pinnedId) ? String(raw.pinnedId) : null
-  return { slots, activeId, pinnedId, enlarged: Boolean(raw.enlarged) }
+  return {
+    slots,
+    activeId,
+    pinnedId,
+    enlarged: Boolean(raw.enlarged),
+    riskMode: asRiskMode(raw.riskMode),
+    session: isSessionLight(raw.session) ? raw.session : null,
+    positions: Array.isArray(raw.positions) ? raw.positions.map(asPosition).filter((item) => item != null) : [],
+  }
 }
 
 function sanitizeSlot(value: unknown): Slot | null {
@@ -150,6 +181,38 @@ function sanitizeSlot(value: unknown): Slot | null {
     selectedId,
     alert: asAlert(raw.alert),
     deltaAlert: asDeltaAlert(raw.deltaAlert),
+    pins: pinsOf({ symbol, pins: raw.pins }) as MarketId[],
+    armGate: asArm(raw.armGate, venue),
+  }
+}
+
+function asPosition(value: unknown): BookPosition | null {
+  if (!value || typeof value !== "object") return null
+  const raw = value as Partial<BookPosition>
+  const symbol = typeof raw.symbol === "string" && raw.symbol.endsWith("USDT") ? raw.symbol : ""
+  const side = raw.side === "long" || raw.side === "short" ? raw.side : null
+  const market = isVenue(raw.market) ? raw.market : null
+  if (!symbol || !side || !market || !(Number(raw.size) > 0) || !(Number(raw.entry) > 0) || typeof raw.tradeId !== "string" || !raw.tradeId) return null
+  return { symbol, market, side, size: Number(raw.size), entry: Number(raw.entry), tradeId: raw.tradeId }
+}
+
+function asArm(value: unknown, venue: Venue): ArmGate | null {
+  if (!value || typeof value !== "object") return null
+  const raw = value as Partial<ArmGate>
+  const symbol = typeof raw.symbol === "string" && raw.symbol.endsWith("USDT") ? raw.symbol : ""
+  const side = raw.side === "long" || raw.side === "short" ? raw.side : null
+  if (!symbol || !side || typeof raw.ticketId !== "string" || !(Number(raw.entry) > 0) || !(Number(raw.stop) > 0) || !(Number(raw.size) > 0) || !(Number(raw.r) > 0)) {
+    return null
+  }
+  return {
+    ticketId: raw.ticketId,
+    symbol,
+    market: isVenue(raw.market) ? raw.market : venue,
+    side,
+    entry: Number(raw.entry),
+    stop: Number(raw.stop),
+    size: Number(raw.size),
+    r: Number(raw.r),
   }
 }
 

@@ -114,6 +114,7 @@ def _blank_desk() -> dict:
         "strategies": [],
         "runs": [],
         "trades": [],
+        "tickets": [],
         "favourites": [],
         "panes": None,
     }
@@ -157,6 +158,7 @@ def clean_desk(raw: object) -> dict:
         "strategies": _record_list(raw, "strategies", 400),
         "runs": _record_list(raw, "runs", 400),
         "trades": _record_list(raw, "trades", 4000),
+        "tickets": _record_list(raw, "tickets", 400),
         "favourites": [item.strip() for item in favourites[:40] if item.strip()],
         "panes": panes,
     }

@@ -24,6 +24,7 @@ export type DeskBlob = {
   strategies: unknown
   runs: unknown
   trades: unknown
+  tickets: unknown
   favourites: unknown
   panes: unknown
 }
@@ -63,6 +64,7 @@ export async function captureDesk(): Promise<DeskBlob> {
     strategies: book.strategies,
     runs: book.runs,
     trades: book.trades,
+    tickets: book.tickets,
     favourites: readStored(FAVOURITES_KEY) ?? [],
     panes: readStored(PANES_KEY),
   }
@@ -75,6 +77,7 @@ export async function applyDesk(desk: DeskBlob): Promise<{ workspace: Workspace;
     strategies: desk.strategies,
     runs: desk.runs,
     trades: desk.trades,
+    tickets: desk.tickets,
     journal: desk.journal,
     kept: desk.kept,
     working: desk.working,

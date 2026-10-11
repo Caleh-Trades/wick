@@ -12,6 +12,7 @@ import {
   ruleParams,
   uniqueName,
 } from "./runs.ts"
+import { pinSymbol } from "./desk.ts"
 import type { ComboRule, MarketId, Run, RunParams, Venue } from "./types.ts"
 import type { Slot, Workspace } from "./workspace.ts"
 
@@ -52,8 +53,11 @@ function applyOne(workspace: Workspace, op: BotOp): Workspace {
 
 function focusSlot(workspace: Workspace, symbol: string | null): Workspace {
   const slot = symbol ? findSlot(workspace, symbol) : null
-  if (!slot || slot.id === workspace.activeId) return workspace
-  return { ...workspace, activeId: slot.id }
+  if (!slot) return workspace
+  const id = symbol ? asSymbol(symbol) : null
+  const next = id && slot.symbol !== id && slot.pins.includes(id) ? { ...slot, symbol: id } : slot
+  if (next === slot && slot.id === workspace.activeId) return workspace
+  return replaceSlot({ ...workspace, activeId: slot.id }, next)
 }
 
 function pinSlot(workspace: Workspace, symbol: string | null): Workspace {
@@ -74,7 +78,8 @@ function setSlot(workspace: Workspace, op: BotOp): Workspace {
     return workspace
   }
   const runs = current.runs.map((run) => alignRun(run, symbol, venue))
-  return replaceSlot(workspace, { ...current, symbol, venue, timeframe, range, runs })
+  const pinned = pinSymbol(current.pins, current.symbol, symbol)
+  return replaceSlot(workspace, { ...current, symbol: pinned.symbol, pins: pinned.pins, venue, timeframe, range, runs })
 }
 
 function patchRun(workspace: Workspace, op: BotOp): Workspace {
@@ -172,7 +177,7 @@ function activeSlot(workspace: Workspace): Slot | undefined {
 function findSlot(workspace: Workspace, symbol: string): Slot | undefined {
   const id = asSymbol(symbol)
   if (!id) return undefined
-  return workspace.slots.find((slot) => slot.symbol.toUpperCase() === id)
+  return workspace.slots.find((slot) => slot.symbol.toUpperCase() === id || slot.pins.some((pin) => pin.toUpperCase() === id))
 }
 
 function targetRun(slot: Slot, op: BotOp): Run | undefined {

@@ -8,12 +8,15 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { marketLabel, RISK_MODES, rowIsStale, SESSION_LIGHTS, type BookPosition, type RiskMode, type SessionLight } from "@/lib/desk"
 import { formatFactor, formatMoney, formatPct, formatPlainPct, formatPrice, formatSize, formatStamp } from "@/lib/format"
+import { marketSpec } from "@/lib/markets"
 import { alertEntries, removeAlert, watchAlerts, type JournalEntry } from "@/lib/journal"
 import {
   PAGE_SIZE,
   emptyPage,
   emptyQuery,
+  emptyTicketQuery,
   exportFiltered,
   exportFilteredCsv,
   exportRunFile,
@@ -25,17 +28,24 @@ import {
   removeStrategy,
   removeTrade,
   saveStrategy,
+  saveTicket,
+  searchTickets,
   searchTrades,
   setRunNote,
   setStrategyNote,
   watchBook,
   type KeptListRow,
   type StrategyRecord,
+  type TicketPage,
+  type TicketQuery,
   type TradePage,
   type TradeQuery,
   type TradeRecord,
   type TradeSide,
+  type WorkingTicket,
 } from "@/lib/records"
+import { liveMark } from "@/lib/book"
+import { useBookView } from "@/lib/use-book"
 import { RANGES, RULES, TIMEFRAMES, isRange, isTimeframe, normalizeRule, paramsForRule, ruleById, ruleName, ruleParams, strategyLabel, suggestedName } from "@/lib/runs"
 import type { RangeId, RuleId, RunParams, Timeframe, Venue } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -81,14 +91,26 @@ export function JournalPage({
   symbol,
   venue,
   draft,
+  riskMode,
+  session,
+  positions,
   onRestore,
   onOpenWorking,
+  onLogged,
+  onCloseTrade,
+  onPromote,
 }: {
   symbol: string
   venue: Venue
   draft: WorkingDraft | null
+  riskMode: RiskMode
+  session: SessionLight
+  positions: BookPosition[]
   onRestore: (ids: { strategyId: string; runId: string }) => void
   onOpenWorking: (strategyId: string) => void
+  onLogged: (trade: TradeRecord) => void
+  onCloseTrade: (trade: TradeRecord, price: number) => void
+  onPromote: (id: string) => void
 }) {
   const [tab, setTab] = useState<"trades" | "working">("trades")
 
@@ -121,22 +143,46 @@ export function JournalPage({
           <p className="mt-3 max-w-2xl text-sm text-muted-foreground">
             {tab === "trades"
               ? "Trades you log, and trades a bot logs. Newest first. A blank exit is still open. A backtest kept from the desk is not listed here. Filters apply to this table and to both exports."
-              : "Strategies you save, and runs you keep from the desk. Keeping a run does not add its fills to the trade log. Opening a row puts that setup on a slot."}
+              : "Working tickets, strategies you save, and runs you keep. A ticket fills into one journal row. Opening a kept run loads it from the strategy and the run."}
           </p>
         </div>
         {tab === "working" ? (
-          <WorkingPanel key={workingDraftKey(draft)} symbol={symbol} venue={venue} draft={draft} onOpen={onOpenWorking} onRestore={onRestore} />
+          <WorkingPanel
+            key={workingDraftKey(draft)}
+            symbol={symbol}
+            venue={venue}
+            draft={draft}
+            riskMode={riskMode}
+            session={session}
+            onOpen={onOpenWorking}
+            onRestore={onRestore}
+            onPromote={onPromote}
+          />
         ) : (
-          <TradesPanel symbol={symbol} venue={venue} />
+          <TradesPanel symbol={symbol} venue={venue} riskMode={riskMode} positions={positions} onLogged={onLogged} onCloseTrade={onCloseTrade} />
         )}
       </div>
     </div>
   )
 }
 
-function TradesPanel({ symbol, venue }: { symbol: string; venue: Venue }) {
-  const [query, setQuery] = useState<TradeQuery>(emptyQuery)
-  const [loadedQuery, setLoadedQuery] = useState<TradeQuery>(emptyQuery)
+function TradesPanel({
+  symbol,
+  venue,
+  riskMode,
+  positions,
+  onLogged,
+  onCloseTrade,
+}: {
+  symbol: string
+  venue: Venue
+  riskMode: RiskMode
+  positions: BookPosition[]
+  onLogged: (trade: TradeRecord) => void
+  onCloseTrade: (trade: TradeRecord, price: number) => void
+}) {
+  const [query, setQuery] = useState<TradeQuery>({ ...emptyQuery(), market: venue })
+  const [loadedQuery, setLoadedQuery] = useState<TradeQuery>({ ...emptyQuery(), market: venue })
   const [page, setPage] = useState<TradePage>(emptyPage)
   const [strategies, setStrategies] = useState<StrategyRecord[]>([])
   const [alerts, setAlerts] = useState(alertEntries)
@@ -146,11 +192,17 @@ function TradesPanel({ symbol, venue }: { symbol: string; venue: Venue }) {
   const [price, setPrice] = useState("")
   const [exitPrice, setExitPrice] = useState("")
   const [size, setSize] = useState("")
+  const [stop, setStop] = useState("")
+  const [reward, setReward] = useState("")
   const [note, setNote] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => setMarket(symbol), [symbol])
+  useEffect(() => {
+    setMarket(symbol)
+    if (venue === "spot") setSide("long")
+    setQuery((current) => ({ ...current, market: venue, page: 0 }))
+  }, [symbol, venue])
 
   useEffect(() => {
     let cancel = false
@@ -197,27 +249,46 @@ function TradesPanel({ symbol, venue }: { symbol: string; venue: Venue }) {
         return
       }
     }
+    const stopRaw = stop.trim() ? Number(stop) : null
+    const rewardRaw = reward.trim() ? Number(reward) : null
+    if (stopRaw != null && !(stopRaw > 0)) {
+      setError("Stop has to be above zero, or leave it blank.")
+      return
+    }
+    if (rewardRaw != null && !(rewardRaw > 0)) {
+      setError("R has to be above zero, or leave it blank.")
+      return
+    }
     const logged = await logBookTrade({
       symbol: market,
-      side,
+      side: venue === "spot" ? "long" : side,
       entryPrice: Number(price),
       size: Number(size),
       venue,
+      market: venue,
       strategyName: strategy === "none" ? "" : ruleName(strategy),
       rule: strategy === "none" ? "" : strategy,
       exitPrice: exit,
       note,
+      stop: stopRaw,
+      r: rewardRaw,
+      riskMode,
       source: "desk",
     })
     if (!logged) {
       setError("A trade needs a symbol, an entry price, and a size.")
       return
     }
+    onLogged(logged)
     setError(null)
     setExitPrice("")
     setSize("")
+    setStop("")
+    setReward("")
     setNote("")
   }
+
+  const tick = marketSpec(market, venue)?.tickSize
 
   const names = new Map(strategies.map((row) => [row.id, row.name]))
   const fromRow = page.total === 0 ? 0 : loadedQuery.page * PAGE_SIZE + 1
@@ -285,6 +356,22 @@ function TradesPanel({ symbol, venue }: { symbol: string; venue: Venue }) {
           <Input id="filter-to" type="date" value={query.to} onChange={(event) => patch({ to: event.target.value })} />
         </div>
         <div className="flex flex-col gap-1">
+          <Label htmlFor="filter-risk">Risk</Label>
+          <Select value={query.riskMode || "all"} onValueChange={(value) => patch({ riskMode: value === "DEFENSIVE" || value === "NORMAL" || value === "PRESS" ? value : "" })}>
+            <SelectTrigger id="filter-risk" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Any risk</SelectItem>
+              {RISK_MODES.map((mode) => (
+                <SelectItem key={mode} value={mode}>
+                  {mode}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex flex-col gap-1">
           <Label htmlFor="filter-state">Open or closed</Label>
           <Select value={query.state || "all"} onValueChange={(value) => patch({ state: value === "open" || value === "closed" ? value : "" })}>
             <SelectTrigger id="filter-state" className="w-full">
@@ -324,7 +411,7 @@ function TradesPanel({ symbol, venue }: { symbol: string; venue: Venue }) {
       ) : page.rows.length === 0 ? (
         <p className="bezel px-4 py-8 text-sm text-muted-foreground">No trades match. Log one below, or let a bot send it with log-trade.</p>
       ) : (
-        <div className="bezel overflow-hidden">
+        <div className="bezel overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -332,7 +419,10 @@ function TradesPanel({ symbol, venue }: { symbol: string; venue: Venue }) {
                 <TableHead>Symbol</TableHead>
                 <TableHead>Side</TableHead>
                 <TableHead>Strategy</TableHead>
+                <TableHead>Risk</TableHead>
                 <TableHead className="text-right">Entry</TableHead>
+                <TableHead className="text-right">Stop</TableHead>
+                <TableHead className="text-right">R</TableHead>
                 <TableHead className="text-right">Exit</TableHead>
                 <TableHead className="text-right">Size</TableHead>
                 <TableHead className="text-right">Return</TableHead>
@@ -343,7 +433,13 @@ function TradesPanel({ symbol, venue }: { symbol: string; venue: Venue }) {
             </TableHeader>
             <TableBody>
               {page.rows.map((trade) => (
-                <TradeTableRow key={trade.id} trade={trade} strategyName={names.get(trade.strategyId) ?? ""} />
+                <TradeTableRow
+                  key={trade.id}
+                  trade={trade}
+                  strategyName={names.get(trade.strategyId) ?? ""}
+                  stale={rowIsStale(trade, positions)}
+                  onClose={onCloseTrade}
+                />
               ))}
             </TableBody>
           </Table>
@@ -359,7 +455,7 @@ function TradesPanel({ symbol, venue }: { symbol: string; venue: Venue }) {
         }}
       >
         <p className="font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
-          Log a trade · {venue === "perp" ? "Kraken perp" : "Binance spot"}
+          Log a trade · {marketLabel(venue)} · {riskMode}
         </p>
         <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <div className="flex flex-col gap-1">
@@ -377,6 +473,7 @@ function TradesPanel({ symbol, venue }: { symbol: string; venue: Venue }) {
                   variant={side === item ? "default" : "outline"}
                   className="normal-case tracking-normal"
                   aria-pressed={side === item}
+                  disabled={item === "short" && venue === "spot"}
                   onClick={() => setSide(item)}
                 >
                   {item === "long" ? "Long" : "Short"}
@@ -401,12 +498,20 @@ function TradesPanel({ symbol, venue }: { symbol: string; venue: Venue }) {
             </Select>
           </div>
           <div className="flex flex-col gap-1">
-            <Label htmlFor="journal-price">Entry</Label>
-            <Input id="journal-price" inputMode="decimal" value={price} onChange={(event) => setPrice(event.target.value)} />
+            <Label htmlFor="journal-price">Entry{tick ? ` · tick ${tick}` : ""}</Label>
+            <Input id="journal-price" inputMode="decimal" step={tick || "any"} value={price} onChange={(event) => setPrice(event.target.value)} />
           </div>
           <div className="flex flex-col gap-1">
-            <Label htmlFor="journal-exit">Exit</Label>
-            <Input id="journal-exit" inputMode="decimal" value={exitPrice} placeholder="Open" onChange={(event) => setExitPrice(event.target.value)} />
+            <Label htmlFor="journal-exit">Exit{tick ? ` · tick ${tick}` : ""}</Label>
+            <Input id="journal-exit" inputMode="decimal" step={tick || "any"} value={exitPrice} placeholder="Open" onChange={(event) => setExitPrice(event.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="journal-stop">Stop</Label>
+            <Input id="journal-stop" inputMode="decimal" step={tick || "any"} value={stop} placeholder="Optional" onChange={(event) => setStop(event.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="journal-r">R</Label>
+            <Input id="journal-r" inputMode="decimal" value={reward} placeholder="Optional" onChange={(event) => setReward(event.target.value)} />
           </div>
           <div className="flex flex-col gap-1">
             <Label htmlFor="journal-size">Size</Label>
@@ -437,9 +542,22 @@ function TradesPanel({ symbol, venue }: { symbol: string; venue: Venue }) {
   )
 }
 
-function TradeTableRow({ trade, strategyName }: { trade: TradeRecord; strategyName: string }) {
+function TradeTableRow({
+  trade,
+  strategyName,
+  stale,
+  onClose,
+}: {
+  trade: TradeRecord
+  strategyName: string
+  stale: boolean
+  onClose: (trade: TradeRecord, price: number) => void
+}) {
   const base = trade.symbol.replace(/USDT$/, "")
   const open = trade.exitTime == null
+  const book = useBookView(trade.symbol, trade.market)
+  const last = liveMark(book)?.price ?? null
+  const tick = marketSpec(trade.symbol, trade.market)?.tickSize
   return (
     <TableRow>
       <TableCell className="font-mono text-xs whitespace-nowrap text-muted-foreground">{formatStamp(trade.entryTime, "1m")}</TableCell>
@@ -448,8 +566,14 @@ function TradeTableRow({ trade, strategyName }: { trade: TradeRecord; strategyNa
         <Badge variant={trade.side === "long" ? "default" : "secondary"}>{trade.side === "long" ? "Long" : "Short"}</Badge>
       </TableCell>
       <TableCell className="max-w-40 truncate">{strategyName}</TableCell>
-      <TableCell className="text-right font-mono text-xs tabular-nums">{formatPrice(trade.entryPrice)}</TableCell>
-      <TableCell className="text-right font-mono text-xs tabular-nums">{open || trade.exitPrice == null ? "Open" : formatPrice(trade.exitPrice)}</TableCell>
+      <TableCell className="font-mono text-[10px] tracking-wide uppercase">
+        {trade.riskMode}
+        {stale ? " · stale" : ""}
+      </TableCell>
+      <TableCell className="text-right font-mono text-xs tabular-nums">{formatPrice(trade.entryPrice, tick)}</TableCell>
+      <TableCell className="text-right font-mono text-xs tabular-nums">{trade.stop == null ? "—" : formatPrice(trade.stop, tick)}</TableCell>
+      <TableCell className="text-right font-mono text-xs tabular-nums">{trade.r == null ? "—" : trade.r}</TableCell>
+      <TableCell className="text-right font-mono text-xs tabular-nums">{open || trade.exitPrice == null ? "Open" : formatPrice(trade.exitPrice, tick)}</TableCell>
       <TableCell className="text-right font-mono text-xs tabular-nums">{formatSize(trade.size)}</TableCell>
       <TableCell className={cn("text-right font-mono text-xs tabular-nums", trade.returnPct != null && moneyTone(trade.returnPct) === "up" && "text-up", trade.returnPct != null && moneyTone(trade.returnPct) === "down" && "text-down")}>
         {open ? "—" : formatPlainPct(trade.returnPct, 1)}
@@ -459,9 +583,16 @@ function TradeTableRow({ trade, strategyName }: { trade: TradeRecord; strategyNa
       </TableCell>
       <TableCell className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">{trade.source}</TableCell>
       <TableCell>
-        <Button type="button" variant="ghost" size="icon-xs" aria-label={`Remove ${base} ${trade.side}`} onClick={() => void removeTrade(trade.id)}>
-          <Trash2 />
-        </Button>
+        <div className="flex items-center gap-1">
+          {open && last != null ? (
+            <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={() => onClose(trade, last)}>
+              Close
+            </Button>
+          ) : null}
+          <Button type="button" variant="ghost" size="icon-xs" aria-label={`Remove ${base} ${trade.side}`} onClick={() => void removeTrade(trade.id)}>
+            <Trash2 />
+          </Button>
+        </div>
       </TableCell>
     </TableRow>
   )
@@ -471,14 +602,20 @@ function WorkingPanel({
   symbol,
   venue,
   draft,
+  riskMode,
+  session,
   onOpen,
   onRestore,
+  onPromote,
 }: {
   symbol: string
   venue: Venue
   draft: WorkingDraft | null
+  riskMode: RiskMode
+  session: SessionLight
   onOpen: (strategyId: string) => void
   onRestore: (ids: { strategyId: string; runId: string }) => void
+  onPromote: (id: string) => void
 }) {
   const [rows, setRows] = useState<StrategyRecord[]>([])
   const [kept, setKept] = useState<KeptListRow[]>([])
@@ -500,6 +637,15 @@ function WorkingPanel({
   const [note, setNote] = useState("")
   const [openNote, setOpenNote] = useState("")
   const [error, setError] = useState<string | null>(null)
+  const [ticketQuery, setTicketQuery] = useState<TicketQuery>(emptyTicketQuery)
+  const [ticketPage, setTicketPage] = useState<TicketPage>({ rows: [], total: 0 })
+  const [ticketSymbol, setTicketSymbol] = useState(symbol)
+  const [ticketSide, setTicketSide] = useState<TradeSide>(venue === "perp" ? "long" : "long")
+  const [ticketStrategy, setTicketStrategy] = useState(draft?.name ?? "Discretionary")
+  const [ticketEntry, setTicketEntry] = useState("")
+  const [ticketStop, setTicketStop] = useState("")
+  const [ticketSize, setTicketSize] = useState("")
+  const [ticketR, setTicketR] = useState("")
   const spec = ruleById(rule)
 
   useEffect(() => {
@@ -519,6 +665,55 @@ function WorkingPanel({
       stop()
     }
   }, [])
+
+  useEffect(() => {
+    setTicketSymbol(symbol)
+    if (venue === "spot") setTicketSide("long")
+  }, [symbol, venue])
+
+  useEffect(() => {
+    let cancel = false
+    void searchTickets(ticketQuery).then((next) => {
+      if (!cancel) setTicketPage(next)
+    })
+    const stop = watchBook(() => {
+      void searchTickets(ticketQuery).then((next) => {
+        if (!cancel) setTicketPage(next)
+      })
+    })
+    return () => {
+      cancel = true
+      stop()
+    }
+  }, [ticketQuery])
+
+  function patchTickets(partial: Partial<TicketQuery>, resetPage = true) {
+    setTicketQuery((current) => ({ ...current, ...partial, page: resetPage ? 0 : (partial.page ?? current.page) }))
+  }
+
+  async function writeTicket() {
+    const saved = await saveTicket({
+      symbol: ticketSymbol,
+      market: venue,
+      side: venue === "spot" ? "long" : ticketSide,
+      strategy: ticketStrategy,
+      entry: Number(ticketEntry),
+      stop: Number(ticketStop),
+      size: Number(ticketSize),
+      r: Number(ticketR),
+      riskMode,
+      session,
+    })
+    if (!saved) {
+      setError("A ticket needs a symbol, a strategy, an entry, a stop, a size, and R.")
+      return
+    }
+    setError(null)
+    setTicketEntry("")
+    setTicketStop("")
+    setTicketSize("")
+    setTicketR("")
+  }
 
   function chooseRule(next: string) {
     const picked = normalizeRule(next)
@@ -582,8 +777,86 @@ function WorkingPanel({
     setOpenNote("")
   }
 
+  const ticketLast = Math.max(0, Math.ceil(ticketPage.total / PAGE_SIZE) - 1)
+  const ticketTick = marketSpec(ticketSymbol, venue)?.tickSize
+
   return (
     <>
+      <TicketFilters query={ticketQuery} total={ticketPage.total} lastPage={ticketLast} onPatch={patchTickets} />
+      <form
+        className="bezel p-3"
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault()
+          void writeTicket()
+        }}
+      >
+        <p className="font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
+          Working ticket · {marketLabel(venue)} · {riskMode} · {session}
+        </p>
+        <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="ticket-symbol">Symbol</Label>
+            <Input id="ticket-symbol" value={ticketSymbol} maxLength={20} onChange={(event) => setTicketSymbol(event.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Side</span>
+            <div className="flex gap-1" role="group" aria-label="Ticket side">
+              {(["long", "short"] as const).map((item) => (
+                <Button
+                  key={item}
+                  type="button"
+                  size="xs"
+                  variant={ticketSide === item ? "default" : "outline"}
+                  className="normal-case tracking-normal"
+                  aria-pressed={ticketSide === item}
+                  disabled={item === "short" && venue === "spot"}
+                  onClick={() => setTicketSide(item)}
+                >
+                  {item === "long" ? "Long" : "Short"}
+                </Button>
+              ))}
+            </div>
+          </div>
+          <div className="col-span-2 flex flex-col gap-1">
+            <Label htmlFor="ticket-strategy">Strategy</Label>
+            <Input id="ticket-strategy" value={ticketStrategy} maxLength={48} onChange={(event) => setTicketStrategy(event.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="ticket-entry">Entry{ticketTick ? ` · tick ${ticketTick}` : ""}</Label>
+            <Input id="ticket-entry" inputMode="decimal" step={ticketTick || "any"} value={ticketEntry} onChange={(event) => setTicketEntry(event.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="ticket-stop">Stop</Label>
+            <Input id="ticket-stop" inputMode="decimal" step={ticketTick || "any"} value={ticketStop} onChange={(event) => setTicketStop(event.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="ticket-size">Size</Label>
+            <Input id="ticket-size" inputMode="decimal" value={ticketSize} onChange={(event) => setTicketSize(event.target.value)} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="ticket-r">R</Label>
+            <Input id="ticket-r" inputMode="decimal" value={ticketR} onChange={(event) => setTicketR(event.target.value)} />
+          </div>
+        </div>
+        <div className="mt-3">
+          <Button type="submit">Save ticket</Button>
+        </div>
+      </form>
+      <section aria-label="Working tickets">
+        <p className="font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
+          {ticketPage.total} {ticketPage.total === 1 ? "ticket" : "tickets"}
+        </p>
+        {ticketPage.rows.length === 0 ? (
+          <p className="mt-2 text-sm text-muted-foreground">No tickets match. Save one above. A fill writes one journal row. Entry becomes the fill price.</p>
+        ) : (
+          <ul className="mt-2 flex flex-col gap-2">
+            {ticketPage.rows.map((ticket) => (
+              <TicketRow key={ticket.id} ticket={ticket} onPromote={onPromote} />
+            ))}
+          </ul>
+        )}
+      </section>
       {draft ? (
         <form
           className="bezel p-3"
@@ -913,6 +1186,25 @@ function KeptRow({ row, onRestore }: { row: KeptListRow; onRestore: (ids: { stra
             {formatPct(row.run.metrics.total_return_pct)}
           </span>
         </button>
+        {row.run.sample ? (
+          <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+            In sample {formatPct(row.run.sample.inSample.total_return_pct)}
+            {" · "}
+            Holdout {formatPct(row.run.sample.holdout.total_return_pct)}
+            {row.run.sample.windows.map((window, index) => ` · W${index + 1} ${formatPct(window.total_return_pct)}`)}
+          </p>
+        ) : null}
+        {row.run.costs ? (
+          <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+            Before fees {formatPct(row.run.costs.beforeFees)}
+            {" · "}
+            Fees {formatMoney(row.run.costs.fees, 2)}
+            {" · "}
+            Slippage {formatMoney(row.run.costs.slippage, 2)}
+            {" · "}
+            After costs {formatPct(row.run.costs.afterCosts)}
+          </p>
+        ) : null}
         <GrowingNote
           label={`Note for ${row.strategy.name}`}
           value={row.run.note}
@@ -932,6 +1224,114 @@ function KeptRow({ row, onRestore }: { row: KeptListRow; onRestore: (ids: { stra
           <Trash2 />
         </Button>
       </div>
+    </li>
+  )
+}
+
+function TicketFilters({
+  query,
+  total,
+  lastPage,
+  onPatch,
+}: {
+  query: TicketQuery
+  total: number
+  lastPage: number
+  onPatch: (partial: Partial<TicketQuery>, resetPage?: boolean) => void
+}) {
+  return (
+    <form className="bezel grid grid-cols-2 gap-3 p-3 lg:grid-cols-5" aria-label="Working filters" onSubmit={(event) => event.preventDefault()}>
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="ticket-filter-symbol">Symbol</Label>
+        <Input id="ticket-filter-symbol" value={query.symbol} maxLength={20} onChange={(event) => onPatch({ symbol: event.target.value })} />
+      </div>
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="ticket-filter-strategy">Strategy</Label>
+        <Input id="ticket-filter-strategy" value={query.strategy} maxLength={48} onChange={(event) => onPatch({ strategy: event.target.value })} />
+      </div>
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="ticket-filter-side">Side</Label>
+        <Select value={query.side || "all"} onValueChange={(value) => onPatch({ side: value === "long" || value === "short" ? value : "" })}>
+          <SelectTrigger id="ticket-filter-side" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Both</SelectItem>
+            <SelectItem value="long">Long</SelectItem>
+            <SelectItem value="short">Short</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="ticket-filter-risk">Risk</Label>
+        <Select value={query.riskMode || "all"} onValueChange={(value) => onPatch({ riskMode: value === "DEFENSIVE" || value === "NORMAL" || value === "PRESS" ? value : "" })}>
+          <SelectTrigger id="ticket-filter-risk" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Any risk</SelectItem>
+            {RISK_MODES.map((mode) => (
+              <SelectItem key={mode} value={mode}>
+                {mode}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="ticket-filter-session">Session</Label>
+        <Select value={query.session || "all"} onValueChange={(value) => onPatch({ session: value === "open" || value === "closed" || value === "stand-down" ? value : "" })}>
+          <SelectTrigger id="ticket-filter-session" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Any session</SelectItem>
+            {SESSION_LIGHTS.map((light) => (
+              <SelectItem key={light} value={light}>
+                {light}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="col-span-2 flex items-center gap-2 lg:col-span-5">
+        <p className="font-mono text-[11px] text-muted-foreground tabular-nums">{total} match{total === 1 ? "" : "es"}</p>
+        <div className="ml-auto flex gap-1">
+          <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" disabled={query.page <= 0} onClick={() => onPatch({ page: query.page - 1 }, false)}>
+            Previous
+          </Button>
+          <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" disabled={query.page >= lastPage} onClick={() => onPatch({ page: query.page + 1 }, false)}>
+            Next
+          </Button>
+        </div>
+      </div>
+    </form>
+  )
+}
+
+function TicketRow({ ticket, onPromote }: { ticket: WorkingTicket; onPromote: (id: string) => void }) {
+  const base = ticket.symbol.replace(/USDT$/, "")
+  const tick = marketSpec(ticket.symbol, ticket.market)?.tickSize
+  return (
+    <li className="bezel flex items-start justify-between gap-3 px-3 py-2">
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <span className="text-sm">{ticket.strategy}</span>
+          <span className="text-sm text-muted-foreground">{base}</span>
+          <Badge variant={ticket.side === "long" ? "default" : "secondary"}>{ticket.side === "long" ? "Long" : "Short"}</Badge>
+          <span className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">{ticket.riskMode}</span>
+          <span className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">{ticket.session}</span>
+          <span className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">{marketLabel(ticket.market)}</span>
+          {ticket.armed ? <span className="font-mono text-[10px] tracking-wide uppercase">Armed</span> : null}
+        </div>
+        <p className="mt-1 font-mono text-[11px] text-muted-foreground tabular-nums">
+          Entry {formatPrice(ticket.entry, tick)} · Stop {formatPrice(ticket.stop, tick)} · Size {formatSize(ticket.size)} · R {ticket.r}
+          {ticket.filledAt ? " · Filled" : ""}
+        </p>
+      </div>
+      <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={() => onPromote(ticket.id)}>
+        Promote
+      </Button>
     </li>
   )
 }

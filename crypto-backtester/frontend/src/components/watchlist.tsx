@@ -1,4 +1,5 @@
 import { formatPrice } from "@/lib/format"
+import { pinsOf, positionFor, slotUnsynced, type BookPosition } from "@/lib/desk"
 import { useFavourites } from "@/lib/favourites"
 import { SLOTS_MAX, SLOTS_MIN, clampSlots } from "@/lib/panes"
 import { marketById } from "@/lib/runs"
@@ -16,6 +17,10 @@ export function Watchlist({
   onWidth,
   onFocus,
   onOpen,
+  onSymbol,
+  onFlat,
+  positions,
+  openTrades,
 }: {
   slots: Slot[]
   activeId: string
@@ -23,6 +28,10 @@ export function Watchlist({
   onWidth: (width: number) => void
   onFocus: (id: string) => void
   onOpen: (symbol: MarketId, venue: Venue) => void
+  onSymbol: (id: string, symbol: MarketId) => void
+  onFlat: (symbol: string, venue: Venue, price: number) => void
+  positions: BookPosition[]
+  openTrades: { id: string; exitTime: string | null }[]
 }) {
   const favourites = useFavourites()
   const covered = new Set(slots.map((slot) => slot.symbol))
@@ -45,13 +54,24 @@ export function Watchlist({
       <ul className="flex min-h-0 flex-1 lg:block lg:overflow-y-auto">
         {slots.map((slot) => (
           <li key={slot.id} className="shrink-0 lg:shrink">
-            <QuoteRow
-              symbol={slot.symbol}
-              venue={slot.venue}
-              active={slot.id === activeId}
-              label={slot.venue === "perp" ? "Perp" : "Spot"}
-              onClick={() => onFocus(slot.id)}
-            />
+            <div className={cn("px-2 py-1.5", slot.id === activeId && "bg-[#f6e4d2]")}>
+              {pinsOf(slot).map((symbol) => (
+                <QuoteRow
+                  key={symbol}
+                  symbol={symbol}
+                  venue={slot.venue}
+                  active={symbol === slot.symbol}
+                  label={slot.venue === "perp" ? "Perp" : "Spot"}
+                  unsynced={slotUnsynced(symbol, slot.venue, positions, openTrades)}
+                  positioned={positionFor(positions, symbol, slot.venue) != null}
+                  onClick={() => {
+                    onFocus(slot.id)
+                    onSymbol(slot.id, symbol)
+                  }}
+                  onFlat={(price) => onFlat(symbol, slot.venue, price)}
+                />
+              ))}
+            </div>
           </li>
         ))}
         {extra.length > 0 ? (
@@ -59,13 +79,18 @@ export function Watchlist({
         ) : null}
         {extra.map((id) => (
           <li key={id} className="shrink-0 lg:shrink">
-            <QuoteRow
-              symbol={id as MarketId}
-              venue="spot"
-              active={false}
-              label="Spot"
-              onClick={() => onOpen(id as MarketId, "spot")}
-            />
+            <div className="px-2 py-1.5">
+              <QuoteRow
+                symbol={id as MarketId}
+                venue="spot"
+                active={false}
+                label="Spot"
+                unsynced={false}
+                positioned={false}
+                onClick={() => onOpen(id as MarketId, "spot")}
+                onFlat={() => undefined}
+              />
+            </div>
           </li>
         ))}
       </ul>
@@ -93,13 +118,19 @@ function QuoteRow({
   venue,
   active,
   label,
+  unsynced,
+  positioned,
   onClick,
+  onFlat,
 }: {
   symbol: MarketId
   venue: Venue
   active: boolean
   label: string
+  unsynced: boolean
+  positioned: boolean
   onClick: () => void
+  onFlat: (price: number) => void
 }) {
   const book = useBookView(symbol, venue)
   const market = marketById(symbol, venue)
@@ -108,23 +139,29 @@ function QuoteRow({
   const stale = book.status === "stale" && price != null
   const change = book.changePct
   return (
-    <button
-      type="button"
-      className={cn("flex w-full min-w-0 flex-col gap-0.5 overflow-hidden px-2 py-1.5 text-left", active && "bg-[#f6e4d2]")}
-      onClick={onClick}
-    >
+    <div className="flex w-full min-w-0 flex-col gap-0.5 overflow-hidden text-left">
       <span className="flex min-w-0 items-baseline justify-between gap-2">
-        <span className="min-w-0 truncate font-mono text-xs">{market?.base ?? symbol.replace(/USDT$/, "")}</span>
-        <span className="shrink-0 font-mono text-[10px] text-muted-foreground uppercase">{label}</span>
+        <button type="button" className={cn("min-w-0 truncate text-left font-mono text-xs", active && "text-foreground")} onClick={onClick}>
+          {market?.base ?? symbol.replace(/USDT$/, "")}
+        </button>
+        <span className="shrink-0 font-mono text-[10px] text-muted-foreground uppercase">
+          {label}
+          {unsynced ? " · unsynced" : ""}
+        </span>
       </span>
       <span className="flex min-w-0 items-baseline justify-between gap-2 font-mono text-[11px] tabular-nums">
         <span className="min-w-0 truncate">{price == null ? "—" : formatPrice(price, tick)}</span>
         <span className={cn("shrink-0", change == null ? "text-muted-foreground" : change > 0 ? "text-up" : change < 0 ? "text-down" : "text-muted-foreground")}>
           {change == null ? "—" : `${change > 0 ? "+" : ""}${change.toFixed(2)}%`}
           {stale ? " · stale" : ""}
+          {positioned && price != null ? (
+            <button type="button" className="ml-1 uppercase" onClick={() => onFlat(price)}>
+              Flat
+            </button>
+          ) : null}
         </span>
       </span>
-    </button>
+    </div>
   )
 }
 

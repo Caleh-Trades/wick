@@ -25,16 +25,25 @@ import { JournalPage } from "@/components/journal"
 import {
   downloadBacktestCsv,
   downloadLiveRun,
+  closeJournalTrade,
   downloadText,
+  emptyQuery,
   exportRunFile,
+  fillWorkingTicket,
   findRun,
   getRun,
   getStrategy,
   keepDeskRun,
+  liveTicket,
   logTradeOp,
+  matchingTrades,
+  promoteWorkingTicket,
   tradesCsv,
   tradesForRun,
+  watchBook,
   type StrategyRecord,
+  type TradeRecord,
+  type WorkingTicket,
 } from "@/lib/records"
 import { computeBacktest } from "@/lib/compute"
 import { ruleReading } from "@/lib/signals"
@@ -55,7 +64,8 @@ import {
   suggestedName,
   uniqueName,
 } from "@/lib/runs"
-import { holdBook } from "@/lib/use-book"
+import { dropPosition, nextSession, pinSymbol, pinsOf, resolveSession, ticketFills, upsertPosition, type ArmGate } from "@/lib/desk"
+import { holdBook, useBookView } from "@/lib/use-book"
 import {
   MAX_SLOTS,
   createSlot,
@@ -119,11 +129,23 @@ export default function App() {
 
   const account = useAccountSync(workspace, panes, setWorkspace, setPanes)
 
-  const held = workspace.slots.map((slot) => `${slot.venue}:${slot.symbol}`).join("|")
+  const held = workspace.slots
+    .map((slot) => `${slot.venue}:${pinsOf(slot).slice().sort().join(",")}`)
+    .join("|")
+  const bookHolds = useRef(new Map<string, () => void>())
   useEffect(() => {
-    const release = workspaceRef.current.slots.map((slot) => holdBook(slot.symbol, slot.venue, true))
-    return () => {
-      for (const stop of release) stop()
+    const wanted = new Set<string>()
+    for (const slot of workspaceRef.current.slots) {
+      for (const symbol of pinsOf(slot)) {
+        const key = `${slot.venue}:${symbol}`
+        wanted.add(key)
+        if (!bookHolds.current.has(key)) bookHolds.current.set(key, holdBook(symbol, slot.venue, true))
+      }
+    }
+    for (const [key, release] of bookHolds.current) {
+      if (wanted.has(key)) continue
+      release()
+      bookHolds.current.delete(key)
     }
   }, [held])
 
@@ -372,7 +394,8 @@ export default function App() {
       slots: current.slots.map((slot) => {
         if (slot.id !== active.id) return slot
         const runs = slot.runs.map((run) => (run.id === next.id ? { ...patched, symbol } : { ...run, symbol }))
-        return { ...slot, symbol, runs }
+        const pinned = pinSymbol(slot.pins, slot.symbol, symbol)
+        return { ...slot, symbol: pinned.symbol, pins: pinned.pins, runs }
       }),
     }))
     if (!prev) return
@@ -603,6 +626,17 @@ export default function App() {
       note,
       trades: outcome.trades,
       metrics: keptMetrics(outcome.metrics),
+      sample: {
+        inSample: outcome.in_sample,
+        holdout: outcome.holdout,
+        windows: outcome.walk_forward.slice(0, 3),
+      },
+      costs: {
+        beforeFees: outcome.metrics.return_before_fees_pct,
+        fees: outcome.metrics.fees_paid,
+        slippage: outcome.trades.reduce((sum, trade) => sum + (trade.slippage_paid ?? 0), 0),
+        afterCosts: outcome.metrics.total_return_pct,
+      },
     })
     setPage("journal")
   }
@@ -715,7 +749,68 @@ export default function App() {
     return ruleReading(normalizeRule(selected.rule), activeTape.candles, selected.params, focusTrade.entry_time)
   }, [activeTape, focusTrade, selected])
   const error = active ? errors[active.id] : null
+  function rememberPosition(trade: TradeRecord) {
+    if (trade.exitTime != null) return
+    setWorkspace((current) => ({
+      ...current,
+      positions: upsertPosition(current.positions, {
+        symbol: trade.symbol,
+        market: trade.market,
+        side: trade.side,
+        size: trade.size,
+        entry: trade.entryPrice,
+        tradeId: trade.id,
+      }),
+    }))
+  }
+
+  function forgetPosition(tradeId: string) {
+    setWorkspace((current) => ({ ...current, positions: dropPosition(current.positions, tradeId) }))
+  }
+
+  async function flatTrade(trade: TradeRecord, price: number) {
+    if (price > 0) await closeJournalTrade(trade.id, price)
+    forgetPosition(trade.id)
+  }
+
+  async function flatMarket(symbol: string, market: Venue, price: number) {
+    const position = workspaceRef.current.positions.find((item) => item.symbol === symbol && item.market === market)
+    if (!position) return
+    if (price > 0) await closeJournalTrade(position.tradeId, price)
+    forgetPosition(position.tradeId)
+  }
+
+  async function promoteTicket(id: string) {
+    const promoted = await promoteWorkingTicket(id)
+    if (!promoted) return
+    const gate: ArmGate = {
+      ticketId: promoted.ticket.id,
+      symbol: promoted.ticket.symbol,
+      market: promoted.ticket.market,
+      side: promoted.ticket.side,
+      entry: promoted.ticket.entry,
+      stop: promoted.ticket.stop,
+      size: promoted.ticket.size,
+      r: promoted.ticket.r,
+    }
+    setWorkspace((current) => ({
+      ...current,
+      slots: current.slots.map((slot) =>
+        slot.venue === gate.market && pinsOf(slot).includes(gate.symbol) ? { ...slot, armGate: gate } : slot,
+      ),
+    }))
+    if (promoted.trade.exitTime == null) rememberPosition(promoted.trade)
+  }
+
+  async function fillTicket(ticket: WorkingTicket, price: number) {
+    const filled = await fillWorkingTicket(ticket.id, price)
+    if (!filled || filled.trade.exitTime != null) return
+    rememberPosition(filled.trade)
+  }
+
   const phrase = phraseFor(active?.timeframe ?? "1d")
+  const session = resolveSession(workspace.session)
+  const openTrades = useOpenJournal()
   const workingDraft =
     active && selected
       ? {
@@ -738,6 +833,10 @@ export default function App() {
 
   return (
     <div className="desk-shell flex min-h-svh flex-col lg:h-svh lg:min-h-0">
+      {pinKeys(workspace).map((key) => {
+        const [venue, symbol] = key.split(":") as [Venue, string]
+        return <PinFill key={key} symbol={symbol} venue={venue} onFill={(ticket, price) => void fillTicket(ticket, price)} />
+      })}
       {active && selected ? (
         <DeskBar
           symbol={active.symbol}
@@ -748,7 +847,9 @@ export default function App() {
           loading={!activeTape && !error}
           stale={stale}
           lastFetchAt={clocks[active.id] ?? null}
-          onSymbol={(symbol) => openSymbol(symbol, active.venue)}
+          session={session}
+          onSession={() => setWorkspace((current) => ({ ...current, session: nextSession(resolveSession(current.session)) }))}
+          onSymbol={(symbol) => patchSlot(active.id, { symbol })}
           onTimeframe={(timeframe) => patchSlot(active.id, { timeframe })}
           onVenue={(venue) => patchSlot(active.id, { venue })}
           page={page}
@@ -771,8 +872,16 @@ export default function App() {
           symbol={active?.symbol ?? "BTCUSDT"}
           venue={active?.venue ?? "spot"}
           draft={workingDraft}
+          riskMode={workspace.riskMode}
+          session={session}
+          positions={workspace.positions}
           onRestore={restoreKept}
           onOpenWorking={restoreWorking}
+          onLogged={(trade) => {
+            if (trade.exitTime == null) rememberPosition(trade)
+          }}
+          onCloseTrade={(trade, price) => void flatTrade(trade, price)}
+          onPromote={(id) => void promoteTicket(id)}
         />
       ) : page === "windows" ? (
         <WindowsPage result={result} runName={selected?.name ?? "Run"} symbol={active?.symbol ?? ""} venue={active?.venue ?? "spot"} />
@@ -786,6 +895,9 @@ export default function App() {
         onPin={pinSlot}
         onClose={closeSlot}
         onAdd={addSlot}
+        onSymbol={(id, symbol) => patchSlot(id, { symbol })}
+        positions={workspace.positions}
+        openTrades={openTrades}
       />
       <div className="desk-stack flex flex-col lg:min-h-0 lg:flex-1 lg:flex-row">
         <Watchlist
@@ -795,6 +907,10 @@ export default function App() {
           onWidth={(slots) => setPanes((current) => ({ ...current, slots }))}
           onFocus={focusSlot}
           onOpen={openSymbol}
+          onSymbol={(id, symbol) => patchSlot(id, { symbol })}
+          onFlat={(symbol, venue, price) => void flatMarket(symbol, venue, price)}
+          positions={workspace.positions}
+          openTrades={openTrades}
         />
         <div className="desk-column flex min-w-0 flex-col lg:min-h-0 lg:flex-1">
           {error ? (
@@ -838,6 +954,10 @@ export default function App() {
                   showCaption={shown.length > 1}
                   alert={slot.alert}
                   deltaAlert={slot.deltaAlert}
+                  session={session}
+                  riskMode={workspace.riskMode}
+                  arm={slot.armGate}
+                  onRisk={(riskMode) => setWorkspace((current) => ({ ...current, riskMode }))}
                   funding={tapes[tapeKey(slot)]?.funding}
                   fundingStale={tapes[tapeKey(slot)]?.fundingStale === true}
                   focusTime={slot.id === workspace.activeId ? (focusTrade?.entry_time ?? null) : null}
@@ -1029,9 +1149,64 @@ export default function App() {
   )
 }
 
+function pinKeys(workspace: Workspace): string[] {
+  return [...new Set(workspace.slots.flatMap((slot) => pinsOf(slot).map((symbol) => `${slot.venue}:${symbol}`)))]
+}
+
+function useOpenJournal(): TradeRecord[] {
+  const [rows, setRows] = useState<TradeRecord[]>([])
+  useEffect(() => {
+    let cancel = false
+    const load = () => {
+      void matchingTrades({ ...emptyQuery(), state: "open" }).then((next) => {
+        if (!cancel) setRows(next)
+      })
+    }
+    load()
+    const stop = watchBook(load)
+    return () => {
+      cancel = true
+      stop()
+    }
+  }, [])
+  return rows
+}
+
+function PinFill({
+  symbol,
+  venue,
+  onFill,
+}: {
+  symbol: string
+  venue: Venue
+  onFill: (ticket: WorkingTicket, price: number) => void
+}) {
+  const book = useBookView(symbol, venue)
+  const price = book.last?.price ?? null
+  const pending = useRef(new Set<string>())
+  const fillRef = useRef(onFill)
+  fillRef.current = onFill
+  useEffect(() => {
+    if (price == null) return
+    let cancel = false
+    void liveTicket(symbol, venue).then((ticket) => {
+      if (cancel || !ticket || pending.current.has(ticket.id)) return
+      if (!ticketFills(ticket.side, ticket.entry, price)) return
+      pending.current.add(ticket.id)
+      fillRef.current(ticket, price)
+    })
+    return () => {
+      cancel = true
+    }
+  }, [price, symbol, venue])
+  return null
+}
+
 function applySlotPatch(slot: Slot, patch: Partial<Slot>): Slot {
   const venue = patch.venue ?? slot.venue
-  const symbol = patch.symbol ?? slot.symbol
+  const requested = patch.symbol ?? slot.symbol
+  const pinned = patch.pins ?? pinSymbol(slot.pins, slot.symbol, requested).pins
+  const symbol = patch.pins ? requested : pinSymbol(slot.pins, slot.symbol, requested).symbol
   const timeframe = patch.timeframe ?? slot.timeframe
   const range = patch.range ?? slot.range
   const venueChanged = patch.venue != null && patch.venue !== slot.venue
@@ -1040,7 +1215,7 @@ function applySlotPatch(slot: Slot, patch: Partial<Slot>): Slot {
     symbol,
     allowShort: venue === "spot" ? false : venueChanged ? true : run.allowShort,
   }))
-  return { ...slot, ...patch, venue, symbol, timeframe, range, runs }
+  return { ...slot, ...patch, venue, symbol, pins: pinned, timeframe, range, runs }
 }
 
 function alignRun(run: Run, slot: Pick<Slot, "symbol" | "venue">): Run {

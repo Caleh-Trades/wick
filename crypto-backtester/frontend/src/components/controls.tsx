@@ -41,6 +41,10 @@ type ControlsProps = {
   onLossLimit: (limit: number) => void
   giveBack: number
   onGiveBack: (percent: number) => void
+  maxBarsOpen: number | null
+  onMaxBarsOpen: (bars: number | null) => void
+  timeStopClose: boolean
+  onTimeStopClose: (on: boolean) => void
 }
 
 export function Controls({
@@ -66,6 +70,10 @@ export function Controls({
   onLossLimit,
   giveBack,
   onGiveBack,
+  maxBarsOpen,
+  onMaxBarsOpen,
+  timeStopClose,
+  onTimeStopClose,
 }: ControlsProps) {
   const full = runs.length >= MAX_RUNS
   const rule = RULES.find((item) => item.id === selected.rule)
@@ -298,6 +306,33 @@ export function Controls({
         onValue={onGiveBack}
         hint={<p className="text-xs leading-relaxed text-muted-foreground">If open profit falls below this share of the best open profit, the row is marked give-back. Nothing closes on its own.</p>}
       />
+
+      <div className="flex flex-col gap-2">
+        <Label htmlFor={`${idPrefix}-max-bars`}>Max bars open</Label>
+        <Input
+          id={`${idPrefix}-max-bars`}
+          inputMode="numeric"
+          placeholder="Blank"
+          value={maxBarsOpen == null ? "" : String(maxBarsOpen)}
+          onChange={(event) => {
+            const raw = event.target.value.trim()
+            if (!raw) {
+              onMaxBarsOpen(null)
+              return
+            }
+            const next = Math.round(Number(raw))
+            onMaxBarsOpen(Number.isFinite(next) && next > 0 ? Math.min(10_000, next) : null)
+          }}
+        />
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          An open trade past this bar count gets a time badge. Leave blank to turn it off.
+        </p>
+        <div className="flex items-center justify-between gap-3">
+          <Label htmlFor={`${idPrefix}-time-close`}>Close on time stop</Label>
+          <Switch id={`${idPrefix}-time-close`} checked={timeStopClose} onCheckedChange={onTimeStopClose} />
+        </div>
+        <p className="text-xs leading-relaxed text-muted-foreground">Off by default. When on, a due trade closes at the mark.</p>
+      </div>
 
       {venue === "perp" ? (
         <DecimalField

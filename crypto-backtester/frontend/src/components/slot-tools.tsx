@@ -7,6 +7,7 @@ import { armAllowed, RISK_MODES, type ArmGate, type RiskMode, type SessionLight 
 import { formatCompact, formatPrice, formatStamp } from "@/lib/format"
 import { logAlert } from "@/lib/journal"
 import { marketSpec } from "@/lib/markets"
+import { notifyArm } from "@/lib/notify"
 import { useBookView } from "@/lib/use-book"
 import type { FundingRate, Venue } from "@/lib/types"
 import { armReading, deltaCrosses, priceCrosses, type AlertKind, type SlotAlert } from "@/lib/workspace"
@@ -209,6 +210,8 @@ export function AlertWatch({
       if (latched.has(check.key)) continue
       latched.add(check.key)
       logAlert({ symbol, venue, alertKind: check.kind, value: check.value, threshold: check.threshold })
+      const side = check.kind === "below" || (check.kind === "delta" && check.value < 0) ? "sell" : "buy"
+      void notifyArm({ symbol, side, price: check.value })
     }
   }, [alert, book.delta, book.heardAt, deltaAlert, session, symbol, trade, venue])
 

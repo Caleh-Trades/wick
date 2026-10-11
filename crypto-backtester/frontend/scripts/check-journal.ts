@@ -21,7 +21,9 @@ import {
   ticketFills,
 } from "../src/lib/desk.ts"
 import {
+  ARCHIVE_DAYS,
   PAGE_SIZE,
+  applyScaleOut,
   closeJournalTrade,
   dumpBook,
   emptyQuery,
@@ -50,6 +52,9 @@ import {
   tradesCsv,
   tradesForRun,
 } from "../src/lib/records.ts"
+import { scaleOutHit, scaleOutPrice, scaleOutSize } from "../src/lib/scale-out.ts"
+import { parseShareRun, shareRunSearch } from "../src/lib/share-run.ts"
+import { barsOpen, timeStopDue } from "../src/lib/time-stop.ts"
 import { armReading, asDeltaAlert, createSlot, deltaCrosses, priceCrosses } from "../src/lib/workspace.ts"
 import type { RunMetrics, Trade } from "../src/lib/types.ts"
 
@@ -186,16 +191,20 @@ for (let index = 0; index < 120; index += 1) {
     entryPrice: 100,
     exitPrice: index % 5 === 0 ? null : 110,
     size: 1,
-    entryTime: new Date(Date.UTC(2024, 0, 1, 0, index)).toISOString(),
+    entryTime: new Date(Date.now() - (120 - index) * 60_000).toISOString(),
     source: "desk",
   })
   assert.ok(logged)
 }
 const first = await searchTrades(emptyQuery(0))
 assert.equal(PAGE_SIZE, 50)
+assert.equal(emptyQuery().window, "recent")
+assert.equal(ARCHIVE_DAYS, 30)
 assert.equal(first.rows.length, 50)
 assert.equal(first.total, 120)
-assert.ok(first.rows[0]!.entryTime > first.rows[49]!.entryTime)
+const firstClosed = first.rows.findIndex((trade) => trade.exitTime != null)
+const lastOpen = first.rows.reduce((acc, trade, index) => (trade.exitTime == null ? index : acc), -1)
+if (firstClosed >= 0 && lastOpen >= 0) assert.ok(lastOpen < firstClosed)
 const third = await searchTrades({ ...emptyQuery(), page: 2 })
 assert.equal(third.rows.length, 20)
 assert.equal(third.total, 120)
@@ -572,6 +581,95 @@ assert.equal(gaveBack(5, 10, 40), false)
 assert.equal(gaveBack(-1, 0, 40), false)
 const best = bestOpenReturn("long", 100, 105, [{ time: "2026-01-02T00:00:00Z", high: 120, low: 99 }], "2026-01-01T00:00:00Z")
 assert.ok(Math.abs(best - 20) < 1e-9)
+
+assert.equal(scaleOutPrice("long", 100, 90, 2), 120)
+assert.equal(scaleOutPrice("short", 100, 110, 2), 80)
+assert.equal(scaleOutHit("long", 100, 90, 2, 120), true)
+assert.equal(scaleOutHit("long", 100, 90, 2, 119), false)
+assert.equal(scaleOutSize(2, 50), 1)
+
+resetBookForTests()
+const scaleTicket = await saveTicket({
+  symbol: "BTC",
+  market: "spot",
+  side: "long",
+  strategy: "Scale",
+  entry: 100,
+  stop: 90,
+  size: 2,
+  r: 2,
+})
+assert.equal(scaleTicket?.scaleOutR, 2)
+assert.equal(scaleTicket?.scaleOutPct, 50)
+const scaleFill = await fillWorkingTicket(scaleTicket!.id, 100)
+assert.ok(scaleFill)
+assert.equal(scaleFill.trade.scaleOutR, 2)
+assert.equal(scaleFill.trade.scaleOutPct, 50)
+assert.equal(await applyScaleOut(scaleFill.trade.id, 119), null)
+const scaled = await applyScaleOut(scaleFill.trade.id, 120)
+assert.ok(scaled)
+assert.equal(scaled.partial.leg, "partial")
+assert.equal(scaled.runner.leg, "runner")
+assert.equal(scaled.partial.linkId, scaled.runner.linkId)
+assert.equal(scaled.partial.size, 1)
+assert.equal(scaled.runner.size, 1)
+assert.equal(scaled.partial.exitPrice, 120)
+assert.equal(scaled.runner.exitTime, null)
+const linkedRows = await matchingTrades(emptyQuery())
+assert.equal(linkedRows.filter((row) => row.linkId === scaled.partial.linkId).length, 2)
+
+resetBookForTests()
+const oldClosed = await logBookTrade({
+  symbol: "BTC",
+  side: "long",
+  entryPrice: 100,
+  exitPrice: 110,
+  size: 1,
+  entryTime: new Date(Date.now() - (ARCHIVE_DAYS + 5) * 86_400_000).toISOString(),
+  source: "desk",
+})
+const freshClosed = await logBookTrade({
+  symbol: "ETH",
+  side: "long",
+  entryPrice: 100,
+  exitPrice: 110,
+  size: 1,
+  source: "desk",
+})
+const stillOpen = await logBookTrade({
+  symbol: "SOL",
+  side: "long",
+  entryPrice: 100,
+  size: 1,
+  source: "desk",
+})
+assert.ok(oldClosed && freshClosed && stillOpen)
+const recentWindow = await searchTrades(emptyQuery())
+assert.equal(recentWindow.total, 2)
+assert.ok(recentWindow.rows.every((row) => row.id !== oldClosed.id))
+assert.ok(recentWindow.rows.some((row) => row.id === stillOpen.id))
+assert.ok(recentWindow.rows.some((row) => row.id === freshClosed.id))
+const archive = await searchTrades({ ...emptyQuery(), window: "archive" })
+assert.equal(archive.total, 1)
+assert.equal(archive.rows[0]?.id, oldClosed.id)
+
+const share = shareRunSearch({ symbol: "BTCUSDT", market: "spot", timeframe: "1d", rule: "sma_cross", params: { fast: 20, slow: 50 } })
+assert.match(share, /share=1/)
+assert.match(share, /symbol=BTCUSDT/)
+assert.match(share, /params=fast%3A20%2Cslow%3A50|params=fast:20,slow:50/)
+const shared = parseShareRun(share)
+assert.equal(shared?.symbol, "BTCUSDT")
+assert.equal(shared?.market, "spot")
+assert.equal(shared?.timeframe, "1d")
+assert.equal(shared?.rule, "sma_cross")
+assert.equal(shared?.params.fast, 20)
+assert.equal(parseShareRun("?symbol=BTCUSDT"), null)
+
+const entryAge = new Date(Date.now() - 3 * 86_400_000).toISOString()
+assert.equal(barsOpen(entryAge, "1d"), 3)
+assert.equal(timeStopDue(entryAge, "1d", 3), true)
+assert.equal(timeStopDue(entryAge, "1d", 4), false)
+assert.equal(timeStopDue(entryAge, "1d", null), false)
 
 const lines = ruleDiff(
   { rule: "sma_cross", params: { fast: 20, slow: 50 }, totalReturn: 4, maxDrawdown: -6, winRate: 40, trades: 3 },

@@ -6,6 +6,7 @@ import { bestOpenReturn, formatR, gaveBack, openR } from "@/lib/open-trade"
 import { SLOTS_MAX, SLOTS_MIN, clampSlots } from "@/lib/panes"
 import { marketById } from "@/lib/runs"
 import { marketSpec } from "@/lib/markets"
+import { timeStopDue } from "@/lib/time-stop"
 import { holdBook, useBookView } from "@/lib/use-book"
 import { tapeKey, type Slot } from "@/lib/workspace"
 import type { MarketId, Tape, Venue } from "@/lib/types"
@@ -25,6 +26,7 @@ export function Watchlist({
   openTrades,
   tapes,
   giveBack,
+  maxBarsOpen,
 }: {
   slots: Slot[]
   activeId: string
@@ -38,6 +40,7 @@ export function Watchlist({
   openTrades: { id: string; exitTime: string | null; side: "long" | "short"; entryTime: string; stop: number | null }[]
   tapes: Record<string, Tape>
   giveBack: number
+  maxBarsOpen: number | null
 }) {
   const favourites = useFavourites()
   const covered = new Set(slots.map((slot) => slot.symbol))
@@ -73,6 +76,8 @@ export function Watchlist({
                   trade={openTrades.find((trade) => trade.id === positionFor(positions, symbol, slot.venue)?.tradeId) ?? null}
                   bars={tapes[tapeKey({ venue: slot.venue, timeframe: slot.timeframe, range: slot.range, symbol })]?.candles ?? []}
                   giveBack={giveBack}
+                  timeframe={slot.timeframe}
+                  maxBarsOpen={maxBarsOpen}
                   onClick={() => {
                     onFocus(slot.id)
                     onSymbol(slot.id, symbol)
@@ -99,6 +104,8 @@ export function Watchlist({
                 trade={null}
                 bars={[]}
                 giveBack={giveBack}
+                timeframe="1d"
+                maxBarsOpen={maxBarsOpen}
                 onClick={() => onOpen(id as MarketId, "spot")}
                 onFlat={() => undefined}
               />
@@ -135,6 +142,8 @@ function QuoteRow({
   trade,
   bars,
   giveBack,
+  timeframe,
+  maxBarsOpen,
   onClick,
   onFlat,
 }: {
@@ -147,6 +156,8 @@ function QuoteRow({
   trade: { side: "long" | "short"; entryTime: string; stop: number | null } | null
   bars: Array<{ time: string; high: number; low: number }>
   giveBack: number
+  timeframe: string
+  maxBarsOpen: number | null
   onClick: () => void
   onFlat: (price: number) => void
 }) {
@@ -161,6 +172,7 @@ function QuoteRow({
   const current = position && price != null ? markReturn(position.side, position.entry, price) : null
   const best = position && price != null && trade ? bestOpenReturn(position.side, position.entry, price, bars, trade.entryTime) : current
   const flagged = current != null && best != null && gaveBack(current, best, giveBack)
+  const timed = position != null && trade != null && timeStopDue(trade.entryTime, timeframe, maxBarsOpen)
   return (
     <div className="flex w-full min-w-0 flex-col gap-0.5 overflow-hidden text-left">
       <span className="flex min-w-0 items-baseline justify-between gap-2">
@@ -182,6 +194,7 @@ function QuoteRow({
               {formatR(mark)}
             </span>
           ) : null}
+          {timed ? <span className="ml-1 text-foreground normal-case">time</span> : null}
           {position && flagged ? <span className="ml-1 text-down normal-case">give-back</span> : null}
           {position && price != null ? (
             <button type="button" className="ml-1 uppercase" onClick={() => onFlat(price)}>

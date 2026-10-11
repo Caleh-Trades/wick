@@ -3,9 +3,12 @@ import type { BotOp } from "./bot-edits.ts"
 import { asRiskMode, isSessionLight, type RiskMode, type SessionLight } from "./desk.ts"
 import { normalizeSymbol } from "./markets.ts"
 import { isRange, isTimeframe, isVenue, normalizeCombo, normalizeRule, ruleById, ruleParams } from "./runs.ts"
+import { clampScaleOutPct, clampScaleOutR, scaleOutHit, scaleOutSize } from "./scale-out.ts"
 import type { RunParams, SampleSlice, Trade, Venue } from "./types.ts"
 
 export const PAGE_SIZE = 50
+/** Closed trades older than this many days sit in Archive. */
+export const ARCHIVE_DAYS = 30
 
 export type TradeSide = "long" | "short"
 export type TradeSource = "desk" | "bot" | "paper"
@@ -101,6 +104,13 @@ export type TradeRecord = {
   r: number | null
   riskMode: RiskMode
   ticketId: string | null
+  /** Planned scale-out R multiple. Null when the ticket had none. */
+  scaleOutR: number | null
+  /** Percent of size closed at the scale-out target. */
+  scaleOutPct: number | null
+  /** Shared id for a partial close and its runner. */
+  linkId: string | null
+  leg: "" | "partial" | "runner"
 }
 
 export type WorkingTicket = {
@@ -113,6 +123,10 @@ export type WorkingTicket = {
   stop: number
   size: number
   r: number
+  /** Second target in R multiples. Default 2. */
+  scaleOutR: number
+  /** Percent of size to close at the second target. Default 50. */
+  scaleOutPct: number
   riskMode: RiskMode
   session: SessionLight
   armed: boolean
@@ -120,6 +134,8 @@ export type WorkingTicket = {
   createdAt: string
   filledAt: string | null
 }
+
+export type TradeWindow = "" | "recent" | "archive"
 
 export type TradeQuery = {
   symbol: string
@@ -130,6 +146,8 @@ export type TradeQuery = {
   state: "" | "open" | "closed"
   market: "" | Venue
   riskMode: "" | RiskMode
+  /** recent (default): open plus closed in the last 30 days. archive: closed older than 30 days. */
+  window: TradeWindow
   page: number
 }
 
@@ -175,7 +193,7 @@ function emit(): void {
 }
 
 export function emptyQuery(page = 0): TradeQuery {
-  return { symbol: "", strategyId: "", side: "", from: "", to: "", state: "", market: "", riskMode: "", page }
+  return { symbol: "", strategyId: "", side: "", from: "", to: "", state: "", market: "", riskMode: "", window: "recent", page }
 }
 
 export function emptyTicketQuery(page = 0): TicketQuery {
@@ -205,18 +223,33 @@ export function tradeMatches(trade: TradeRecord, query: TradeQuery): boolean {
   const entry = Date.parse(trade.entryTime)
   if (from != null && !Number.isNaN(from) && entry < from) return false
   if (to != null && !Number.isNaN(to) && entry > to) return false
+  const window = query.window === "archive" ? "archive" : "recent"
+  const closedAt = trade.exitTime ? Date.parse(trade.exitTime) : Number.NaN
+  const cutoff = Date.now() - ARCHIVE_DAYS * 86_400_000
+  if (window === "archive") {
+    if (trade.exitTime == null || !Number.isFinite(closedAt) || closedAt >= cutoff) return false
+  } else if (trade.exitTime != null && Number.isFinite(closedAt) && closedAt < cutoff) {
+    return false
+  }
   return true
 }
 
-/** Newest first. The returned page is at most one page of rows; `total` is the match count. */
+/** Open rows first, then closed. Newest first inside each group. */
 export function pageTrades(trades: TradeRecord[], query: TradeQuery, pageSize = PAGE_SIZE): TradePage {
-  const matched = trades.filter((trade) => tradeMatches(trade, query)).sort(byNewest)
+  const matched = trades.filter((trade) => tradeMatches(trade, query)).sort(byOpenThenNewest)
   const start = Math.max(0, query.page) * pageSize
   return pageFrom(matched.slice(start, start + pageSize), matched)
 }
 
 function byNewest(left: TradeRecord, right: TradeRecord): number {
   return right.entryTime.localeCompare(left.entryTime) || right.id.localeCompare(left.id)
+}
+
+function byOpenThenNewest(left: TradeRecord, right: TradeRecord): number {
+  const leftOpen = left.exitTime == null ? 0 : 1
+  const rightOpen = right.exitTime == null ? 0 : 1
+  if (leftOpen !== rightOpen) return leftOpen - rightOpen
+  return byNewest(left, right)
 }
 
 function pageFrom(rows: TradeRecord[], matched: TradeRecord[]): TradePage {
@@ -373,6 +406,8 @@ export async function logBookTrade(input: {
   r?: number | null
   riskMode?: string
   ticketId?: string | null
+  scaleOutR?: number | null
+  scaleOutPct?: number | null
 }): Promise<TradeRecord | null> {
   await bookReady()
   const symbol = asSymbol(input.symbol)
@@ -426,6 +461,10 @@ export async function logBookTrade(input: {
     r: input.r != null && input.r > 0 ? input.r : null,
     riskMode: asRiskMode(input.riskMode),
     ticketId: input.ticketId ?? null,
+    scaleOutR: input.scaleOutR != null && input.scaleOutR > 0 ? clampScaleOutR(input.scaleOutR) : null,
+    scaleOutPct: input.scaleOutPct != null && input.scaleOutPct > 0 ? clampScaleOutPct(input.scaleOutPct) : null,
+    linkId: null,
+    leg: "",
   }
   memory.trades.set(row.id, row)
   await persistOne("trades", row)
@@ -495,6 +534,8 @@ export async function saveTicket(input: {
   stop: number
   size: number
   r: number
+  scaleOutR?: number
+  scaleOutPct?: number
   riskMode?: string
   session?: string
 }): Promise<WorkingTicket | null> {
@@ -513,6 +554,8 @@ export async function saveTicket(input: {
     stop: input.stop,
     size: input.size,
     r: input.r,
+    scaleOutR: clampScaleOutR(input.scaleOutR),
+    scaleOutPct: clampScaleOutPct(input.scaleOutPct),
     riskMode: asRiskMode(input.riskMode),
     session: isSessionLight(input.session) ? input.session : "open",
     armed: false,
@@ -524,6 +567,34 @@ export async function saveTicket(input: {
   await persistOne("tickets", row)
   emit()
   return row
+}
+
+/** Update the scale-out plan on a live ticket. Filled tickets keep the plan until the trade scales out. */
+export async function setTicketScaleOut(id: string, scaleOutR: number, scaleOutPct: number): Promise<WorkingTicket | null> {
+  await bookReady()
+  const ticket = memory.tickets.get(id)
+  if (!ticket) return null
+  const next: WorkingTicket = {
+    ...ticket,
+    scaleOutR: clampScaleOutR(scaleOutR),
+    scaleOutPct: clampScaleOutPct(scaleOutPct),
+  }
+  memory.tickets.set(id, next)
+  await persistOne("tickets", next)
+  if (ticket.tradeId) {
+    const trade = memory.trades.get(ticket.tradeId)
+    if (trade && trade.exitTime == null && trade.leg !== "partial" && trade.leg !== "runner") {
+      const patched: TradeRecord = {
+        ...trade,
+        scaleOutR: next.scaleOutR,
+        scaleOutPct: next.scaleOutPct,
+      }
+      memory.trades.set(trade.id, patched)
+      await persistOne("trades", patched)
+    }
+  }
+  emit()
+  return next
 }
 
 export function ticketMatches(ticket: WorkingTicket, query: TicketQuery): boolean {
@@ -618,6 +689,8 @@ async function journalForTicket(ticket: WorkingTicket, fillPrice: number | null,
       market: ticket.market,
       note: note ? line : existing.note,
       strategyName: existing.strategyName || ticket.strategy,
+      scaleOutR: ticket.scaleOutR,
+      scaleOutPct: ticket.scaleOutPct,
     }
     memory.trades.set(existing.id, next)
     await persistOne("trades", next)
@@ -636,9 +709,67 @@ async function journalForTicket(ticket: WorkingTicket, fillPrice: number | null,
     r: ticket.r,
     riskMode: ticket.riskMode,
     ticketId: ticket.id,
+    scaleOutR: ticket.scaleOutR,
+    scaleOutPct: ticket.scaleOutPct,
     note: note ? line : "",
     source: "desk",
   })
+}
+
+/** Close the scale-out slice at the mark and leave the runner open, linked. */
+export async function applyScaleOut(tradeId: string, mark: number): Promise<{ partial: TradeRecord; runner: TradeRecord } | null> {
+  await bookReady()
+  const trade = memory.trades.get(tradeId)
+  if (!trade || trade.runId != null || trade.exitTime != null || !(mark > 0)) return null
+  if (trade.leg === "partial" || trade.leg === "runner") return null
+  const multiple = trade.scaleOutR
+  const percent = trade.scaleOutPct
+  if (multiple == null || percent == null || trade.stop == null) return null
+  if (!scaleOutHit(trade.side, trade.entryPrice, trade.stop, multiple, mark)) return null
+  const partialSize = scaleOutSize(trade.size, percent)
+  const runnerSize = Math.round((trade.size - partialSize) * 1e8) / 1e8
+  if (!(partialSize > 0) || !(runnerSize > 0)) return null
+  const linkId = crypto.randomUUID()
+  const settled = settle(trade.side, trade.entryPrice, mark, partialSize, trade.fee * (partialSize / trade.size), trade.slippage * (partialSize / trade.size))
+  const partial: TradeRecord = {
+    ...trade,
+    id: crypto.randomUUID(),
+    size: partialSize,
+    fee: trade.fee * (partialSize / trade.size),
+    slippage: trade.slippage * (partialSize / trade.size),
+    exitPrice: mark,
+    exitTime: new Date().toISOString(),
+    pnl: settled.pnl,
+    returnPct: settled.returnPct,
+    linkId,
+    leg: "partial",
+    scaleOutR: null,
+    scaleOutPct: null,
+  }
+  const runner: TradeRecord = {
+    ...trade,
+    size: runnerSize,
+    fee: trade.fee * (runnerSize / trade.size),
+    slippage: trade.slippage * (runnerSize / trade.size),
+    linkId,
+    leg: "runner",
+    scaleOutR: null,
+    scaleOutPct: null,
+  }
+  memory.trades.delete(trade.id)
+  memory.trades.set(partial.id, partial)
+  memory.trades.set(runner.id, runner)
+  if (trade.ticketId) {
+    const ticket = memory.tickets.get(trade.ticketId)
+    if (ticket && ticket.tradeId === trade.id) {
+      const nextTicket = { ...ticket, tradeId: runner.id }
+      memory.tickets.set(ticket.id, nextTicket)
+      await persistOne("tickets", nextTicket)
+    }
+  }
+  await persistAll()
+  emit()
+  return { partial, runner }
 }
 
 function byTicketNewest(left: WorkingTicket, right: WorkingTicket): number {
@@ -1032,6 +1163,10 @@ function tradeFromBacktest(trade: Trade, strategyId: string, runId: string | nul
     r: null,
     riskMode: "NORMAL",
     ticketId: null,
+    scaleOutR: null,
+    scaleOutPct: null,
+    linkId: null,
+    leg: "",
   }
 }
 
@@ -1115,6 +1250,10 @@ function sanitizeTrade(value: unknown): TradeRecord | null {
     strategyName: typeof raw.strategyName === "string" ? raw.strategyName.slice(0, 48) : "",
     source: raw.source === "paper" ? "paper" : raw.source === "bot" ? "bot" : "desk",
     ...tradeStamp(raw),
+    scaleOutR: raw.scaleOutR != null && Number(raw.scaleOutR) > 0 ? clampScaleOutR(raw.scaleOutR) : null,
+    scaleOutPct: raw.scaleOutPct != null && Number(raw.scaleOutPct) > 0 ? clampScaleOutPct(raw.scaleOutPct) : null,
+    linkId: typeof raw.linkId === "string" && raw.linkId ? raw.linkId : null,
+    leg: raw.leg === "partial" || raw.leg === "runner" ? raw.leg : "",
   }
 }
 
@@ -1229,6 +1368,10 @@ function absorbLegacy(raw: { journal?: unknown; kept?: unknown; working?: unknow
         r: null,
         riskMode: "NORMAL",
         ticketId: null,
+        scaleOutR: null,
+        scaleOutPct: null,
+        linkId: null,
+        leg: "",
       }
       memory.trades.set(trade.id, trade)
     }
@@ -1292,6 +1435,8 @@ function sanitizeTicket(value: unknown): WorkingTicket | null {
     stop,
     size,
     r,
+    scaleOutR: clampScaleOutR(raw.scaleOutR),
+    scaleOutPct: clampScaleOutPct(raw.scaleOutPct),
     riskMode: asRiskMode(raw.riskMode),
     session: isSessionLight(raw.session) ? raw.session : "open",
     armed: raw.armed === true,

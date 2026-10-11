@@ -12,6 +12,7 @@ import {
   type SessionLight,
 } from "./desk.ts"
 import { clampRisk, clampSlippage, createRun, isRange, isTimeframe, isVenue, loadDesk, MAX_RUNS, normalizeCombo, normalizeRule, rangeDays, type DeskState } from "./runs.ts"
+import { clampMaxBars } from "./time-stop.ts"
 import type { MarketId, RangeId, Run, Tape, Timeframe, Venue } from "./types.ts"
 
 export const MAX_SLOTS = 4
@@ -55,6 +56,10 @@ export type Workspace = {
   lossLimit: number
   /** Share of the best open profit. Below it, the open row is marked give-back. */
   giveBack: number
+  /** Max bars an open trade may hold before the time badge. Blank means off. */
+  maxBarsOpen: number | null
+  /** When true, a time-stop due trade is closed at the mark. Off by default. */
+  timeStopClose: boolean
   /** Latched by the loss halt. Clearing is the only way back. */
   lossHalt: boolean
   /** Exit time of the loss the halt was cleared through. Older losses do not count. */
@@ -115,6 +120,8 @@ export function defaultWorkspace(): Workspace {
     session: null,
     lossLimit: DEFAULT_LOSS_LIMIT,
     giveBack: DEFAULT_GIVE_BACK,
+    maxBarsOpen: null,
+    timeStopClose: false,
     lossHalt: false,
     lossHaltAck: null,
     positions: [],
@@ -181,6 +188,8 @@ export function fromDesk(desk: DeskState): Workspace {
     session: null,
     lossLimit: DEFAULT_LOSS_LIMIT,
     giveBack: DEFAULT_GIVE_BACK,
+    maxBarsOpen: null,
+    timeStopClose: false,
     lossHalt: false,
     lossHaltAck: null,
     positions: [],
@@ -203,6 +212,8 @@ function sanitizeWorkspace(value: unknown): Workspace {
     session: isSessionLight(raw.session) ? raw.session : null,
     lossLimit: clampLossLimit(raw.lossLimit),
     giveBack: clampGiveBack(raw.giveBack),
+    maxBarsOpen: clampMaxBars(raw.maxBarsOpen),
+    timeStopClose: raw.timeStopClose === true,
     lossHalt: raw.lossHalt === true,
     lossHaltAck: typeof raw.lossHaltAck === "string" && raw.lossHaltAck ? raw.lossHaltAck : null,
     positions: Array.isArray(raw.positions) ? raw.positions.map(asPosition).filter((item) => item != null) : [],

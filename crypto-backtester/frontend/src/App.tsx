@@ -27,8 +27,10 @@ import { DiffPage } from "@/components/diff"
 import { JournalPage } from "@/components/journal"
 import { PaperPage } from "@/components/paper"
 import { ReplayPage } from "@/components/replay"
+import { SavedPage } from "@/components/saved"
 import type { DeskPage } from "@/components/desk-bar"
 import {
+  applyScaleOut,
   downloadBacktestCsv,
   downloadLiveRun,
   closeJournalTrade,
@@ -53,6 +55,10 @@ import {
   type TradeRecord,
   type WorkingTicket,
 } from "@/lib/records"
+import { liveMark } from "@/lib/book"
+import { copyShareRun, parseShareRun } from "@/lib/share-run"
+import { timeStopDue } from "@/lib/time-stop"
+import { ruleParams } from "@/lib/runs"
 import { computeBacktest } from "@/lib/compute"
 import { ruleReading } from "@/lib/signals"
 import { spotTrades } from "@/lib/plot"
@@ -666,7 +672,18 @@ export default function App() {
         afterCosts: outcome.metrics.total_return_pct,
       },
     })
-    setPage("journal")
+    try {
+      await copyShareRun({
+        symbol: active.symbol,
+        market: active.venue,
+        timeframe: active.timeframe,
+        rule: selected.rule,
+        params: { ...selected.params },
+      })
+    } catch {
+      // Clipboard can fail without a gesture or permissions.
+    }
+    setPage("saved")
   }
 
   async function exportSelected(note: string) {
@@ -721,14 +738,22 @@ export default function App() {
     )
   }
 
-  async function restoreWorking(strategyId: string) {
-    const strategy = await getStrategy(strategyId)
-    if (!strategy) return
+  useEffect(() => {
+    const shared = parseShareRun(window.location.search)
+    if (!shared) return
     openSetup(
-      { symbol: strategy.symbol, venue: strategy.market, timeframe: strategy.timeframe, range: strategy.range },
-      runFields(strategy),
+      { symbol: shared.symbol, venue: shared.market, timeframe: shared.timeframe, range: "1Y" },
+      {
+        symbol: shared.symbol as MarketId,
+        rule: normalizeRule(shared.rule),
+        params: ruleParams(normalizeRule(shared.rule), shared.params),
+        allowShort: shared.market === "perp",
+      },
     )
-  }
+    const url = new URL(window.location.href)
+    url.search = ""
+    window.history.replaceState({}, "", url.pathname)
+  }, [])
 
   function openSetup(seed: { symbol: string; venue: Venue; timeframe: string; range: string }, partial: Partial<Run>) {
     const run = createRun(partial)
@@ -903,32 +928,30 @@ export default function App() {
       cancel = true
     }
   }, [page, pinKey, active])
-  const workingDraft =
-    active && selected
-      ? {
-          name: selected.name,
-          symbol: active.symbol,
-          venue: active.venue,
-          timeframe: active.timeframe,
-          range: active.range,
-          rule: selected.rule,
-          params: { ...selected.params },
-          combo: (selected.combo ?? []).map((item) => ({ rule: item.rule, params: { ...item.params } })),
-          feeBps: selected.feeBps,
-          slippageBps: selected.slippageBps,
-          capital: selected.capital,
-          leverage: active.venue === "perp" ? selected.leverage : 1,
-          riskPct: selected.riskPct,
-          allowShort: active.venue === "perp" && selected.allowShort,
-        }
-      : null
-
   return (
     <div className="desk-shell flex min-h-svh flex-col lg:h-svh lg:min-h-0">
       {pinKeys(workspace).map((key) => {
         const [venue, symbol] = key.split(":") as [Venue, string]
         return <PinFill key={key} symbol={symbol} venue={venue} onFill={(ticket, price) => void fillTicket(ticket, price)} />
       })}
+      {openTrades.map((trade) => (
+        <OpenTradeWatch
+          key={trade.id}
+          trade={trade}
+          timeframe={
+            workspace.slots.find((slot) => slot.symbol === trade.symbol && slot.venue === trade.market)?.timeframe ??
+            active?.timeframe ??
+            "1d"
+          }
+          maxBarsOpen={workspace.maxBarsOpen}
+          timeStopClose={workspace.timeStopClose}
+          onScaled={(runner) => {
+            forgetPosition(trade.id)
+            if (runner.exitTime == null) rememberPosition(runner)
+          }}
+          onTimedClose={(closed) => forgetPosition(closed.id)}
+        />
+      ))}
       {active && selected ? (
         <DeskBar
           symbol={active.symbol}
@@ -978,12 +1001,11 @@ export default function App() {
         <JournalPage
           symbol={active?.symbol ?? "BTCUSDT"}
           venue={active?.venue ?? "spot"}
-          draft={workingDraft}
+          timeframe={active?.timeframe ?? "1d"}
           riskMode={workspace.riskMode}
           session={session}
           positions={workspace.positions}
-          onRestore={restoreKept}
-          onOpenWorking={restoreWorking}
+          maxBarsOpen={workspace.maxBarsOpen}
           onLogged={(trade) => {
             if (trade.exitTime == null) rememberPosition(trade)
           }}
@@ -1022,6 +1044,8 @@ export default function App() {
         />
       ) : page === "diff" ? (
         <DiffPage />
+      ) : page === "saved" ? (
+        <SavedPage onRestore={restoreKept} />
       ) : (
       <>
       <WorkspaceBar
@@ -1050,6 +1074,7 @@ export default function App() {
           openTrades={openTrades}
           tapes={tapes}
           giveBack={workspace.giveBack}
+          maxBarsOpen={workspace.maxBarsOpen}
         />
         <div className="desk-column flex min-w-0 flex-col lg:min-h-0 lg:flex-1">
           {error ? (
@@ -1228,6 +1253,10 @@ export default function App() {
                 onLossLimit={(lossLimit) => setWorkspace((current) => ({ ...current, lossLimit }))}
                 giveBack={workspace.giveBack}
                 onGiveBack={(giveBack) => setWorkspace((current) => ({ ...current, giveBack }))}
+                maxBarsOpen={workspace.maxBarsOpen}
+                onMaxBarsOpen={(maxBarsOpen) => setWorkspace((current) => ({ ...current, maxBarsOpen }))}
+                timeStopClose={workspace.timeStopClose}
+                onTimeStopClose={(timeStopClose) => setWorkspace((current) => ({ ...current, timeStopClose }))}
               />
             ) : (
               <EmptyRuns onAdd={addSlot} />
@@ -1277,6 +1306,10 @@ export default function App() {
                   onLossLimit={(lossLimit) => setWorkspace((current) => ({ ...current, lossLimit }))}
                   giveBack={workspace.giveBack}
                   onGiveBack={(giveBack) => setWorkspace((current) => ({ ...current, giveBack }))}
+                  maxBarsOpen={workspace.maxBarsOpen}
+                  onMaxBarsOpen={(maxBarsOpen) => setWorkspace((current) => ({ ...current, maxBarsOpen }))}
+                  timeStopClose={workspace.timeStopClose}
+                  onTimeStopClose={(timeStopClose) => setWorkspace((current) => ({ ...current, timeStopClose }))}
                 />
               ) : null}
             </div>
@@ -1372,6 +1405,57 @@ function PinFill({
       cancel = true
     }
   }, [price, symbol, venue])
+  return null
+}
+
+function OpenTradeWatch({
+  trade,
+  timeframe,
+  maxBarsOpen,
+  timeStopClose,
+  onScaled,
+  onTimedClose,
+}: {
+  trade: TradeRecord
+  timeframe: Timeframe
+  maxBarsOpen: number | null
+  timeStopClose: boolean
+  onScaled: (runner: TradeRecord) => void
+  onTimedClose: (trade: TradeRecord) => void
+}) {
+  const book = useBookView(trade.symbol, trade.market)
+  const mark = liveMark(book)?.price ?? null
+  const busy = useRef(false)
+  const scaledRef = useRef(onScaled)
+  const timedRef = useRef(onTimedClose)
+  scaledRef.current = onScaled
+  timedRef.current = onTimedClose
+
+  useEffect(() => {
+    if (mark == null || !(mark > 0) || busy.current || trade.exitTime != null) return
+    let cancel = false
+    void (async () => {
+      if (trade.scaleOutR != null && trade.scaleOutPct != null && trade.leg !== "partial" && trade.leg !== "runner") {
+        busy.current = true
+        const result = await applyScaleOut(trade.id, mark)
+        busy.current = false
+        if (cancel || !result) return
+        scaledRef.current(result.runner)
+        return
+      }
+      if (timeStopClose && timeStopDue(trade.entryTime, timeframe, maxBarsOpen)) {
+        busy.current = true
+        const closed = await closeJournalTrade(trade.id, mark)
+        busy.current = false
+        if (cancel || !closed) return
+        timedRef.current(closed)
+      }
+    })()
+    return () => {
+      cancel = true
+    }
+  }, [mark, maxBarsOpen, timeStopClose, timeframe, trade.exitTime, trade.id, trade.leg, trade.scaleOutPct, trade.scaleOutR, trade.entryTime])
+
   return null
 }
 

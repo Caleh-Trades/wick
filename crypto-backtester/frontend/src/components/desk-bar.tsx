@@ -13,11 +13,12 @@ import { missingBars } from "@/lib/plot"
 import { TIMEFRAMES, barsLabel, marketById, windowNote } from "@/lib/runs"
 import type { SessionLight } from "@/lib/desk"
 
-export type DeskPage = "desk" | "journal" | "windows" | "replay" | "paper" | "correlation" | "cross" | "diff"
+export type DeskPage = "desk" | "journal" | "windows" | "replay" | "paper" | "saved" | "correlation" | "cross" | "diff"
 import type { MarketId, RangeId, Tape, Timeframe, Venue } from "@/lib/types"
 
 const PAGE_ITEMS: Array<[DeskPage, string]> = [
   ["journal", "Journal"],
+  ["saved", "Saved"],
   ["windows", "Windows"],
   ["replay", "Replay"],
   ["paper", "Paper"],

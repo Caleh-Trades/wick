@@ -8,7 +8,7 @@ import { marketById } from "@/lib/runs"
 import { marketSpec } from "@/lib/markets"
 import { timeStopDue } from "@/lib/time-stop"
 import { TAPE_STALE_MS } from "@/lib/stale-tape"
-import { holdBook, useBookView } from "@/lib/use-book"
+import { holdBook, useBookView, wakeGraceActive } from "@/lib/use-book"
 import { tapeKey, type Slot } from "@/lib/workspace"
 import type { MarketId, Tape, Venue } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -168,6 +168,7 @@ function QuoteRow({
   const price = book.quote ?? book.last?.price ?? null
   // Book status flips stale after 3 quiet seconds; only badge the rail after 15s so a short gap is not an error wall.
   const stale =
+    !wakeGraceActive() &&
     book.status === "stale" &&
     price != null &&
     (book.heardAt == null || Date.now() - book.heardAt > TAPE_STALE_MS)

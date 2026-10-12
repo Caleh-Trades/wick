@@ -560,10 +560,60 @@ function takeTrade(conn: BookConn, payload: Record<string, unknown>) {
 function armSilence(conn: BookConn) {
   window.clearTimeout(conn.silence)
   conn.silence = window.setTimeout(() => {
+    // Background tabs throttle timers and freeze sockets. Closing here only
+    // stacks reconnect backoff; wait until the tab is visible again.
+    if (typeof document !== "undefined" && document.hidden) {
+      armSilence(conn)
+      return
+    }
     conn.socket?.close()
     conn.tapeSocket?.close()
   }, SILENCE_MS)
 }
+
+let wokeAt = 0
+const wakeListeners = new Set<() => void>()
+
+/** True for a short window after the tab wakes so the desk can reconnect without a stale wall. */
+export function wakeGraceActive(ms = 20_000): boolean {
+  return wokeAt > 0 && Date.now() - wokeAt < ms
+}
+
+export function onDeskWake(listener: () => void): () => void {
+  wakeListeners.add(listener)
+  return () => wakeListeners.delete(listener)
+}
+
+/**
+ * After idle, browsers freeze or drop book sockets. Reset backoff and reopen
+ * every held connection the moment the tab is visible again.
+ */
+export function wakeBooks(): void {
+  const now = Date.now()
+  if (now - wokeAt < 2_000) return
+  wokeAt = now
+  for (const conn of books.values()) {
+    if (conn.refs <= 0) continue
+    conn.attempt = 0
+    dropSocket(conn)
+    conn.view = { ...conn.view, status: "connecting" }
+    syncSocket(conn)
+  }
+  emit()
+  for (const listener of wakeListeners) listener()
+}
+
+function bindWake() {
+  if (typeof document === "undefined" || typeof window === "undefined") return
+  const onVisible = () => {
+    if (document.hidden) return
+    wakeBooks()
+  }
+  document.addEventListener("visibilitychange", onVisible)
+  window.addEventListener("online", onVisible)
+}
+
+bindWake()
 
 function dropSocket(conn: BookConn) {
   window.clearTimeout(conn.retry)

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react"
 
 import { armTapeBlocked, isTapeStale } from "./stale-tape.ts"
 import { pollIntervalMs } from "./runs.ts"
-import { useBookView } from "./use-book.ts"
+import { useBookView, wakeGraceActive } from "./use-book.ts"
 import type { Timeframe, Venue } from "./types.ts"
 
 /** Slow wall clock for aging checks. Book ticks already re-render via useBookView. */
@@ -30,6 +30,8 @@ export function useTapeFreshness(
   const grace = Math.max(15_000, pollIntervalMs(timeframe as Timeframe))
   const heard = book.heardAt
   const candle = candleClock?.getTime() ?? null
+  // After idle, sockets need a moment. Don't paint a stale wall while reconnecting.
+  if (wakeGraceActive()) return { tapeStale: false, armBlocked: armTapeBlocked(heard, candle, now, grace) }
   return {
     tapeStale: isTapeStale(heard, candle, now, grace),
     armBlocked: armTapeBlocked(heard, candle, now, grace),

@@ -83,7 +83,7 @@ import {
 } from "@/lib/runs"
 import { dropPosition, lossStreak, nextSession, pinSymbol, pinsOf, resolveSession, ticketFills, upsertPosition, type ArmGate } from "@/lib/desk"
 import { runFromKept } from "@/lib/paper"
-import { holdBook, peekBook, useBookView } from "@/lib/use-book"
+import { holdBook, onDeskWake, peekBook, useBookView, wakeBooks } from "@/lib/use-book"
 import {
   MAX_SLOTS,
   createSlot,
@@ -308,9 +308,13 @@ export default function App() {
     }
   }, [slotKeys, tapeRetry])
 
-  const refreshTail = useCallback(async () => {
+  const pollFails = useRef(0)
+  const refreshTail = useCallback(async (): Promise<boolean> => {
     const current = workspaceRef.current
     const targets = visibleSlots(current)
+    if (targets.length === 0) return true
+    let ok = false
+    let failed = false
     await Promise.all(
       targets.map(async (slot) => {
         const key = tapeKey(slot)
@@ -327,7 +331,7 @@ export default function App() {
             merged.candles.at(-1)?.t === base.candles.at(-1)?.t &&
             merged.candles.at(-1)?.close === base.candles.at(-1)?.close
           setClocks((clock) => ({ ...clock, [slot.id]: new Date() }))
-          setStale(false)
+          ok = true
           if (sameTail) return
           const next = { ...tapesRef.current, [key]: merged }
           tapesRef.current = next
@@ -337,10 +341,21 @@ export default function App() {
           const outcome = await computeFor(run, slot, merged)
           setOutcomes((prev) => ({ ...prev, [run.id]: outcome }))
         } catch {
-          setStale(true)
+          failed = true
         }
       }),
     )
+    if (ok) {
+      pollFails.current = 0
+      setStale(false)
+      return true
+    }
+    if (failed) {
+      pollFails.current += 1
+      // One blip after idle is normal. Only banner after a second miss.
+      if (pollFails.current >= 2) setStale(true)
+    }
+    return false
   }, [])
 
   useEffect(() => {
@@ -387,10 +402,29 @@ export default function App() {
   useEffect(() => {
     if (!active || setupOpen || editing || loadingKey === tapeKey(active)) return
     const timer = window.setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return
       void refreshTail()
     }, pollIntervalMs(active.timeframe))
     return () => window.clearInterval(timer)
   }, [active, editing, loadingKey, refreshTail, setupOpen])
+
+  useEffect(() => {
+    let cancelled = false
+    const recover = async () => {
+      setStale(false)
+      pollFails.current = 0
+      wakeBooks()
+      for (let tryIndex = 0; tryIndex < 3 && !cancelled; tryIndex += 1) {
+        const ok = await refreshTail()
+        if (ok || cancelled) return
+        await new Promise((resolve) => window.setTimeout(resolve, 600 * (tryIndex + 1)))
+      }
+    }
+    // use-book wakes sockets on visibility/online; refresh the candle tape with them.
+    return onDeskWake(() => {
+      void recover()
+    })
+  }, [refreshTail])
 
   function patchSlot(id: string, patch: Partial<Slot>) {
     setWorkspace((current) => ({

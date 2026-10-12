@@ -132,7 +132,11 @@ export function AlertControl({
         Arm
       </Button>
       {alert && (alert.kind === "above" || alert.kind === "below") ? (
-        <span className="font-mono text-[10px] tracking-wide text-foreground whitespace-nowrap uppercase" role="status">
+        <span
+          className="shrink-0 font-mono text-[10px] tracking-wide text-foreground whitespace-nowrap uppercase"
+          role="status"
+          aria-label={`Arm level ${alert.kind} ${formatPrice(alert.value, tick)}`}
+        >
           {alert.kind} {formatPrice(alert.value, tick)}
         </span>
       ) : null}
@@ -152,7 +156,7 @@ export function AlertControl({
         ))}
       </span>
       <span className={cn("font-mono text-[10px] tracking-wide whitespace-nowrap normal-case", reading.hot ? "text-foreground" : "text-muted-foreground")} role="status">
-        {session === "stand-down" ? "stand-down" : status}
+        {session === "stand-down" ? (watched ? `stand-down · ${watched}` : "stand-down") : status}
         {arm && arm.symbol === (symbol ?? "").toUpperCase() && arm.market === venue
           ? ` · ${arm.side} entry ${formatPrice(arm.entry)} stop ${formatPrice(arm.stop)} size ${formatCompact(arm.size)} R ${arm.r}`
           : ""}

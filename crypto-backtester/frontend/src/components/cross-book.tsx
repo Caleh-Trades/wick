@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react"
 
+import { SymbolSetEditor } from "@/components/symbol-set-editor"
 import { fetchCandles } from "@/lib/api"
 import { isThinSample } from "@/lib/backtest"
 import { computeBacktest } from "@/lib/compute"
-import { CROSS_SYMBOLS, crossBookRun } from "@/lib/cross-book"
+import { crossBookRun } from "@/lib/cross-book"
 import { marketLabel } from "@/lib/desk"
 import { formatPct } from "@/lib/format"
 import { fingerprint, rangeDays } from "@/lib/runs"
@@ -23,12 +24,16 @@ export function CrossBookPage({
   venue,
   timeframe,
   range,
+  symbols,
+  onSymbols,
   closedTrades,
 }: {
   run: Run | null
   venue: Venue
   timeframe: Timeframe
   range: RangeId
+  symbols: MarketId[]
+  onSymbols: (symbols: MarketId[]) => void
   /** Closed trades on the kept or active run. Under ten is a thin sample. */
   closedTrades: number | null
 }) {
@@ -38,15 +43,20 @@ export function CrossBookPage({
   runRef.current = run
   const mark = run ? fingerprint(run) : ""
   const thin = closedTrades != null && isThinSample(closedTrades)
+  const symbolKey = symbols.join(",")
 
   useEffect(() => {
     const current = runRef.current
-    if (!current) return
+    if (!current || symbols.length === 0) {
+      setRows([])
+      setPending(false)
+      return
+    }
     let cancel = false
     setPending(true)
     const days = rangeDays(range)
     void Promise.all(
-      CROSS_SYMBOLS.map(async (symbol) => {
+      symbols.map(async (symbol) => {
         try {
           const tape = await fetchCandles(symbol, timeframe, { days, range, venue })
           const outcome = await computeBacktest(crossBookRun(current, symbol, venue), tape)
@@ -79,7 +89,9 @@ export function CrossBookPage({
     return () => {
       cancel = true
     }
-  }, [mark, venue, timeframe, range])
+  }, [mark, venue, timeframe, range, symbolKey, symbols])
+
+  const names = symbols.map((symbol) => symbol.replace(/USDT$/, "")).join(", ")
 
   return (
     <div className="desk-stack lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
@@ -87,8 +99,8 @@ export function CrossBookPage({
         <div>
           <h2 className="font-mono text-xs tracking-[0.28em] text-[#c56a32] uppercase">Cross-book</h2>
           <p className="mt-3 max-w-2xl text-sm text-muted-foreground">
-            {run ? run.name : "The active rule"} on BTC, ETH, and SOL for this window. {marketLabel(venue)}.{" "}
-            {venue === "spot" ? "Spot stays long only." : "Perp may short."}
+            {run ? run.name : "The active rule"} across the markets below for this window. {marketLabel(venue)}.{" "}
+            {venue === "spot" ? "Spot stays long only." : "Perp may short."} Add or remove markets anytime.
           </p>
           {thin ? (
             <p className="mt-2 font-mono text-[10px] text-muted-foreground/70 normal-case" role="status">
@@ -96,8 +108,9 @@ export function CrossBookPage({
             </p>
           ) : null}
         </div>
+        <SymbolSetEditor label="Cross markets" symbols={symbols} venue={venue} onChange={onSymbols} />
         {!run ? <p className="text-sm text-muted-foreground">Select a run on the desk first.</p> : null}
-        {run && pending ? <p className="text-sm text-muted-foreground">Running BTC, ETH, and SOL.</p> : null}
+        {run && pending ? <p className="text-sm text-muted-foreground">Running {names || "the list"}.</p> : null}
         {rows.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-left" aria-label="Cross-book">

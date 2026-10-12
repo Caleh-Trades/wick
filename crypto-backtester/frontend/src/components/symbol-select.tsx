@@ -17,12 +17,15 @@ export function SymbolSelect({
   onChange,
   id,
   className,
+  emptyLabel,
 }: {
   value: string
   venue: Venue
   onChange: (symbol: string) => void
   id?: string
   className?: string
+  /** When value is empty, show this on the trigger instead of a market name. */
+  emptyLabel?: string
 }) {
   const markets = useMarkets(venue)
   const favourites = useFavourites()
@@ -217,7 +220,7 @@ export function SymbolSelect({
         id={id}
         type="button"
         className="flex h-10 w-full items-center justify-between gap-2 border-b border-input bg-transparent text-left text-sm"
-        aria-label="Symbol"
+        aria-label={!value && emptyLabel ? emptyLabel : "Symbol"}
         aria-expanded={open}
         aria-controls={listId}
         onClick={() => {
@@ -229,7 +232,7 @@ export function SymbolSelect({
           setOpen((currentOpen) => !currentOpen)
         }}
       >
-        <span className="truncate">{triggerLabel(current)}</span>
+        <span className="truncate">{!value && emptyLabel ? emptyLabel : triggerLabel(current)}</span>
         <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
       </button>
       {panel ? createPortal(panel, document.body) : null}

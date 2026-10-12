@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 
 import { Button } from "@/components/ui/button"
-import { formatPct, formatStamp } from "@/lib/format"
+import { formatMoney, formatPct, formatStamp } from "@/lib/format"
 import { paperReturnPct } from "@/lib/paper"
 import { listRuns, setRunPaper, tradesForRun, watchBook, type KeptListRow, type TradeRecord } from "@/lib/records"
 import type { Venue } from "@/lib/types"
@@ -88,6 +88,10 @@ export function PaperPage({ sinceFor }: { sinceFor: (symbol: string, venue: Venu
                   <span className={cn("font-mono text-xs tabular-nums", (trade.returnPct ?? 0) > 0 ? "text-up" : (trade.returnPct ?? 0) < 0 ? "text-down" : "")}>
                     {formatPct(trade.returnPct)}
                   </span>
+                  <span className={cn("font-mono text-xs tabular-nums", (trade.pnl ?? 0) > 0 ? "text-up" : (trade.pnl ?? 0) < 0 ? "text-down" : "")}>
+                    P&L {trade.pnl == null ? "—" : formatMoney(trade.pnl, 2)}
+                  </span>
+                  <span className="font-mono text-[10px] text-muted-foreground">Fee {formatMoney(trade.fee, 2)}</span>
                   <span className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">paper</span>
                 </li>
               ))}

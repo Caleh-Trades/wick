@@ -823,14 +823,24 @@ export default function App() {
   }
 
   async function flatTrade(trade: TradeRecord, price: number) {
-    if (price > 0) await closeJournalTrade(trade.id, price)
+    if (price > 0) {
+      await closeJournalTrade(trade.id, price, {
+        feeBps: selected?.feeBps ?? 10,
+        slippageBps: selected?.slippageBps ?? 5,
+      })
+    }
     forgetPosition(trade.id)
   }
 
   async function flatMarket(symbol: string, market: Venue, price: number) {
     const position = workspaceRef.current.positions.find((item) => item.symbol === symbol && item.market === market)
     if (!position) return
-    if (price > 0) await closeJournalTrade(position.tradeId, price)
+    if (price > 0) {
+      await closeJournalTrade(position.tradeId, price, {
+        feeBps: selected?.feeBps ?? 10,
+        slippageBps: selected?.slippageBps ?? 5,
+      })
+    }
     forgetPosition(position.tradeId)
   }
 
@@ -872,11 +882,7 @@ export default function App() {
     setWorkspace((current) => (current.lossHalt ? current : { ...current, lossHalt: true }))
   }, [streak, workspace.lossLimit, workspace.lossHalt])
   const session = lossHalted ? "stand-down" : resolveSession(workspace.session)
-  const showCorrelation = active != null && pinsOf(active).length >= 2
-  const pinKey = active ? `${active.venue}:${pinsOf(active).join(",")}` : ""
-  useEffect(() => {
-    if (page === "correlation" && !showCorrelation) setPage("desk")
-  }, [page, showCorrelation])
+  const correlationKey = `${active?.venue ?? "spot"}:${workspace.correlationSymbols.join(",")}`
   const scoredCandle = useRef(new Map<string, string>())
   useEffect(() => {
     let cancel = false
@@ -909,10 +915,15 @@ export default function App() {
     }
   }, [tapes])
   useEffect(() => {
-    if (page !== "correlation" || !active || pinsOf(active).length < 2) return
+    if (page !== "correlation") return
+    const symbols = workspace.correlationSymbols
+    if (symbols.length === 0) {
+      setDaily({})
+      setDailyPending(false)
+      return
+    }
     let cancel = false
-    const symbols = pinsOf(active)
-    const venue = active.venue
+    const venue = active?.venue ?? "spot"
     setDailyPending(true)
     void Promise.all(symbols.map((symbol) => fetchCandles(symbol, "1d", { days: 45, venue }).catch(() => null))).then((rows) => {
       if (cancel) return
@@ -927,7 +938,7 @@ export default function App() {
     return () => {
       cancel = true
     }
-  }, [page, pinKey, active])
+  }, [page, correlationKey, active?.venue, workspace.correlationSymbols])
   return (
     <div className="desk-shell flex min-h-svh flex-col lg:h-svh lg:min-h-0">
       {pinKeys(workspace).map((key) => {
@@ -945,6 +956,8 @@ export default function App() {
           }
           maxBarsOpen={workspace.maxBarsOpen}
           timeStopClose={workspace.timeStopClose}
+          feeBps={selected?.feeBps ?? 10}
+          slippageBps={selected?.slippageBps ?? 5}
           onScaled={(runner) => {
             forgetPosition(trade.id)
             if (runner.exitTime == null) rememberPosition(runner)
@@ -978,7 +991,6 @@ export default function App() {
               .at(-1)
             setWorkspace((current) => ({ ...current, lossHalt: false, lossHaltAck: newest || new Date().toISOString() }))
           }}
-          showCorrelation={showCorrelation}
           onSymbol={(symbol) => patchSlot(active.id, { symbol })}
           onTimeframe={(timeframe) => patchSlot(active.id, { timeframe })}
           onVenue={(venue) => patchSlot(active.id, { venue })}
@@ -1006,6 +1018,8 @@ export default function App() {
           session={session}
           positions={workspace.positions}
           maxBarsOpen={workspace.maxBarsOpen}
+          feeBps={selected?.feeBps ?? 10}
+          slippageBps={selected?.slippageBps ?? 5}
           onLogged={(trade) => {
             if (trade.exitTime == null) rememberPosition(trade)
           }}
@@ -1032,7 +1046,10 @@ export default function App() {
       ) : page === "correlation" ? (
         <CorrelationPage
           pending={dailyPending}
-          series={(active ? pinsOf(active) : []).map((symbol) => ({ symbol, candles: daily[symbol] ?? [] }))}
+          symbols={workspace.correlationSymbols}
+          venue={active?.venue ?? "spot"}
+          onSymbols={(correlationSymbols) => setWorkspace((current) => ({ ...current, correlationSymbols }))}
+          series={workspace.correlationSymbols.map((symbol) => ({ symbol, candles: daily[symbol] ?? [] }))}
         />
       ) : page === "cross" ? (
         <CrossBookPage
@@ -1040,6 +1057,8 @@ export default function App() {
           venue={active?.venue ?? "spot"}
           timeframe={active?.timeframe ?? "1d"}
           range={active?.range ?? "1Y"}
+          symbols={workspace.crossSymbols}
+          onSymbols={(crossSymbols) => setWorkspace((current) => ({ ...current, crossSymbols }))}
           closedTrades={result?.metrics.trades ?? null}
         />
       ) : page === "diff" ? (
@@ -1413,6 +1432,8 @@ function OpenTradeWatch({
   timeframe,
   maxBarsOpen,
   timeStopClose,
+  feeBps,
+  slippageBps,
   onScaled,
   onTimedClose,
 }: {
@@ -1420,6 +1441,8 @@ function OpenTradeWatch({
   timeframe: Timeframe
   maxBarsOpen: number | null
   timeStopClose: boolean
+  feeBps: number
+  slippageBps: number
   onScaled: (runner: TradeRecord) => void
   onTimedClose: (trade: TradeRecord) => void
 }) {
@@ -1445,7 +1468,7 @@ function OpenTradeWatch({
       }
       if (timeStopClose && timeStopDue(trade.entryTime, timeframe, maxBarsOpen)) {
         busy.current = true
-        const closed = await closeJournalTrade(trade.id, mark)
+        const closed = await closeJournalTrade(trade.id, mark, { feeBps, slippageBps })
         busy.current = false
         if (cancel || !closed) return
         timedRef.current(closed)
@@ -1454,7 +1477,7 @@ function OpenTradeWatch({
     return () => {
       cancel = true
     }
-  }, [mark, maxBarsOpen, timeStopClose, timeframe, trade.exitTime, trade.id, trade.leg, trade.scaleOutPct, trade.scaleOutR, trade.entryTime])
+  }, [feeBps, mark, maxBarsOpen, slippageBps, timeStopClose, timeframe, trade.exitTime, trade.id, trade.leg, trade.scaleOutPct, trade.scaleOutR, trade.entryTime])
 
   return null
 }

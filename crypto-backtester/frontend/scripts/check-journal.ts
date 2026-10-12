@@ -4,6 +4,8 @@ import { fetchCandles } from "../src/lib/api.ts"
 import { editConcerns } from "../src/lib/bot-edits.ts"
 import { chartCandle, klineCandle, publicSpanDays, resampleCandles } from "../src/lib/public-tape.ts"
 import { crossBookRun } from "../src/lib/cross-book.ts"
+import { addSymbol, removeSymbol, sanitizeSymbolSet, SYMBOL_SET_CAP } from "../src/lib/symbol-set.ts"
+import { costFromBps, settle } from "../src/lib/records.ts"
 import { tapeForSlot } from "../src/lib/workspace.ts"
 import { dailyReturns, pairedReturns, pearson } from "../src/lib/correlation.ts"
 import { ruleDiff } from "../src/lib/diff.ts"
@@ -695,6 +697,17 @@ const base = {
 assert.equal(crossBookRun(base, "ETHUSDT", "spot").allowShort, false)
 assert.equal(crossBookRun(base, "ETHUSDT", "spot").symbol, "ETHUSDT")
 assert.equal(crossBookRun(base, "SOLUSDT", "perp").allowShort, true)
+assert.equal(SYMBOL_SET_CAP, 12)
+assert.deepEqual(sanitizeSymbolSet(["btcusdt", "ETHUSDT", "nope", "BTCUSDT"], ["SOLUSDT"]), ["BTCUSDT", "ETHUSDT"])
+assert.deepEqual(addSymbol(["BTCUSDT"], "ETHUSDT"), ["BTCUSDT", "ETHUSDT"])
+assert.deepEqual(addSymbol(["BTCUSDT"], "BTCUSDT"), ["BTCUSDT"])
+assert.deepEqual(removeSymbol(["BTCUSDT", "ETHUSDT"], "ETHUSDT"), ["BTCUSDT"])
+const net = settle("long", 100, 110, 1, 0.2, 0.1)
+assert.ok(Math.abs(net.pnl - 9.7) < 1e-9)
+assert.ok(Math.abs(net.returnPct - 9.7) < 1e-9)
+const costs = costFromBps(100, 2, 10, 5)
+assert.ok(Math.abs(costs.fee - 0.2) < 1e-9)
+assert.ok(Math.abs(costs.slippage - 0.1) < 1e-9)
 
 const wide = {
   symbol: "ETHUSDT",

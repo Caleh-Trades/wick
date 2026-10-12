@@ -12,6 +12,7 @@ import {
   type SessionLight,
 } from "./desk.ts"
 import { clampRisk, clampSlippage, createRun, isRange, isTimeframe, isVenue, loadDesk, MAX_RUNS, normalizeCombo, normalizeRule, rangeDays, type DeskState } from "./runs.ts"
+import { DEFAULT_CORRELATION_SYMBOLS, DEFAULT_CROSS_SYMBOLS, sanitizeSymbolSet } from "./symbol-set.ts"
 import { clampMaxBars } from "./time-stop.ts"
 import type { MarketId, RangeId, Run, Tape, Timeframe, Venue } from "./types.ts"
 
@@ -66,6 +67,10 @@ export type Workspace = {
   lossHaltAck: string | null
   /** One open position per symbol and market. Flat is the absence of a row. */
   positions: BookPosition[]
+  /** Markets on Cross-book. Editable on that page. */
+  crossSymbols: MarketId[]
+  /** Markets on Correlation. Editable on that page. */
+  correlationSymbols: MarketId[]
 }
 
 export function tapeKey(slot: Pick<Slot, "venue" | "timeframe" | "range" | "symbol">): string {
@@ -125,6 +130,8 @@ export function defaultWorkspace(): Workspace {
     lossHalt: false,
     lossHaltAck: null,
     positions: [],
+    crossSymbols: [...DEFAULT_CROSS_SYMBOLS],
+    correlationSymbols: [...DEFAULT_CORRELATION_SYMBOLS],
   }
 }
 
@@ -193,6 +200,8 @@ export function fromDesk(desk: DeskState): Workspace {
     lossHalt: false,
     lossHaltAck: null,
     positions: [],
+    crossSymbols: [...DEFAULT_CROSS_SYMBOLS],
+    correlationSymbols: [...DEFAULT_CORRELATION_SYMBOLS],
   }
 }
 
@@ -203,6 +212,8 @@ function sanitizeWorkspace(value: unknown): Workspace {
   if (slots.length === 0) return defaultWorkspace()
   const activeId = slots.some((slot) => slot.id === raw.activeId) ? String(raw.activeId) : slots[0]!.id
   const pinnedId = slots.some((slot) => slot.id === raw.pinnedId) ? String(raw.pinnedId) : null
+  const active = slots.find((slot) => slot.id === activeId) ?? slots[0]!
+  const pinFallback = pinsOf(active).length >= 2 ? (pinsOf(active) as MarketId[]) : DEFAULT_CORRELATION_SYMBOLS
   return {
     slots,
     activeId,
@@ -217,6 +228,10 @@ function sanitizeWorkspace(value: unknown): Workspace {
     lossHalt: raw.lossHalt === true,
     lossHaltAck: typeof raw.lossHaltAck === "string" && raw.lossHaltAck ? raw.lossHaltAck : null,
     positions: Array.isArray(raw.positions) ? raw.positions.map(asPosition).filter((item) => item != null) : [],
+    crossSymbols: sanitizeSymbolSet(raw.crossSymbols, DEFAULT_CROSS_SYMBOLS),
+    correlationSymbols: Array.isArray(raw.correlationSymbols)
+      ? sanitizeSymbolSet(raw.correlationSymbols, DEFAULT_CORRELATION_SYMBOLS)
+      : sanitizeSymbolSet(pinFallback, DEFAULT_CORRELATION_SYMBOLS),
   }
 }
 

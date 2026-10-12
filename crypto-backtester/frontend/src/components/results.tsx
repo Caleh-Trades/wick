@@ -79,6 +79,9 @@ export const Results = memo(function Results({
   const closed = trades.filter((trade) => trade.status === "closed").length
   const liquidated = trades.filter((trade) => trade.status === "liquidated").length
   const open = trades.filter((trade) => trade.status === "open").length
+  const closedTrades = trades.filter((trade) => trade.status === "closed" || trade.status === "liquidated")
+  const pnlTotal = closedTrades.reduce((sum, trade) => sum + trade.pnl, 0)
+  const feesTotal = trades.reduce((sum, trade) => sum + (trade.fee_paid ?? 0), 0)
   const rows = sortedRows(runs, outcomes, sortKey, sortDir)
   const selectedOutcome = outcomes[selected.id]
   const setupChanged = Boolean(selectedOutcome?.ok && selectedOutcome.fingerprint !== fingerprint(selected))
@@ -136,6 +139,10 @@ export const Results = memo(function Results({
           {venue === "perp" ? "Kraken perp" : "Binance spot"}
           {" · "}
           {closed} closed{liquidated ? ` · ${liquidated} liquidated` : ""}{open ? ` · ${open} open` : ""}
+          {" · "}
+          <span className={cn("normal-case tabular-nums", toneClass(pnlTotal))}>P&L {formatMoney(pnlTotal, 2)}</span>
+          {" · "}
+          <span className="normal-case tabular-nums">Fees {formatMoney(feesTotal, 2)}</span>
         </p>
         {trades.length === 0 ? (
           <p className="border-t border-border py-6 text-sm text-muted-foreground">
@@ -161,7 +168,10 @@ export const Results = memo(function Results({
                   {trade.exit_price == null ? "—" : formatPrice(trade.exit_price, market?.tickSize)}
                 </p>
                 <p className="mt-0.5 flex justify-between gap-2 font-mono text-[11px] tabular-nums">
-                  <span className={toneClass(trade.pnl)}>{formatMoney(trade.pnl, 2)}</span>
+                  <span className={toneClass(trade.pnl)}>
+                    P&L {formatMoney(trade.pnl, 2)}
+                    <span className="ml-1 text-muted-foreground normal-case">after fees</span>
+                  </span>
                   <span className="text-muted-foreground">{trade.bars_held} bars</span>
                 </p>
                 <p className="mt-0.5 grid grid-cols-2 gap-2 font-mono text-[11px] tabular-nums text-muted-foreground">

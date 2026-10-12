@@ -1,12 +1,19 @@
+import { SymbolSetEditor } from "@/components/symbol-set-editor"
 import { dailyReturns, pairedReturns, pearson } from "@/lib/correlation"
-import type { TapeCandle } from "@/lib/types"
+import type { MarketId, TapeCandle, Venue } from "@/lib/types"
 
 export function CorrelationPage({
   series,
   pending,
+  symbols,
+  venue,
+  onSymbols,
 }: {
   series: Array<{ symbol: string; candles: TapeCandle[] }>
   pending: boolean
+  symbols: MarketId[]
+  venue: Venue
+  onSymbols: (symbols: MarketId[]) => void
 }) {
   const names = series.map((item) => item.symbol.replace(/USDT$/, ""))
   const returns = series.map((item) => dailyReturns(item.candles, 30))
@@ -24,12 +31,13 @@ export function CorrelationPage({
         <div>
           <h2 className="font-mono text-xs tracking-[0.28em] text-[#c56a32] uppercase">Correlation</h2>
           <p className="mt-3 max-w-2xl text-sm text-muted-foreground">
-            Pairwise correlation of the last 30 daily returns. One number per pair. A missing day is left out of that pair.
+            Pairwise correlation of the last 30 daily returns. Add or remove markets below. A missing day is left out of that pair.
           </p>
         </div>
+        <SymbolSetEditor label="Correlation markets" symbols={symbols} venue={venue} onChange={onSymbols} />
         {pending ? <p className="text-sm text-muted-foreground">Waiting for daily bars.</p> : null}
         {!pending && names.length < 2 ? (
-          <p className="text-sm text-muted-foreground">Pin a second symbol. Correlation uses the active slot’s pin set.</p>
+          <p className="text-sm text-muted-foreground">Add at least two markets to build the matrix.</p>
         ) : null}
         {names.length >= 2 ? (
           <div className="overflow-x-auto" aria-label="30-day return correlation">

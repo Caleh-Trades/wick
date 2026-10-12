@@ -170,6 +170,10 @@ export type TradePage = {
   total: number
   closed: number
   open: number
+  /** Sum of closed trade P&L after fees and slippage. */
+  pnl: number
+  /** Sum of fees on matched rows (open entry fees + closed round-trip fees). */
+  fees: number
   profitFactor: number | null
   expectancy: number | null
 }
@@ -201,7 +205,7 @@ export function emptyTicketQuery(page = 0): TicketQuery {
 }
 
 export function emptyPage(): TradePage {
-  return { rows: [], total: 0, closed: 0, open: 0, profitFactor: null, expectancy: null }
+  return { rows: [], total: 0, closed: 0, open: 0, pnl: 0, fees: 0, profitFactor: null, expectancy: null }
 }
 
 /** A journal row is one you logged, or a bot logged. A backtest fill belongs to its run. */
@@ -255,10 +259,16 @@ function byOpenThenNewest(left: TradeRecord, right: TradeRecord): number {
 function pageFrom(rows: TradeRecord[], matched: TradeRecord[]): TradePage {
   let closed = 0
   let open = 0
+  let pnl = 0
+  let fees = 0
   const samples: Array<{ pnl: number; return_pct: number; status: string }> = []
   for (const trade of matched) {
+    fees += trade.fee
     if (trade.exitTime == null) open += 1
-    else closed += 1
+    else {
+      closed += 1
+      if (trade.pnl != null && Number.isFinite(trade.pnl)) pnl += trade.pnl
+    }
     samples.push({
       pnl: trade.pnl == null ? Number.NaN : trade.pnl,
       return_pct: trade.returnPct == null ? Number.NaN : trade.returnPct,
@@ -270,6 +280,8 @@ function pageFrom(rows: TradeRecord[], matched: TradeRecord[]): TradePage {
     total: matched.length,
     closed,
     open,
+    pnl,
+    fees,
     profitFactor: profitFactor(samples),
     expectancy: tradeExpectancy(samples),
   }
@@ -394,6 +406,9 @@ export async function logBookTrade(input: {
   size: number
   fee?: number
   slippage?: number
+  /** When fee/slippage dollars are omitted, costs are taken from these bps. */
+  feeBps?: number
+  slippageBps?: number
   note?: string
   source?: TradeSource
   strategyId?: string
@@ -414,9 +429,13 @@ export async function logBookTrade(input: {
   const side = asTradeSide(input.side)
   if (!symbol || !side || !(input.entryPrice > 0) || !(input.size > 0)) return null
   const exitPrice = input.exitPrice != null && input.exitPrice > 0 ? input.exitPrice : null
-  const fee = Number.isFinite(input.fee) ? Number(input.fee) : 0
-  const slippage = Number.isFinite(input.slippage) ? Number(input.slippage) : 0
-  const move = exitPrice == null ? null : side === "long" ? exitPrice - input.entryPrice : input.entryPrice - exitPrice
+  const feeBps = Number.isFinite(input.feeBps) ? Number(input.feeBps) : 0
+  const slipBps = Number.isFinite(input.slippageBps) ? Number(input.slippageBps) : 0
+  const entryCosts = costFromBps(input.entryPrice, input.size, feeBps, slipBps)
+  const exitCosts = exitPrice != null ? costFromBps(exitPrice, input.size, feeBps, slipBps) : { fee: 0, slippage: 0 }
+  const fee = Number.isFinite(input.fee) ? Number(input.fee) : entryCosts.fee + exitCosts.fee
+  const slippage = Number.isFinite(input.slippage) ? Number(input.slippage) : entryCosts.slippage + exitCosts.slippage
+  const settled = exitPrice == null ? null : settle(side, input.entryPrice, exitPrice, input.size, fee, slippage)
   const strategyName = input.strategyName?.trim().slice(0, 48) ?? ""
   let strategyId = input.strategyId ?? ""
   const known = ruleById(input.rule?.trim() ?? "")
@@ -449,8 +468,8 @@ export async function logBookTrade(input: {
     size: input.size,
     fee,
     slippage,
-    pnl: move == null ? null : move * input.size - fee - slippage,
-    returnPct: move == null || !(input.entryPrice > 0) ? null : (move / input.entryPrice) * 100,
+    pnl: settled?.pnl ?? null,
+    returnPct: settled?.returnPct ?? null,
     mae: null,
     mfe: null,
     note: (input.note ?? "").trim().slice(0, 280),
@@ -495,14 +514,26 @@ export async function logTradeOp(op: BotOp): Promise<boolean> {
   return row != null
 }
 
-export async function closeJournalTrade(id: string, exitPrice: number): Promise<TradeRecord | null> {
+export async function closeJournalTrade(
+  id: string,
+  exitPrice: number,
+  costs?: { feeBps?: number; slippageBps?: number },
+): Promise<TradeRecord | null> {
   await bookReady()
   const trade = memory.trades.get(id)
   if (!trade || trade.runId != null || !(exitPrice > 0)) return null
   if (trade.exitTime != null) return trade
-  const settled = settle(trade.side, trade.entryPrice, exitPrice, trade.size, trade.fee, trade.slippage)
+  const exitCosts =
+    costs?.feeBps != null || costs?.slippageBps != null
+      ? costFromBps(exitPrice, trade.size, costs.feeBps ?? 0, costs.slippageBps ?? 0)
+      : { fee: 0, slippage: 0 }
+  const fee = trade.fee + exitCosts.fee
+  const slippage = trade.slippage + exitCosts.slippage
+  const settled = settle(trade.side, trade.entryPrice, exitPrice, trade.size, fee, slippage)
   const next: TradeRecord = {
     ...trade,
+    fee,
+    slippage,
     exitPrice,
     exitTime: new Date().toISOString(),
     pnl: settled.pnl,
@@ -711,6 +742,8 @@ async function journalForTicket(ticket: WorkingTicket, fillPrice: number | null,
     ticketId: ticket.id,
     scaleOutR: ticket.scaleOutR,
     scaleOutPct: ticket.scaleOutPct,
+    feeBps: 10,
+    slippageBps: 5,
     note: note ? line : "",
     source: "desk",
   })
@@ -776,9 +809,22 @@ function byTicketNewest(left: WorkingTicket, right: WorkingTicket): number {
   return right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
 }
 
-function settle(side: TradeSide, entry: number, exit: number, size: number, fee: number, slippage: number) {
+/** Dollar P&L after fees and slippage. Return is that net figure over entry notional. */
+export function settle(side: TradeSide, entry: number, exit: number, size: number, fee: number, slippage: number) {
   const move = side === "long" ? exit - entry : entry - exit
-  return { pnl: move * size - fee - slippage, returnPct: entry > 0 ? (move / entry) * 100 : 0 }
+  const notional = entry * size
+  const pnl = move * size - fee - slippage
+  return { pnl, returnPct: notional > 0 ? (pnl / notional) * 100 : 0 }
+}
+
+/** Entry or exit cost in dollars from bps on notional. */
+export function costFromBps(price: number, size: number, feeBps: number, slippageBps: number): { fee: number; slippage: number } {
+  if (!(price > 0) || !(size > 0)) return { fee: 0, slippage: 0 }
+  const notional = price * size
+  return {
+    fee: notional * Math.max(0, feeBps) / 10_000,
+    slippage: notional * Math.max(0, slippageBps) / 10_000,
+  }
 }
 
 export async function saveStrategy(
@@ -1564,6 +1610,8 @@ async function searchDb(query: TradeQuery): Promise<TradePage> {
     let total = 0
     let closed = 0
     let open = 0
+    let pnl = 0
+    let fees = 0
     const start = Math.max(0, query.page) * PAGE_SIZE
     request.onsuccess = () => {
       const cursor = request.result
@@ -1572,8 +1620,12 @@ async function searchDb(query: TradeQuery): Promise<TradePage> {
       if (trade && tradeMatches(trade, query)) {
         if (total >= start && rows.length < PAGE_SIZE) rows.push(trade)
         total += 1
+        fees += trade.fee
         if (trade.exitTime == null) open += 1
-        else closed += 1
+        else {
+          closed += 1
+          if (trade.pnl != null && Number.isFinite(trade.pnl)) pnl += trade.pnl
+        }
         samples.push({
           pnl: trade.pnl == null ? Number.NaN : trade.pnl,
           return_pct: trade.returnPct == null ? Number.NaN : trade.returnPct,
@@ -1588,6 +1640,8 @@ async function searchDb(query: TradeQuery): Promise<TradePage> {
         total,
         closed,
         open,
+        pnl,
+        fees,
         profitFactor: profitFactor(samples),
         expectancy: tradeExpectancy(samples),
       })

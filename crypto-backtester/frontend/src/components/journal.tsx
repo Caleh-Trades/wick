@@ -51,6 +51,8 @@ export function JournalPage({
   session,
   positions,
   maxBarsOpen,
+  feeBps,
+  slippageBps,
   onLogged,
   onCloseTrade,
   onPromote,
@@ -62,6 +64,8 @@ export function JournalPage({
   session: SessionLight
   positions: BookPosition[]
   maxBarsOpen: number | null
+  feeBps: number
+  slippageBps: number
   onLogged: (trade: TradeRecord) => void
   onCloseTrade: (trade: TradeRecord, price: number) => void
   onPromote: (id: string) => void
@@ -110,6 +114,8 @@ export function JournalPage({
             riskMode={riskMode}
             positions={positions}
             maxBarsOpen={maxBarsOpen}
+            feeBps={feeBps}
+            slippageBps={slippageBps}
             onLogged={onLogged}
             onCloseTrade={onCloseTrade}
           />
@@ -126,6 +132,8 @@ function TradesPanel({
   riskMode,
   positions,
   maxBarsOpen,
+  feeBps,
+  slippageBps,
   onLogged,
   onCloseTrade,
 }: {
@@ -135,6 +143,8 @@ function TradesPanel({
   riskMode: RiskMode
   positions: BookPosition[]
   maxBarsOpen: number | null
+  feeBps: number
+  slippageBps: number
   onLogged: (trade: TradeRecord) => void
   onCloseTrade: (trade: TradeRecord, price: number) => void
 }) {
@@ -230,6 +240,8 @@ function TradesPanel({
       stop: stopRaw,
       r: rewardRaw,
       riskMode,
+      feeBps,
+      slippageBps,
       source: "desk",
     })
     if (!logged) {
@@ -253,10 +265,12 @@ function TradesPanel({
 
   return (
     <>
-      <section className="bezel grid grid-cols-2 gap-px overflow-hidden sm:grid-cols-3 lg:grid-cols-5" aria-label="Filtered totals">
+      <section className="bezel grid grid-cols-2 gap-px overflow-hidden sm:grid-cols-3 lg:grid-cols-6" aria-label="Filtered totals">
         <Stat label="Trades" value={String(page.total)} />
         <Stat label="Closed" value={String(page.closed)} />
         <Stat label="Open" value={String(page.open)} />
+        <Stat label="P&L" value={signedMoney(page.pnl)} toneName={moneyTone(page.pnl)} />
+        <Stat label="Fees" value={formatMoney(page.fees, 2)} />
         <Stat label="Profit factor" value={formatFactor(page.profitFactor)} />
         <Stat
           label="Expectancy"
@@ -399,6 +413,7 @@ function TradesPanel({
                 <TableHead className="text-right">Exit</TableHead>
                 <TableHead className="text-right">Size</TableHead>
                 <TableHead className="text-right">Return</TableHead>
+                <TableHead className="text-right">Fee</TableHead>
                 <TableHead className="text-right">MAE</TableHead>
                 <TableHead className="text-right">MFE</TableHead>
                 <TableHead className="text-right">P&L</TableHead>
@@ -575,6 +590,7 @@ function TradeTableRow({
       <TableCell className={cn("text-right font-mono text-xs tabular-nums", trade.returnPct != null && moneyTone(trade.returnPct) === "up" && "text-up", trade.returnPct != null && moneyTone(trade.returnPct) === "down" && "text-down")}>
         {open ? "—" : formatPlainPct(trade.returnPct, 1)}
       </TableCell>
+      <TableCell className="text-right font-mono text-xs tabular-nums text-muted-foreground">{formatMoney(trade.fee, 2)}</TableCell>
       <TableCell className={cn("text-right font-mono text-xs tabular-nums", trade.mae != null && moneyTone(trade.mae) === "down" && "text-down")}>
         {open ? "—" : formatPct(trade.mae)}
       </TableCell>

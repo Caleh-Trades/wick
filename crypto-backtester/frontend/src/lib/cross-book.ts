@@ -1,8 +1,10 @@
+import { DEFAULT_CROSS_SYMBOLS } from "./symbol-set.ts"
 import type { MarketId, Run, Venue } from "./types.ts"
 
-export const CROSS_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"] as const
+/** @deprecated Prefer workspace.crossSymbols. Kept for older imports and tests. */
+export const CROSS_SYMBOLS = DEFAULT_CROSS_SYMBOLS
 
-/** The active rule on one of the three books. Spot cannot short. Perp keeps the run's short switch, on Kraken. */
+/** The active rule on one book. Spot cannot short. Perp keeps the run's short switch, on Kraken. */
 export function crossBookRun(run: Run, symbol: MarketId, venue: Venue): Run {
   return {
     ...run,

@@ -23,6 +23,7 @@ const PAGE_ITEMS: Array<[DeskPage, string]> = [
   ["replay", "Replay"],
   ["paper", "Paper"],
   ["cross", "Cross"],
+  ["correlation", "Correlation"],
   ["diff", "Diff"],
 ]
 
@@ -46,7 +47,6 @@ type DeskBarProps = {
   lossLimit: number
   lossHalted: boolean
   onClearHalt: () => void
-  showCorrelation: boolean
   accountSession: AccountSession | null
   accountStatus: string
   onCreateAccount: (name: string, password: string) => Promise<void>
@@ -74,7 +74,6 @@ export function DeskBar({
   lossLimit,
   lossHalted,
   onClearHalt,
-  showCorrelation,
   accountSession,
   accountStatus,
   onCreateAccount,
@@ -90,7 +89,7 @@ export function DeskBar({
   const headerPrice = mark?.price ?? last?.close ?? null
   const limited = tape ? windowNote(range, tape) : null
   const gaps = tape ? missingBars(tape.candles, tape.seconds) : 0
-  const pages = showCorrelation ? ([...PAGE_ITEMS, ["correlation", "Correlation"] as const] as Array<[DeskPage, string]>) : PAGE_ITEMS
+  const pages = PAGE_ITEMS
 
   return (
     <header className="bezel sticky top-0 z-30">

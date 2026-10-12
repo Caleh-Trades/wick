@@ -18,6 +18,7 @@ import {
 } from "@/lib/format"
 import { holdoutWarn, isThinSample, markReturn, monteCarloEquity, windowTradesLabel } from "@/lib/backtest"
 import { formatR, gaveBack, openR } from "@/lib/open-trade"
+import { riskOfRuinPct } from "@/lib/risk-ruin"
 import { clampRisk, fingerprint, marketById, runColor, strategyLabel } from "@/lib/runs"
 import type { BacktestResult, Outcome, Run, SampleSlice, SortKey, Trade, Venue } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -234,7 +235,10 @@ export function RunStrip({
   const open = trades.filter((trade) => trade.status === "open").length
   const slippagePaid = trades.reduce((sum, trade) => sum + (trade.slippage_paid ?? 0), 0)
   const closedReturns = trades.filter((trade) => trade.status === "closed").map((trade) => trade.return_pct)
+  const closedCount = trades.filter((trade) => trade.status === "closed" || trade.status === "liquidated").length
   const monteCarlo = monteCarloEquity(closedReturns, result.assumptions.initial_capital)
+  const ruin = riskOfRuinPct(metrics.win_rate_pct, result.assumptions.risk_pct, closedCount)
+  const thinRuin = isThinSample(closedCount)
   const [note, setNote] = useState("")
   return (
     <div className="shrink-0 px-3 pt-2">
@@ -281,6 +285,19 @@ export function RunStrip({
           label="Risk"
           hint="Percent of equity lost if the stop is hit. The position is that amount divided by the stop distance."
           value={riskLabel(result.assumptions.risk_pct)}
+          dense
+        />
+        <Metric
+          label="Risk of ruin"
+          hint="Chance of a 20% drawdown from win rate and risk per trade, assuming 1R wins and losses. Thin sample stays labeled under ten closed trades."
+          value={ruin == null ? "—" : formatPlainPct(ruin, 0)}
+          aside={
+            thinRuin ? (
+              <span className="text-[10px] font-normal text-muted-foreground/70 normal-case">thin sample</span>
+            ) : (
+              <span className="text-[11px] font-normal text-muted-foreground normal-case">20% DD</span>
+            )
+          }
           dense
         />
         <Metric label="Recovery" hint="Bars from the worst-drawdown peak until equity reclaims it." value={recoveryLabel(metrics.recovery_bars)} dense />

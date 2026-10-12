@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 
 import { type OverlaySeries } from "@/components/charts"
 import { useAccountSync } from "@/lib/use-account"
+import { CommandPalette, commandPaletteHotkey } from "@/components/command-palette"
 import { Controls } from "@/components/controls"
 import { DeskBar } from "@/components/desk-bar"
 import { BookSpan, MarketPane } from "@/components/market-pane"
@@ -59,6 +60,7 @@ import { liveMark } from "@/lib/book"
 import { copyShareRun, parseShareRun } from "@/lib/share-run"
 import { timeStopDue } from "@/lib/time-stop"
 import { ruleParams } from "@/lib/runs"
+import { biasLabel, isHigherTimeframe, latestBias } from "@/lib/bias"
 import { computeBacktest } from "@/lib/compute"
 import { ruleReading } from "@/lib/signals"
 import { spotTrades } from "@/lib/plot"
@@ -116,6 +118,7 @@ export default function App() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc")
   const [drawToken, setDrawToken] = useState(0)
   const [page, setPage] = useState<DeskPage>("desk")
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const [daily, setDaily] = useState<Record<string, TapeCandle[]>>({})
   const [dailyPending, setDailyPending] = useState(false)
   const [nudge, setNudge] = useState<{ runId: string; rows: NudgeReturn[] } | null>(null)
@@ -168,9 +171,32 @@ export default function App() {
   }, [held])
 
   const slotKeys = workspace.slots.map((slot) => `${slot.id}:${tapeKey(slot)}`).join("|")
+  async function biasTapeFor(run: Run, slot: Slot): Promise<Tape | null> {
+    const tf = run.biasTimeframe
+    if (!tf || !isHigherTimeframe(tf, slot.timeframe)) return null
+    const key = tapeKey({ ...slot, timeframe: tf })
+    const cached = tapesRef.current[key]
+    if (cached) return cached
+    try {
+      const tape = await fetchCandles(slot.symbol, tf, { days: rangeDays(slot.range), range: slot.range, venue: slot.venue })
+      const next = { ...tapesRef.current, [key]: tape }
+      tapesRef.current = next
+      setTapes(next)
+      return tape
+    } catch {
+      return null
+    }
+  }
+
+  async function computeFor(run: Run, slot: Slot, tape: Tape): Promise<Outcome> {
+    const aligned = alignRun(run, slot)
+    const bias = await biasTapeFor(aligned, slot)
+    return computeBacktest(aligned, tape, bias)
+  }
+
   async function stageRuns(slot: Slot, tape: Tape, gen: number, cancelled: () => boolean) {
     const targets = slot.runs.filter((run) => !run.hidden || run.id === slot.selectedId)
-    const computed = await Promise.all(targets.map((run) => computeBacktest(alignRun(run, slot), tape)))
+    const computed = await Promise.all(targets.map((run) => computeFor(run, slot, tape)))
     if (cancelled() || requestGen.current.get(slot.id) !== gen) return
     setOutcomes((current) => {
       const patch = { ...current }
@@ -286,7 +312,7 @@ export default function App() {
           setClocks((clock) => ({ ...clock, [slot.id]: new Date() }))
           const run = slot.runs.find((item) => item.id === slot.selectedId)
           if (!run) return
-          const outcome = await computeBacktest(alignRun(run, slot), merged)
+          const outcome = await computeFor(run, slot, merged)
           setOutcomes((prev) => ({ ...prev, [run.id]: outcome }))
         } catch {
           setStale(true)
@@ -440,11 +466,12 @@ export default function App() {
       prev.riskPct !== patched.riskPct ||
       prev.feeBps !== patched.feeBps ||
       prev.slippageBps !== patched.slippageBps ||
+      prev.biasTimeframe !== patched.biasTimeframe ||
       comboKey(prev) !== comboKey(patched)
     if (!restage) return
     const tape = tapesRef.current[tapeKey({ ...active, symbol })]
     if (!tape) return
-    void computeBacktest({ ...patched, symbol }, tape).then((outcome) => {
+    void computeFor({ ...patched, symbol }, { ...active, symbol }, tape).then((outcome) => {
       setOutcomes((current) => ({ ...current, [patched.id]: outcome }))
     })
   }
@@ -462,7 +489,7 @@ export default function App() {
     const aligned = alignRun(run, slot)
     const existing = outcomesRef.current[run.id]
     if (existing?.ok && existing.fingerprint === fingerprint(aligned)) return
-    void computeBacktest(aligned, tape).then((outcome) => {
+    void computeFor(run, slot, tape).then((outcome) => {
       setOutcomes((current) => ({ ...current, [run.id]: outcome }))
     })
   }, [])
@@ -493,7 +520,7 @@ export default function App() {
       ),
     }))
     const tape = tapesRef.current[tapeKey(active)]
-    if (tape) void computeBacktest(run, tape).then((outcome) => setOutcomes((current) => ({ ...current, [run.id]: outcome })))
+    if (tape) void computeFor(run, active, tape).then((outcome) => setOutcomes((current) => ({ ...current, [run.id]: outcome })))
   }
 
   function duplicateRun() {
@@ -508,6 +535,7 @@ export default function App() {
         capital: selected.capital,
         leverage: selected.leverage,
         riskPct: selected.riskPct,
+        biasTimeframe: selected.biasTimeframe,
         combo: (selected.combo ?? []).map((item) => ({ rule: item.rule, params: { ...item.params } })),
         allowShort: active.venue === "perp" && selected.allowShort,
       },
@@ -520,7 +548,7 @@ export default function App() {
       ),
     }))
     const tape = tapesRef.current[tapeKey(active)]
-    if (tape) void computeBacktest(copy, tape).then((outcome) => setOutcomes((current) => ({ ...current, [copy.id]: outcome })))
+    if (tape) void computeFor(copy, active, tape).then((outcome) => setOutcomes((current) => ({ ...current, [copy.id]: outcome })))
   }
 
   async function ensureTape(slot: Slot): Promise<Tape> {
@@ -544,7 +572,7 @@ export default function App() {
     setErrors((current) => ({ ...current, [active.id]: null }))
     try {
       const tape = await ensureTape(active)
-      const computed = await Promise.all(steps.map((step) => computeBacktest({ ...aligned, params: step.params }, tape)))
+      const computed = await Promise.all(steps.map((step) => computeFor({ ...aligned, params: step.params }, active, tape)))
       setNudge({
         runId: selected.id,
         rows: steps.map((step, index) => ({
@@ -569,7 +597,7 @@ export default function App() {
     setErrors((current) => ({ ...current, [active.id]: null }))
     try {
       const tape = await ensureTape(active)
-      const outcome = await computeBacktest(alignRun(run, active), tape)
+      const outcome = await computeFor(run, active, tape)
       setOutcomes((prev) => ({ ...prev, [run.id]: outcome }))
       setDrawToken((token) => token + 1)
       setSetupOpen(false)
@@ -591,8 +619,8 @@ export default function App() {
     const slot = active
     try {
       const tape = await ensureTape(slot)
-      const runs = slot.runs.map((run) => alignRun(run.id === edited.id ? edited : run, slot))
-      const computed = await Promise.all(runs.map((run) => computeBacktest(run, tape)))
+      const runs = slot.runs.map((run) => (run.id === edited.id ? edited : run))
+      const computed = await Promise.all(runs.map((run) => computeFor(run, slot, tape)))
       setOutcomes((prev) => {
         const patch = { ...prev }
         runs.forEach((run, index) => {
@@ -897,7 +925,23 @@ export default function App() {
         const last = tape?.candles.at(-1)?.time
         if (!tape || !last || tape.candles.length < 3) continue
         if (scoredCandle.current.get(row.run.id) === last) continue
-        const outcome = await computeBacktest(runFromKept(row), tape)
+        const paperRun = runFromKept(row)
+        const paperSlot = {
+          symbol: row.strategy.symbol as MarketId,
+          venue: row.strategy.market,
+          timeframe: row.strategy.timeframe as Timeframe,
+          range: row.run.range as RangeId,
+        }
+        const bias =
+          paperRun.biasTimeframe && isHigherTimeframe(paperRun.biasTimeframe, paperSlot.timeframe)
+            ? Object.values(tapesRef.current).find(
+                (item) =>
+                  item.symbol === paperSlot.symbol &&
+                  item.venue === paperSlot.venue &&
+                  item.interval === paperRun.biasTimeframe,
+              ) ?? null
+            : null
+        const outcome = await computeBacktest(paperRun, tape, bias)
         if (cancel || !outcome.ok) continue
         scoredCandle.current.set(row.run.id, last)
         await syncPaperTrades({
@@ -939,8 +983,52 @@ export default function App() {
       cancel = true
     }
   }, [page, correlationKey, active?.venue, workspace.correlationSymbols])
+
+  function slotBias(slot: Slot): "with trend" | "against" | null {
+    const run = slot.runs.find((item) => item.id === slot.selectedId)
+    const tf = run?.biasTimeframe
+    if (!tf || !isHigherTimeframe(tf, slot.timeframe)) return null
+    const biasTape = tapes[tapeKey({ ...slot, timeframe: tf })]
+    if (!biasTape) return null
+    return biasLabel(latestBias(biasTape.candles))
+  }
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (!commandPaletteHotkey(event)) return
+      const target = event.target as HTMLElement | null
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return
+      event.preventDefault()
+      setPaletteOpen((open) => !open)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [])
+
   return (
     <div className="desk-shell flex min-h-svh flex-col lg:h-svh lg:min-h-0">
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        venue={active?.venue ?? "spot"}
+        onPage={(next) => {
+          setPage(next)
+          if (next !== "desk") {
+            setSetupOpen(false)
+            setEditing(false)
+          }
+        }}
+        onSymbol={(symbol) => {
+          if (!active) return
+          setPage("desk")
+          patchSlot(active.id, { symbol })
+        }}
+        onKeep={() => {
+          if (!result) return
+          void keepSelected("")
+        }}
+        canKeep={Boolean(result)}
+      />
       {pinKeys(workspace).map((key) => {
         const [venue, symbol] = key.split(":") as [Venue, string]
         return <PinFill key={key} symbol={symbol} venue={venue} onFill={(ticket, price) => void fillTicket(ticket, price)} />
@@ -1076,6 +1164,7 @@ export default function App() {
         onClose={closeSlot}
         onAdd={addSlot}
         onSymbol={(id, symbol) => patchSlot(id, { symbol })}
+        biasFor={slotBias}
         positions={workspace.positions}
         openTrades={openTrades}
       />
@@ -1152,6 +1241,10 @@ export default function App() {
                   onRange={(range) => patchSlot(slot.id, { range })}
                   onClearFocus={() => setFocusTrade(null)}
                   onAlert={(alert) => patchSlot(slot.id, { alert })}
+                  onArmPrice={(price, mid) => {
+                    const kind = mid != null && price < mid ? "below" : "above"
+                    patchSlot(slot.id, { alert: { kind, value: price } })
+                  }}
                   onBookWidth={(book) => setPanes((current) => ({ ...current, book }))}
                   onEnlarge={() => {
                     if (slot.id !== workspace.activeId) focusSlot(slot.id)
@@ -1161,6 +1254,7 @@ export default function App() {
                   barsPending={!errors[slot.id] && !tapeForSlot(tapes, slot)}
                   onRetry={() => retryTape(slot)}
                   smoothed={normalizeRule(slot.runs.find((run) => run.id === slot.selectedId)?.rule ?? "sma_cross") === "heikin_ashi"}
+                  biasBadge={slotBias(slot)}
                 />
               </div>
             ))}
@@ -1233,6 +1327,10 @@ export default function App() {
               venue={active.venue}
               preferred={panes.book}
               onWidth={(book) => setPanes((current) => ({ ...current, book }))}
+              onArmPrice={(price, mid) => {
+                const kind = mid != null && price < mid ? "below" : "above"
+                patchSlot(active.id, { alert: { kind, value: price } })
+              }}
             />
           ) : null}
           </div>
@@ -1245,6 +1343,7 @@ export default function App() {
                 runs={active.runs}
                 selected={selected}
                 venue={active.venue}
+                timeframe={active.timeframe}
                 running={running}
                 onSelect={selectRun}
                 onChange={updateRun}
@@ -1307,6 +1406,7 @@ export default function App() {
                   runs={active.runs}
                   selected={selected}
                   venue={active.venue}
+                  timeframe={active.timeframe}
                   running={running}
                   onSelect={selectRun}
                   onChange={updateRun}

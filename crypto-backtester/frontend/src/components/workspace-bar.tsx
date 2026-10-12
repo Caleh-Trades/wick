@@ -18,6 +18,7 @@ export function WorkspaceBar({
   onSymbol,
   positions,
   openTrades,
+  biasFor,
 }: {
   slots: Slot[]
   activeId: string
@@ -29,6 +30,8 @@ export function WorkspaceBar({
   onSymbol: (id: string, symbol: MarketId) => void
   positions: BookPosition[]
   openTrades: { id: string; exitTime: string | null }[]
+  /** Higher-timeframe bias badge for the selected run on that slot. */
+  biasFor?: (slot: Slot) => "with trend" | "against" | null
 }) {
   return (
     <nav aria-label="Slots" className="flex w-full min-w-0 items-center gap-1 overflow-x-auto border-b border-border bg-[#fffaf4] px-2 py-1.5">
@@ -69,6 +72,7 @@ export function WorkspaceBar({
             <span className="px-1 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
               {slot.venue === "perp" ? "Perp" : "Spot"}
               {unsynced ? " · unsynced" : ""}
+              {biasFor?.(slot) ? ` · ${biasFor(slot)}` : ""}
             </span>
             <Button
               type="button"

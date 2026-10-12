@@ -131,6 +131,11 @@ export function AlertControl({
       <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" disabled={!armAllowed(session)} onClick={armLevel}>
         Arm
       </Button>
+      {alert && (alert.kind === "above" || alert.kind === "below") ? (
+        <span className="font-mono text-[10px] tracking-wide text-foreground whitespace-nowrap uppercase" role="status">
+          {alert.kind} {formatPrice(alert.value, tick)}
+        </span>
+      ) : null}
       <span className="flex shrink-0 gap-1" role="group" aria-label="Risk mode">
         {RISK_MODES.map((mode) => (
           <Button

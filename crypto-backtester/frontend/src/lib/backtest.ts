@@ -1,3 +1,4 @@
+import { alignBias, gateLongs, trendBias } from "./bias.ts"
 import { clampRisk, clampSlippage, normalizeCombo, normalizeRule, resolveRunParams, strategyLabel } from "./runs.ts"
 import { buildSignals } from "./signals.ts"
 import type { BacktestResult, EquityPoint, FundingRate, Run, SampleSlice, TapeCandle, Trade, Venue } from "./types"
@@ -11,6 +12,8 @@ export type BacktestOptions = {
   venue?: Venue
   funding?: FundingRate[] | null
   fundingStale?: boolean
+  /** Higher-timeframe candles for the optional long bias filter. */
+  biasCandles?: TapeCandle[] | null
 }
 
 export function liquidationPrice(entry: number, side: "long" | "short", leverage: number): number {
@@ -37,10 +40,14 @@ export function backtest(
   const rule = normalizeRule(run.rule)
   const params = resolveRunParams({ ...run, rule })
   const combo = normalizeCombo(run.combo, rule)
-  const signals = combineSignals([
+  let signals = combineSignals([
     buildSignals(rule, candles, params),
     ...combo.map((item) => buildSignals(item.rule, candles, resolveRunParams({ ...run, rule: item.rule, params: item.params }))),
   ])
+  const biasCandles = options?.biasCandles
+  if (biasCandles && biasCandles.length >= 3 && run.biasTimeframe) {
+    signals = gateLongs(signals, alignBias(candles, biasCandles, trendBias(biasCandles)))
+  }
   const venue = options?.venue ?? "spot"
   const leverage = venue === "perp" ? clampLeverage(run.leverage) : 1
   const riskPct = clampRisk(run.riskPct)

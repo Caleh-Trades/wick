@@ -15,6 +15,7 @@ export function runFromKept(row: KeptListRow): Run {
     capital: row.strategy.capital,
     leverage: row.strategy.leverage,
     riskPct: row.strategy.risk,
+    biasTimeframe: null,
     allowShort: row.strategy.allowShort,
     hidden: false,
   }

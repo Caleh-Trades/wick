@@ -11,6 +11,7 @@ type Job = {
   venue: Venue
   funding: FundingRate[] | null
   fundingStale: boolean
+  biasCandles?: TapeCandle[] | null
 }
 
 addEventListener("message", (event: MessageEvent<Job>) => {
@@ -20,6 +21,7 @@ addEventListener("message", (event: MessageEvent<Job>) => {
       venue: job.venue,
       funding: job.funding,
       fundingStale: job.fundingStale,
+      biasCandles: job.biasCandles,
     })
     postMessage({ id: job.id, ok: true, result })
   } catch (reason) {

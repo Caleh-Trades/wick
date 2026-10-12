@@ -198,6 +198,11 @@ export type Run = {
   leverage: number
   /** Percent of equity lost if the stop is hit. Position size is this amount divided by the stop distance. */
   riskPct: number
+  /**
+   * Optional higher timeframe. When set, the rule may only go long while that tape's trend agrees.
+   * Null or the same bar size as the slot turns the filter off.
+   */
+  biasTimeframe: Timeframe | null
   allowShort: boolean
   hidden: boolean
 }

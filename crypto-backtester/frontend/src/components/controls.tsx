@@ -15,14 +15,17 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { SymbolSelect } from "@/components/symbol-select"
 import { formatMoney } from "@/lib/format"
-import type { RuleId, Run, Venue } from "@/lib/types"
-import { MAX_RUNS, RULES, clampRisk, clampSlippage, nudgeFast, paramsForRule, ruleName, ruleParams, runColor, runProblem } from "@/lib/runs"
+import { higherTimeframes } from "@/lib/bias"
+import type { RuleId, Run, Timeframe, Venue } from "@/lib/types"
+import { MAX_RUNS, RULES, TIMEFRAMES, clampRisk, clampSlippage, nudgeFast, paramsForRule, ruleName, ruleParams, runColor, runProblem } from "@/lib/runs"
 
 type ControlsProps = {
   idPrefix: string
   runs: Run[]
   selected: Run
   venue: Venue
+  /** Slot bar size. Bias choices are strictly higher than this. */
+  timeframe: Timeframe
   running: boolean
   onSelect: (id: string) => void
   onChange: (run: Run) => void
@@ -52,6 +55,7 @@ export function Controls({
   runs,
   selected,
   venue,
+  timeframe,
   running,
   onSelect,
   onChange,
@@ -78,6 +82,7 @@ export function Controls({
   const full = runs.length >= MAX_RUNS
   const rule = RULES.find((item) => item.id === selected.rule)
   const problem = runProblem(selected)
+  const biasChoices = higherTimeframes(timeframe)
   const selectedRef = useRef(selected)
   selectedRef.current = selected
 
@@ -332,6 +337,29 @@ export function Controls({
           <Switch id={`${idPrefix}-time-close`} checked={timeStopClose} onCheckedChange={onTimeStopClose} />
         </div>
         <p className="text-xs leading-relaxed text-muted-foreground">Off by default. When on, a due trade closes at the mark.</p>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label htmlFor={`${idPrefix}-bias`}>Bias timeframe</Label>
+        <Select
+          value={selected.biasTimeframe && biasChoices.includes(selected.biasTimeframe) ? selected.biasTimeframe : "off"}
+          onValueChange={(value) => patch({ biasTimeframe: value === "off" ? null : (value as Timeframe) })}
+        >
+          <SelectTrigger id={`${idPrefix}-bias`} className="w-full">
+            <SelectValue placeholder="Off" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="off">Off</SelectItem>
+            {biasChoices.map((item) => (
+              <SelectItem key={item} value={item}>
+                {TIMEFRAMES.find((row) => row.id === item)?.label ?? item}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          Optional. The rule may only go long when this higher timeframe’s trend agrees. The slot shows with trend or against.
+        </p>
       </div>
 
       {venue === "perp" ? (

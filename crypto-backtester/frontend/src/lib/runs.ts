@@ -493,6 +493,7 @@ export function createRun(partial?: Partial<Run>, existing: Run[] = []): Run {
     capital: clampNum(partial?.capital, 1, 1_000_000_000, 10_000),
     leverage: clampNum(partial?.leverage, 1, 20, 3),
     riskPct: clampRisk(partial?.riskPct),
+    biasTimeframe: asBiasTimeframe(partial?.biasTimeframe),
     combo: normalizeCombo(partial?.combo, rule),
     allowShort: partial?.allowShort !== false,
     hidden: partial?.hidden ?? false,
@@ -575,7 +576,19 @@ export function pollIntervalMs(timeframe: Timeframe): number {
 export function fingerprint(run: Run): string {
   const spec = ruleById(normalizeRule(run.rule))
   const fields = (spec?.params ?? []).map((param) => `${param.key}:${run.params[param.key] ?? param.default}`)
-  const base = [run.symbol, normalizeRule(run.rule), fields.join(","), run.feeBps, clampSlippage(run.slippageBps), run.capital, run.allowShort ? "short" : "flat", run.leverage, clampRisk(run.riskPct)].join("|")
+  const bias = run.biasTimeframe ?? ""
+  const base = [
+    run.symbol,
+    normalizeRule(run.rule),
+    fields.join(","),
+    run.feeBps,
+    clampSlippage(run.slippageBps),
+    run.capital,
+    run.allowShort ? "short" : "flat",
+    run.leverage,
+    clampRisk(run.riskPct),
+    bias,
+  ].join("|")
   const combo = comboKey(run)
   return combo ? `${base}|${combo}` : base
 }
@@ -597,10 +610,15 @@ function sanitizeRun(value: unknown): Run | null {
     capital: clampNum(raw.capital, 1, 1_000_000_000, 10_000),
     leverage: clampNum(raw.leverage, 1, 20, 3),
     riskPct: clampRisk(raw.riskPct),
+    biasTimeframe: asBiasTimeframe(raw.biasTimeframe),
     combo: normalizeCombo(raw.combo, rule),
     allowShort: raw.allowShort !== false,
     hidden: Boolean(raw.hidden),
   }
+}
+
+function asBiasTimeframe(value: unknown): Timeframe | null {
+  return isTimeframe(value) ? value : null
 }
 
 function sanitizeParams(value: unknown): RunParams {

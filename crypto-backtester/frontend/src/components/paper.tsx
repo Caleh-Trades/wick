@@ -46,6 +46,8 @@ export function PaperPage({ sinceFor }: { sinceFor: (symbol: string, venue: Venu
             {kept.map((row) => {
               const fills = trades.filter((trade) => trade.runId === row.run.id)
               const paper = paperReturnPct(fills, row.strategy.capital)
+              const backtest = row.run.metrics.total_return_pct
+              const diff = row.run.paper && paper != null && Number.isFinite(backtest) ? paper - backtest : null
               return (
                 <li key={row.run.id} className="bezel flex flex-wrap items-baseline justify-between gap-3 px-3 py-2">
                   <div className="min-w-0">
@@ -54,9 +56,14 @@ export function PaperPage({ sinceFor }: { sinceFor: (symbol: string, venue: Venu
                       <span className="ml-2 text-muted-foreground">{row.strategy.symbol.replace(/USDT$/, "")}</span>
                     </p>
                     <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-                      Backtest {formatPct(row.run.metrics.total_return_pct)}
-                      {" · "}
                       Paper {row.run.paper ? formatPct(paper) : "—"}
+                      {" · "}
+                      Backtest {formatPct(backtest)}
+                      {" · "}
+                      Diff{" "}
+                      <span className={cn(diff != null && diff > 0 && "text-up", diff != null && diff < 0 && "text-down")}>
+                        {diff == null ? "—" : formatPct(diff)}
+                      </span>
                     </p>
                   </div>
                   <Button

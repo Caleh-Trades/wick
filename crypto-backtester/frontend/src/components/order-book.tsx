@@ -7,7 +7,16 @@ import { type Level } from "@/lib/book"
 import type { Venue } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-export function OrderBook({ symbol, venue }: { symbol: string | null; venue: Venue }) {
+export function OrderBook({
+  symbol,
+  venue,
+  onArmPrice,
+}: {
+  symbol: string | null
+  venue: Venue
+  /** Click a ladder price to set the Arm level. Stand-down still blocks a fire. */
+  onArmPrice?: (price: number, mid: number | null) => void
+}) {
   const book = useLiveBook(symbol, venue)
   const spec = symbol ? marketSpec(symbol, venue) : undefined
   const tick = spec?.tickSize
@@ -15,6 +24,11 @@ export function OrderBook({ symbol, venue }: { symbol: string | null; venue: Ven
   const scale = rows.reduce((max, level) => Math.max(max, level.price * level.size), 0)
   const showLadder = book.asks.length > 0 && book.bids.length > 0
   const asksRef = useRef<HTMLDivElement>(null)
+  const armAt = onArmPrice
+    ? (price: number) => {
+        onArmPrice(price, book.mid)
+      }
+    : undefined
 
   useEffect(() => {
     const node = asksRef.current
@@ -40,13 +54,29 @@ export function OrderBook({ symbol, venue }: { symbol: string | null; venue: Ven
           <LevelHead />
           <div ref={asksRef} className="flex min-h-0 flex-col justify-end overflow-y-auto">
             {book.asks.map((level) => (
-              <LevelRow key={`ask-${level.priceKey}`} level={level} scale={scale} tone="ask" tick={tick} best={level === book.asks.at(-1)} />
+              <LevelRow
+                key={`ask-${level.priceKey}`}
+                level={level}
+                scale={scale}
+                tone="ask"
+                tick={tick}
+                best={level === book.asks.at(-1)}
+                onArm={armAt}
+              />
             ))}
           </div>
           <MidRow book={book} tick={tick} />
           <div className="min-h-0 overflow-y-auto">
             {book.bids.map((level) => (
-              <LevelRow key={`bid-${level.priceKey}`} level={level} scale={scale} tone="bid" tick={tick} best={level === book.bids[0]} />
+              <LevelRow
+                key={`bid-${level.priceKey}`}
+                level={level}
+                scale={scale}
+                tone="bid"
+                tick={tick}
+                best={level === book.bids[0]}
+                onArm={armAt}
+              />
             ))}
           </div>
         </>
@@ -171,22 +201,29 @@ function LevelRow({
   tone,
   tick,
   best,
+  onArm,
 }: {
   level: Level
   scale: number
   tone: "bid" | "ask"
   tick?: string
   best: boolean
+  onArm?: (price: number) => void
 }) {
   const notional = level.price * level.size
   const width = scale > 0 ? Math.min(100, (notional / scale) * 100) : 0
   return (
-    <div
+    <button
+      type="button"
       className={cn(
-        "book-row relative border border-transparent px-1 py-0.5 font-mono text-[11px] text-foreground transition-[border-color] duration-150",
+        "book-row relative w-full border border-transparent px-1 py-0.5 text-left font-mono text-[11px] text-foreground transition-[border-color] duration-150",
         best && "border-[#c56a32]",
         level.changed && (tone === "bid" ? "book-flash-bid" : "book-flash-ask"),
+        onArm && "cursor-pointer hover:border-[#c56a32]/70",
       )}
+      aria-label={`Arm at ${formatPrice(level.price, tick)}`}
+      disabled={!onArm}
+      onClick={() => onArm?.(level.price)}
     >
       <div
         className="depth-bar pointer-events-none absolute inset-y-0 left-0"
@@ -201,6 +238,6 @@ function LevelRow({
         <span className="text-right text-muted-foreground tabular-nums">{formatBookSize(level.total)}</span>
         <span className="text-right text-muted-foreground tabular-nums">{formatCompact(notional)}</span>
       </div>
-    </div>
+    </button>
   )
 }

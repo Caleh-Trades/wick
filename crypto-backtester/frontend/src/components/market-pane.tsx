@@ -34,9 +34,11 @@ export function MarketPane({
   onBookWidth,
   onEnlarge,
   onRetry,
+  onArmPrice,
   showBook = true,
   barsPending = true,
   smoothed = false,
+  biasBadge = null,
 }: {
   symbol: string | null
   candles: TapeCandle[]
@@ -63,10 +65,12 @@ export function MarketPane({
   onBookWidth: (width: number) => void
   onEnlarge: () => void
   onRetry?: () => void
+  onArmPrice?: (price: number, mid: number | null) => void
   /** False when the desk draws one book beside the chart and the results. */
   showBook?: boolean
   barsPending?: boolean
   smoothed?: boolean
+  biasBadge?: "with trend" | "against" | null
 }) {
   const rowRef = useRef<HTMLDivElement>(null)
   const [rowWidth, setRowWidth] = useState(0)
@@ -89,6 +93,11 @@ export function MarketPane({
             {venue === "perp" ? "Kraken perp" : "Binance spot"}
             {" · "}
             Candles {candleClock ? `${formatClock(candleClock)} UTC` : "—"}
+            {biasBadge ? ` · ${biasBadge}` : ""}
+          </p>
+        ) : biasBadge ? (
+          <p className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase" role="status">
+            Bias {biasBadge}
           </p>
         ) : null}
         {venue === "perp" && symbol ? <FundingQuote rates={funding} stale={fundingStale === true} /> : null}
@@ -129,7 +138,7 @@ export function MarketPane({
             <BookResize book={book} onBookWidth={onBookWidth} />
             <div className="book-column relative flex min-h-0 w-(--book-width) shrink-0 self-stretch" style={{ "--book-width": `${book}px` } as CSSProperties}>
               <div className="absolute inset-0 flex min-h-0 w-full">
-                <OrderBook symbol={symbol} venue={venue} />
+                <OrderBook symbol={symbol} venue={venue} onArmPrice={onArmPrice} />
               </div>
             </div>
           </>
@@ -157,11 +166,13 @@ export function BookSpan({
   venue,
   preferred,
   onWidth,
+  onArmPrice,
 }: {
   symbol: string | null
   venue: Venue
   preferred: number
   onWidth: (width: number) => void
+  onArmPrice?: (price: number, mid: number | null) => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const [padTop, setPadTop] = useState(0)
@@ -190,7 +201,7 @@ export function BookSpan({
     <div ref={ref} className="book-span flex shrink-0 self-stretch pb-3" style={{ width: book + 12, paddingTop: padTop }}>
       <BookResize book={book} onBookWidth={onWidth} />
       <div className="min-h-0 min-w-0 flex-1">
-        <OrderBook symbol={symbol} venue={venue} />
+        <OrderBook symbol={symbol} venue={venue} onArmPrice={onArmPrice} />
       </div>
     </div>
   )

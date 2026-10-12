@@ -13,7 +13,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 MAX_ACCOUNTS = 200
-MAX_DESK_BYTES = 1_500_000
+# Kept-run fills and journal rows share one trades list. A busy desk clears 1.5MB fast.
+MAX_DESK_BYTES = 8_000_000
+MAX_TRADES = 8_000
 PBKDF2_ROUNDS = 120_000
 SESSION_DAYS = 30
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]{1,31}$")
@@ -103,6 +105,7 @@ def _clean_password(password: object) -> str:
 
 
 _RUN_DROP = {"trades", "candles", "equity", "walkForward", "walk_forward", "inSample", "holdout", "in_sample"}
+_WORKSPACE_DROP = {"candles", "equity", "trades", "tape", "tapes"}
 
 
 def _blank_desk() -> dict:
@@ -129,12 +132,73 @@ def _record_list(raw: dict, key: str, limit: int) -> list:
     return list(value[:limit])
 
 
+def _desk_bytes(desk: dict) -> int:
+    return len(json.dumps(desk, separators=(",", ":")))
+
+
+def _slim_workspace(workspace: object) -> object:
+    """Drop tape/candle blobs if a client stuffed them into the workspace JSON."""
+    if not isinstance(workspace, dict):
+        return workspace
+    return {key: value for key, value in workspace.items() if key not in _WORKSPACE_DROP}
+
+
+def _trade_open(trade: dict) -> bool:
+    exit_price = trade.get("exitPrice")
+    return exit_price is None or exit_price == ""
+
+
+def _trade_stamp(trade: dict) -> str:
+    for key in ("entryTime", "exitTime", "createdAt", "updatedAt"):
+        value = trade.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return ""
+
+
+def _fit_trades(trades: list[dict], budget: int, base: dict) -> list[dict]:
+    """Keep open rows and the newest closed rows until the desk fits the byte budget."""
+    if _desk_bytes({**base, "trades": trades}) <= budget:
+        return trades
+    open_rows = [trade for trade in trades if _trade_open(trade)]
+    closed_rows = sorted(
+        (trade for trade in trades if not _trade_open(trade)),
+        key=_trade_stamp,
+        reverse=True,
+    )
+    lo, hi = 0, len(closed_rows)
+    best = list(open_rows)
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        trial = open_rows + closed_rows[:mid]
+        if _desk_bytes({**base, "trades": trial}) <= budget:
+            best = trial
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    if _desk_bytes({**base, "trades": best}) <= budget:
+        return best
+    # Last resort: drop oldest open rows too so sync never hard-fails on size.
+    kept = sorted(best, key=_trade_stamp, reverse=True)
+    lo, hi = 0, len(kept)
+    fit: list[dict] = []
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        trial = kept[:mid]
+        if _desk_bytes({**base, "trades": trial}) <= budget:
+            fit = trial
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    return fit
+
+
 def clean_desk(raw: object) -> dict:
     if raw is None:
         return _blank_desk()
     if not isinstance(raw, dict):
         raise AccountError("Desk data has to be an object.")
-    workspace = raw.get("workspace")
+    workspace = _slim_workspace(raw.get("workspace"))
     journal = raw.get("journal", [])
     kept = raw.get("kept", [])
     working = raw.get("working", [])
@@ -150,6 +214,7 @@ def clean_desk(raw: object) -> dict:
         raise AccountError("Pane sizes are not valid.")
     if not all(isinstance(item, str) and len(item) <= 32 for item in favourites):
         raise AccountError("A favourite has to be a symbol.")
+    trades = _record_list(raw, "trades", MAX_TRADES)
     desk = {
         "workspace": workspace,
         "journal": journal[:400],
@@ -157,13 +222,26 @@ def clean_desk(raw: object) -> dict:
         "working": working[:40],
         "strategies": _record_list(raw, "strategies", 400),
         "runs": _record_list(raw, "runs", 400),
-        "trades": _record_list(raw, "trades", 4000),
+        "trades": trades,
         "tickets": _record_list(raw, "tickets", 400),
         "favourites": [item.strip() for item in favourites[:40] if item.strip()],
         "panes": panes,
     }
-    if len(json.dumps(desk)) > MAX_DESK_BYTES:
-        raise AccountError("That desk is too large to store.")
+    if _desk_bytes(desk) > MAX_DESK_BYTES:
+        without_trades = {**desk, "trades": []}
+        desk["trades"] = _fit_trades(trades, MAX_DESK_BYTES, without_trades)
+    if _desk_bytes(desk) > MAX_DESK_BYTES:
+        # Drop oldest kept-run metadata before giving up. Journal open state stays in trades.
+        runs = list(desk["runs"])
+        while runs and _desk_bytes({**desk, "runs": runs}) > MAX_DESK_BYTES:
+            runs.pop(0)
+        desk["runs"] = runs
+        strategies = list(desk["strategies"])
+        while strategies and _desk_bytes({**desk, "strategies": strategies}) > MAX_DESK_BYTES:
+            strategies.pop(0)
+        desk["strategies"] = strategies
+    if _desk_bytes(desk) > MAX_DESK_BYTES:
+        raise AccountError("That desk is too large to store. Remove kept runs or archive old trades, then try again.")
     return desk
 
 

@@ -137,3 +137,53 @@ def test_a_run_does_not_keep_its_candles_or_trades(monkeypatch, tmp_path):
     assert "equity" not in run
     assert created.json()["desk"]["trades"][0]["runId"] == "r1"
     assert created.json()["desk"]["strategies"][0]["name"] == "SMA 20/50"
+
+
+def test_a_large_trade_book_still_syncs(monkeypatch, tmp_path):
+    monkeypatch.setenv("WICK_ACCOUNT_STORE", str(tmp_path / "accounts.json"))
+    client = TestClient(app)
+    # ~2MB of closed fills used to trip the old 1.5MB desk cap and block every device.
+    trades = [
+        {
+            "id": f"t{index}",
+            "strategyId": "s1",
+            "runId": "r1",
+            "symbol": "BTCUSDT",
+            "side": "long",
+            "entryTime": f"2026-01-{(index % 28) + 1:02d}T12:00:00Z",
+            "entryPrice": 100.0 + index * 0.01,
+            "exitTime": f"2026-01-{(index % 28) + 1:02d}T18:00:00Z",
+            "exitPrice": 101.0 + index * 0.01,
+            "size": 1.25,
+            "fee": 0.12,
+            "slippage": 0.05,
+            "pnl": 1.0,
+            "returnPct": 1.0,
+            "note": "fee sync " + ("x" * 80),
+            "source": "desk",
+            "market": "spot",
+        }
+        for index in range(3500)
+    ]
+    created = client.post(
+        "/api/accounts",
+        json={
+            "name": "Heavy desk",
+            "password": "correct-horse",
+            "desk": {
+                "strategies": [{"id": "s1", "name": "SMA 20/50", "symbol": "BTCUSDT"}],
+                "runs": [{"id": "r1", "strategyId": "s1", "range": "1Y", "createdAt": "2026-04-01T00:00:00Z"}],
+                "trades": trades,
+            },
+        },
+    )
+    assert created.status_code == 200, created.text
+    body = created.json()
+    assert body["revision"] == 1
+    assert len(body["desk"]["trades"]) == 3500
+    assert body["desk"]["trades"][0]["fee"] == 0.12
+
+    second = TestClient(app)
+    signed = second.post("/api/accounts/login", json={"name": "Heavy desk", "password": "correct-horse"})
+    assert signed.status_code == 200
+    assert signed.json()["desk"]["trades"][-1]["fee"] == 0.12

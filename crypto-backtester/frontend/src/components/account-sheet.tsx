@@ -45,7 +45,7 @@ export function AccountSheet({ session, status, onCreate, onSignIn, onSignOut }:
         <SheetHeader>
           <SheetTitle>Account · local</SheetTitle>
           <SheetDescription>
-            Local only for now. Journal rows and kept runs stay on this host. The Vercel URL and this preview do not share the same trades until a synced sign-in lands.
+            Local only for now. Journal rows, fees, and kept runs sync on this host when you are signed in. The Vercel URL and this preview do not share the same trades.
           </SheetDescription>
         </SheetHeader>
         <div className="flex flex-col gap-5 px-4 pb-8">

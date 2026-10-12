@@ -497,6 +497,7 @@ export function createRun(partial?: Partial<Run>, existing: Run[] = []): Run {
     combo: normalizeCombo(partial?.combo, rule),
     allowShort: partial?.allowShort !== false,
     hidden: partial?.hidden ?? false,
+    locked: partial?.locked === true,
   }
 }
 
@@ -614,7 +615,24 @@ function sanitizeRun(value: unknown): Run | null {
     combo: normalizeCombo(raw.combo, rule),
     allowShort: raw.allowShort !== false,
     hidden: Boolean(raw.hidden),
+    locked: raw.locked === true,
   }
+}
+
+/** Params that a locked run must not rewrite in place. */
+export function runParamsChanged(prev: Run, next: Run): boolean {
+  return (
+    prev.rule !== next.rule ||
+    prev.feeBps !== next.feeBps ||
+    prev.slippageBps !== next.slippageBps ||
+    prev.capital !== next.capital ||
+    prev.leverage !== next.leverage ||
+    prev.riskPct !== next.riskPct ||
+    prev.biasTimeframe !== next.biasTimeframe ||
+    prev.allowShort !== next.allowShort ||
+    comboKey(prev) !== comboKey(next) ||
+    JSON.stringify(prev.params) !== JSON.stringify(next.params)
+  )
 }
 
 function asBiasTimeframe(value: unknown): Timeframe | null {

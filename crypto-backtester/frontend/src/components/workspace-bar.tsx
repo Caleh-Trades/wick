@@ -19,6 +19,7 @@ export function WorkspaceBar({
   positions,
   openTrades,
   biasFor,
+  staleFor,
 }: {
   slots: Slot[]
   activeId: string
@@ -32,6 +33,8 @@ export function WorkspaceBar({
   openTrades: { id: string; exitTime: string | null }[]
   /** Higher-timeframe bias badge for the selected run on that slot. */
   biasFor?: (slot: Slot) => "with trend" | "against" | null
+  /** Book or candle stamp older than 15s. */
+  staleFor?: (slot: Slot) => boolean
 }) {
   return (
     <nav aria-label="Slots" className="flex w-full min-w-0 items-center gap-1 overflow-x-auto border-b border-border bg-[#fffaf4] px-2 py-1.5">
@@ -73,6 +76,7 @@ export function WorkspaceBar({
               {slot.venue === "perp" ? "Perp" : "Spot"}
               {unsynced ? " · unsynced" : ""}
               {biasFor?.(slot) ? ` · ${biasFor(slot)}` : ""}
+              {staleFor?.(slot) ? " · stale" : ""}
             </span>
             <Button
               type="button"

@@ -18,6 +18,7 @@ export function runFromKept(row: KeptListRow): Run {
     biasTimeframe: null,
     allowShort: row.strategy.allowShort,
     hidden: false,
+    locked: row.run.locked === true,
   }
 }
 

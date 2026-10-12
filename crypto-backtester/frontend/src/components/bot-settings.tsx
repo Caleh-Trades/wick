@@ -3,7 +3,9 @@ import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
+import { armSoundOn, setArmSoundOn } from "@/lib/arm-sound"
 import { createBotKey, listBotKeys, revokeBotKey, type BotKey } from "@/lib/bot-api"
 
 export function BotSettings() {
@@ -13,11 +15,13 @@ export function BotSettings() {
   const [secret, setSecret] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [armSound, setArmSound] = useState(() => armSoundOn())
   const origin = typeof window === "undefined" ? "http://127.0.0.1:43123" : window.location.origin
 
   useEffect(() => {
     if (!open) return
     let cancel = false
+    setArmSound(armSoundOn())
     listBotKeys()
       .then((next) => {
         if (!cancel) setKeys(next)
@@ -78,6 +82,22 @@ export function BotSettings() {
           </SheetDescription>
         </SheetHeader>
         <div className="flex flex-col gap-5 px-4 pb-8">
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-3">
+              <Label htmlFor="arm-sound">Arm sound</Label>
+              <Switch
+                id="arm-sound"
+                checked={armSound}
+                onCheckedChange={(on) => {
+                  setArmSound(on)
+                  setArmSoundOn(on)
+                }}
+              />
+            </div>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Off by default. When on, Arm plays a short beep on fire. Stand-down still blocks the fire.
+            </p>
+          </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="bot-key-name">Key name</Label>
             <Input id="bot-key-name" value={name} maxLength={40} onChange={(event) => setName(event.target.value)} />

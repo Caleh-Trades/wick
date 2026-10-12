@@ -205,6 +205,8 @@ export type Run = {
   biasTimeframe: Timeframe | null
   allowShort: boolean
   hidden: boolean
+  /** Kept-run lock. Params cannot be edited in place; a change duplicates the run. */
+  locked: boolean
 }
 
 export type Tape = {

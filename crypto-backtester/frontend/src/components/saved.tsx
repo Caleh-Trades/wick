@@ -10,6 +10,7 @@ import {
   listRuns,
   PAGE_SIZE,
   removeRun,
+  setRunLocked,
   setRunNote,
   watchBook,
   type KeptListRow,
@@ -136,6 +137,9 @@ function SavedRow({ row, onRestore }: { row: KeptListRow; onRestore: (ids: { str
           <span className="text-sm">{row.strategy.name}</span>
           <span className="text-sm text-muted-foreground">{base}</span>
           <span className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">{row.strategy.market === "perp" ? "Perp" : "Spot"}</span>
+          {row.run.locked ? (
+            <span className="font-mono text-[10px] tracking-wide text-[#c56a32] uppercase">Locked</span>
+          ) : null}
           <span className={cn("font-mono text-xs tabular-nums", moneyTone(row.run.metrics.total_return_pct) === "up" && "text-up", moneyTone(row.run.metrics.total_return_pct) === "down" && "text-down")}>
             {formatPct(row.run.metrics.total_return_pct)}
           </span>
@@ -163,6 +167,16 @@ function SavedRow({ row, onRestore }: { row: KeptListRow; onRestore: (ids: { str
         </label>
       </div>
       <div className="flex shrink-0 gap-1">
+        <Button
+          type="button"
+          size="xs"
+          variant={row.run.locked ? "default" : "outline"}
+          className="normal-case tracking-normal"
+          aria-pressed={row.run.locked}
+          onClick={() => void setRunLocked(row.run.id, !row.run.locked)}
+        >
+          {row.run.locked ? "Unlock" : "Lock"}
+        </Button>
         <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={() => void exportRunFile(row.run.id)}>
           Export
         </Button>

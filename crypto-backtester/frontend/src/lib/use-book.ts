@@ -253,6 +253,21 @@ export function useBookView(symbolId: string | null, nextVenue: Venue = "spot"):
   return useSyncExternalStore(subscribe, () => getView(symbolId, nextVenue), () => getView(symbolId, nextVenue))
 }
 
+/** Subscribe to book repaints without holding a React book hook. */
+export function subscribeBooks(listener: () => void): () => void {
+  return subscribe(listener)
+}
+
+/** Latest book heardAt for stale-tape checks outside a book hook. */
+export function bookHeardAt(symbol: string | null, venue: Venue = "spot"): number | null {
+  return getView(symbol, venue).heardAt
+}
+
+/** Snapshot of the live book for mark/flatten without a second socket. */
+export function peekBook(symbol: string | null, venue: Venue = "spot"): LiveView {
+  return getView(symbol, venue)
+}
+
 export function useFormingCandles(
   candles: TapeCandle[],
   interval: string,

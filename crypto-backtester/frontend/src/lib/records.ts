@@ -73,6 +73,8 @@ export type RunRecord = {
   paper: boolean
   /** Last candle time when paper was turned on. Older closes stay in the backtest. */
   paperSince: string | null
+  /** Locked Saved rows keep params. Editing them on the desk duplicates the run. */
+  locked: boolean
 }
 
 export type TradeRecord = {
@@ -892,6 +894,7 @@ export async function keepDeskRun(input: {
     costs: asCosts(input.costs),
     paper: false,
     paperSince: null,
+    locked: false,
   }
   memory.runs.set(run.id, run)
   for (const trade of input.trades) {
@@ -1263,7 +1266,19 @@ function sanitizeRun(value: unknown): RunRecord | null {
     costs: asCosts(raw.costs),
     paper: raw.paper === true,
     paperSince: typeof raw.paperSince === "string" && raw.paperSince ? raw.paperSince : null,
+    locked: raw.locked === true,
   }
+}
+
+export async function setRunLocked(id: string, locked: boolean): Promise<RunRecord | null> {
+  await bookReady()
+  const run = memory.runs.get(id)
+  if (!run) return null
+  const next = { ...run, locked }
+  memory.runs.set(id, next)
+  await persistOne("runs", next)
+  emit()
+  return next
 }
 
 function sanitizeTrade(value: unknown): TradeRecord | null {
@@ -1346,6 +1361,7 @@ function absorbLegacy(raw: { journal?: unknown; kept?: unknown; working?: unknow
         costs: asCosts(source.costs),
         paper: false,
         paperSince: null,
+        locked: false,
       }
       memory.runs.set(run.id, run)
       const embedded = Array.isArray(source.trades) ? source.trades : []

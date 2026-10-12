@@ -1,5 +1,8 @@
+import { playArmBeep } from "./arm-sound.ts"
+
 /** Browser notification when Arm fires. Stand-down must already have blocked the fire. */
 export async function notifyArm(input: { symbol: string; side: string; price: number }): Promise<void> {
+  playArmBeep()
   if (typeof window === "undefined" || typeof Notification === "undefined") return
   try {
     let permission = Notification.permission

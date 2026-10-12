@@ -176,6 +176,11 @@ export function Controls({
           onChange={(event) => patch({ name: event.target.value })}
         />
       </Field>
+      {selected.locked ? (
+        <p className="font-mono text-[10px] tracking-wide text-[#c56a32] uppercase" role="status">
+          Locked · editing params duplicates this run
+        </p>
+      ) : null}
 
       <Field label="Market" htmlFor={`${idPrefix}-symbol`}>
         <SymbolSelect

@@ -13,6 +13,8 @@ import type { FundingRate, Venue } from "@/lib/types"
 import { armReading, deltaCrosses, priceCrosses, type AlertKind, type SlotAlert } from "@/lib/workspace"
 import { cn } from "@/lib/utils"
 
+type ArmBlock = { allowed: boolean; reason: string }
+
 const KINDS: { id: AlertKind; label: string }[] = [
   { id: "above", label: "Above" },
   { id: "below", label: "Below" },
@@ -58,8 +60,10 @@ export function AlertControl({
   session,
   riskMode,
   arm,
+  tapeStale = false,
   onRisk,
   onChange,
+  onFlatten,
 }: {
   alert: SlotAlert | null
   deltaAlert: number | null
@@ -68,8 +72,12 @@ export function AlertControl({
   session: SessionLight
   riskMode: RiskMode
   arm: ArmGate | null
+  /** Book or candle stamp older than 15s. Blocks Arm until a fresh tick. */
+  tapeStale?: boolean
   onRisk: (mode: RiskMode) => void
   onChange: (next: SlotAlert | null) => void
+  /** Close the open desk position at the mark, disarm Arm, journal the close. */
+  onFlatten?: () => void
 }) {
   const [kind, setKind] = useState<AlertKind>(alert?.kind ?? "above")
   const [draft, setDraft] = useState(alert ? String(alert.value) : "")
@@ -90,6 +98,11 @@ export function AlertControl({
     .filter(Boolean)
     .join(" · ")
   const status = reading.hot ? `fired ${reading.side}${watched ? ` · ${watched}` : ""}` : watched ? `idle · ${watched}` : "idle"
+  const armGate: ArmBlock = !armAllowed(session)
+    ? { allowed: false, reason: "stand-down" }
+    : tapeStale
+      ? { allowed: false, reason: "stale" }
+      : { allowed: true, reason: "" }
 
   useEffect(() => {
     setKind(alert?.kind ?? "above")
@@ -97,7 +110,7 @@ export function AlertControl({
   }, [alert])
 
   function armLevel() {
-    if (!armAllowed(session)) return
+    if (!armGate.allowed) return
     const value = Number(draft)
     if (!(value > 0)) return
     onChange({ kind, value })
@@ -128,9 +141,14 @@ export function AlertControl({
           if (event.key === "Enter") armLevel()
         }}
       />
-      <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" disabled={!armAllowed(session)} onClick={armLevel}>
+      <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" disabled={!armGate.allowed} onClick={armLevel}>
         Arm
       </Button>
+      {onFlatten ? (
+        <Button type="button" size="xs" variant="outline" className="normal-case tracking-normal" onClick={onFlatten}>
+          Flatten
+        </Button>
+      ) : null}
       {alert && (alert.kind === "above" || alert.kind === "below") ? (
         <span
           className="shrink-0 font-mono text-[10px] tracking-wide text-foreground whitespace-nowrap uppercase"
@@ -156,7 +174,11 @@ export function AlertControl({
         ))}
       </span>
       <span className={cn("font-mono text-[10px] tracking-wide whitespace-nowrap normal-case", reading.hot ? "text-foreground" : "text-muted-foreground")} role="status">
-        {session === "stand-down" ? (watched ? `stand-down · ${watched}` : "stand-down") : status}
+        {!armGate.allowed
+          ? armGate.reason === "stand-down" && watched
+            ? `stand-down · ${watched}`
+            : armGate.reason
+          : status}
         {arm && arm.symbol === (symbol ?? "").toUpperCase() && arm.market === venue
           ? ` · ${arm.side} entry ${formatPrice(arm.entry)} stop ${formatPrice(arm.stop)} size ${formatCompact(arm.size)} R ${arm.r}`
           : ""}
@@ -176,19 +198,21 @@ export function AlertWatch({
   alert,
   deltaAlert,
   session,
+  tapeStale = false,
 }: {
   symbol: string
   venue: Venue
   alert: SlotAlert | null
   deltaAlert: number | null
   session: SessionLight
+  tapeStale?: boolean
 }) {
   const book = useBookView(symbol || null, venue)
   const mark = book.symbol === symbol.toUpperCase() && book.venue === venue ? liveMark(book) : null
   const trade = mark?.source === "trade" ? mark.price : null
 
   useEffect(() => {
-    if (!symbol || !armAllowed(session)) return
+    if (!symbol || !armAllowed(session) || tapeStale) return
     const checks: { key: string; hot: boolean; kind: AlertKind; value: number; threshold: number }[] = []
     if (alert && alert.kind !== "delta") {
       checks.push({
@@ -222,7 +246,7 @@ export function AlertWatch({
       const side = check.kind === "below" || (check.kind === "delta" && check.value < 0) ? "sell" : "buy"
       void notifyArm({ symbol, side, price: check.value })
     }
-  }, [alert, book.delta, book.heardAt, deltaAlert, session, symbol, trade, venue])
+  }, [alert, book.delta, book.heardAt, deltaAlert, session, symbol, tapeStale, trade, venue])
 
   return null
 }

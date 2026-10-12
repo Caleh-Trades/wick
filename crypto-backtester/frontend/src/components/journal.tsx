@@ -22,6 +22,7 @@ import {
   exportFilteredCsv,
   listJournalStrategies,
   logBookTrade,
+  matchingTrades,
   removeTrade,
   saveTicket,
   searchTickets,
@@ -37,6 +38,7 @@ import {
   type TradeSide,
   type WorkingTicket,
 } from "@/lib/records"
+import { weekStrip, type WeekStrip } from "@/lib/week-strip"
 import { RULES, ruleName } from "@/lib/runs"
 import { timeStopDue } from "@/lib/time-stop"
 import { useBookView } from "@/lib/use-book"
@@ -164,6 +166,7 @@ function TradesPanel({
   const [note, setNote] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [week, setWeek] = useState<WeekStrip>({ pnl: null, winRate: null, avgR: null, closed: 0 })
 
   useEffect(() => {
     setMarket(symbol)
@@ -190,6 +193,9 @@ function TradesPanel({
         })
       void listJournalStrategies().then((next) => {
         if (!cancel) setStrategies(next)
+      })
+      void matchingTrades(emptyQuery()).then((trades) => {
+        if (!cancel) setWeek(weekStrip(trades))
       })
     }
     load()
@@ -265,6 +271,18 @@ function TradesPanel({
 
   return (
     <>
+      <section className="bezel flex flex-wrap items-baseline gap-x-4 gap-y-1 px-3 py-2" aria-label="This week">
+        <span className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">This week</span>
+        <span className={cn("font-mono text-xs tabular-nums", week.pnl == null ? "text-muted-foreground" : moneyTone(week.pnl) === "up" ? "text-up" : moneyTone(week.pnl) === "down" ? "text-down" : "")}>
+          {week.pnl == null ? "—" : signedMoney(week.pnl)}
+        </span>
+        <span className="font-mono text-xs text-muted-foreground tabular-nums">
+          Win {week.winRate == null ? "—" : formatPlainPct(week.winRate, 0)}
+        </span>
+        <span className="font-mono text-xs text-muted-foreground tabular-nums">
+          Avg R {week.avgR == null ? "—" : formatR(week.avgR)}
+        </span>
+      </section>
       <section className="bezel grid grid-cols-2 gap-px overflow-hidden sm:grid-cols-3 lg:grid-cols-6" aria-label="Filtered totals">
         <Stat label="Trades" value={String(page.total)} />
         <Stat label="Closed" value={String(page.closed)} />

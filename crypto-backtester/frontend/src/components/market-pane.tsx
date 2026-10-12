@@ -35,10 +35,12 @@ export function MarketPane({
   onEnlarge,
   onRetry,
   onArmPrice,
+  onFlatten,
   showBook = true,
   barsPending = true,
   smoothed = false,
   biasBadge = null,
+  tapeStale = false,
 }: {
   symbol: string | null
   candles: TapeCandle[]
@@ -66,11 +68,13 @@ export function MarketPane({
   onEnlarge: () => void
   onRetry?: () => void
   onArmPrice?: (price: number, mid: number | null) => void
+  onFlatten?: () => void
   /** False when the desk draws one book beside the chart and the results. */
   showBook?: boolean
   barsPending?: boolean
   smoothed?: boolean
   biasBadge?: "with trend" | "against" | null
+  tapeStale?: boolean
 }) {
   const rowRef = useRef<HTMLDivElement>(null)
   const [rowWidth, setRowWidth] = useState(0)
@@ -94,10 +98,11 @@ export function MarketPane({
             {" · "}
             Candles {candleClock ? `${formatClock(candleClock)} UTC` : "—"}
             {biasBadge ? ` · ${biasBadge}` : ""}
+            {tapeStale ? " · stale" : ""}
           </p>
-        ) : biasBadge ? (
+        ) : biasBadge || tapeStale ? (
           <p className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase" role="status">
-            Bias {biasBadge}
+            {[biasBadge ? `Bias ${biasBadge}` : null, tapeStale ? "stale" : null].filter(Boolean).join(" · ")}
           </p>
         ) : null}
         {venue === "perp" && symbol ? <FundingQuote rates={funding} stale={fundingStale === true} /> : null}
@@ -109,10 +114,14 @@ export function MarketPane({
           session={session}
           riskMode={riskMode}
           arm={arm}
+          tapeStale={tapeStale}
           onRisk={onRisk}
           onChange={onAlert}
+          onFlatten={onFlatten}
         />
-        {symbol ? <AlertWatch symbol={symbol} venue={venue} alert={alert} deltaAlert={deltaAlert} session={session} /> : null}
+        {symbol ? (
+          <AlertWatch symbol={symbol} venue={venue} alert={alert} deltaAlert={deltaAlert} session={session} tapeStale={tapeStale} />
+        ) : null}
       </div>
       <div ref={rowRef} className="chart-book-row flex min-h-0 flex-1 items-stretch">
         <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">

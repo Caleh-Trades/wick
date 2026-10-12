@@ -76,13 +76,15 @@ import {
   pollIntervalMs,
   rangeDays,
   runColor,
+  runParamsChanged,
   strategyLabel,
   suggestedName,
   uniqueName,
 } from "@/lib/runs"
 import { dropPosition, lossStreak, nextSession, pinSymbol, pinsOf, resolveSession, ticketFills, upsertPosition, type ArmGate } from "@/lib/desk"
 import { runFromKept } from "@/lib/paper"
-import { holdBook, useBookView } from "@/lib/use-book"
+import { isTapeStale } from "@/lib/stale-tape"
+import { bookHeardAt, holdBook, peekBook, subscribeBooks, useBookView } from "@/lib/use-book"
 import {
   MAX_SLOTS,
   createSlot,
@@ -449,6 +451,44 @@ export default function App() {
       ...active,
       symbol,
     })
+    if (prev?.locked && runParamsChanged(prev, patched)) {
+      if (active.runs.length >= MAX_RUNS) return
+      const copy = createRun(
+        {
+          name: uniqueName(patched.name, active.runs),
+          symbol,
+          rule: patched.rule,
+          params: { ...patched.params },
+          feeBps: patched.feeBps,
+          slippageBps: patched.slippageBps,
+          capital: patched.capital,
+          leverage: patched.leverage,
+          riskPct: patched.riskPct,
+          biasTimeframe: patched.biasTimeframe,
+          combo: (patched.combo ?? []).map((item) => ({ rule: item.rule, params: { ...item.params } })),
+          allowShort: active.venue === "perp" && patched.allowShort,
+          locked: false,
+        },
+        active.runs,
+      )
+      setWorkspace((current) => ({
+        ...current,
+        slots: current.slots.map((slot) => {
+          if (slot.id !== active.id) return slot
+          const pinned = pinSymbol(slot.pins, slot.symbol, symbol)
+          return {
+            ...slot,
+            symbol: pinned.symbol,
+            pins: pinned.pins,
+            runs: [...slot.runs.map((run) => ({ ...run, symbol })), copy],
+            selectedId: copy.id,
+          }
+        }),
+      }))
+      const tape = tapesRef.current[tapeKey({ ...active, symbol })]
+      if (tape) void computeFor(copy, { ...active, symbol }, tape).then((outcome) => setOutcomes((current) => ({ ...current, [copy.id]: outcome })))
+      return
+    }
     setWorkspace((current) => ({
       ...current,
       slots: current.slots.map((slot) => {
@@ -762,7 +802,7 @@ export default function App() {
     if (!strategy || !run || run.strategyId !== strategy.id) return
     openSetup(
       { symbol: strategy.symbol, venue: strategy.market, timeframe: strategy.timeframe, range: run.range },
-      runFields(strategy),
+      { ...runFields(strategy), locked: run.locked === true },
     )
   }
 
@@ -872,6 +912,16 @@ export default function App() {
     forgetPosition(position.tradeId)
   }
 
+  /** Close the open desk position at the mark, disarm Arm, journal the close. Stand-down unchanged. */
+  async function flattenSlot(slot: Slot) {
+    const mark = liveMark(peekBook(slot.symbol, slot.venue))?.price ?? 0
+    await flatMarket(slot.symbol, slot.venue, mark)
+    setWorkspace((current) => ({
+      ...current,
+      slots: current.slots.map((item) => (item.id === slot.id ? { ...item, alert: null, armGate: null } : item)),
+    }))
+  }
+
   async function promoteTicket(id: string) {
     const promoted = await promoteWorkingTicket(id)
     if (!promoted) return
@@ -910,8 +960,13 @@ export default function App() {
     setWorkspace((current) => (current.lossHalt ? current : { ...current, lossHalt: true }))
   }, [streak, workspace.lossLimit, workspace.lossHalt])
   const session = lossHalted ? "stand-down" : resolveSession(workspace.session)
+  const tapeNow = useTapeNow()
   const correlationKey = `${active?.venue ?? "spot"}:${workspace.correlationSymbols.join(",")}`
   const scoredCandle = useRef(new Map<string, string>())
+
+  function slotTapeStale(slot: Slot): boolean {
+    return isTapeStale(bookHeardAt(slot.symbol, slot.venue), clocks[slot.id]?.getTime() ?? null, tapeNow)
+  }
   useEffect(() => {
     let cancel = false
     void (async () => {
@@ -1165,6 +1220,7 @@ export default function App() {
         onAdd={addSlot}
         onSymbol={(id, symbol) => patchSlot(id, { symbol })}
         biasFor={slotBias}
+        staleFor={slotTapeStale}
         positions={workspace.positions}
         openTrades={openTrades}
       />
@@ -1255,6 +1311,8 @@ export default function App() {
                   onRetry={() => retryTape(slot)}
                   smoothed={normalizeRule(slot.runs.find((run) => run.id === slot.selectedId)?.rule ?? "sma_cross") === "heikin_ashi"}
                   biasBadge={slotBias(slot)}
+                  tapeStale={slotTapeStale(slot)}
+                  onFlatten={() => void flattenSlot(slot)}
                 />
               </div>
             ))}
@@ -1457,6 +1515,20 @@ export default function App() {
 
 function pinKeys(workspace: Workspace): string[] {
   return [...new Set(workspace.slots.flatMap((slot) => pinsOf(slot).map((symbol) => `${slot.venue}:${symbol}`)))]
+}
+
+/** Tick once a second and on book repaints so the 15s stale badge can clear. */
+function useTapeNow(): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000)
+    const stop = subscribeBooks(() => setNow(Date.now()))
+    return () => {
+      window.clearInterval(id)
+      stop()
+    }
+  }, [])
+  return now
 }
 
 function useJournalTrades(): TradeRecord[] {

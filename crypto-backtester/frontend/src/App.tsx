@@ -83,7 +83,7 @@ import {
 } from "@/lib/runs"
 import { dropPosition, lossStreak, nextSession, pinSymbol, pinsOf, resolveSession, ticketFills, upsertPosition, type ArmGate } from "@/lib/desk"
 import { runFromKept } from "@/lib/paper"
-import { isTapeStale } from "@/lib/stale-tape"
+import { armTapeBlocked, isTapeStale } from "@/lib/stale-tape"
 import { bookHeardAt, holdBook, peekBook, subscribeBooks, useBookView } from "@/lib/use-book"
 import {
   MAX_SLOTS,
@@ -264,12 +264,17 @@ export default function App() {
         .catch((reason: unknown) => {
           if (cancel || requestGen.current.get(`fetch:${key}`) !== fetchGen) return
           const tries = tapeTries.current.get(key) ?? 0
-          if (tries < 1) {
+          if (tries < 3) {
             attempt.retry = true
             tapeTries.current.set(key, tries + 1)
             window.setTimeout(() => {
               setTapeRetry((current) => current + 1)
-            }, 400)
+            }, 400 * 2 ** tries)
+            return
+          }
+          // Keep the last good tape on screen. Only surface a hard error when this key is empty.
+          if (tapesRef.current[key]?.candles.length) {
+            setStale(true)
             return
           }
           const message = requestFailure(reason, "The tape didn't load.")
@@ -869,7 +874,8 @@ export default function App() {
     if (!focusTrade || !activeTape || !selected) return []
     return ruleReading(normalizeRule(selected.rule), activeTape.candles, selected.params, focusTrade.entry_time)
   }, [activeTape, focusTrade, selected])
-  const error = active ? errors[active.id] : null
+  const activeTapeReady = active ? Boolean(tapeForSlot(tapes, active)?.candles.length) : false
+  const error = active && !activeTapeReady ? errors[active.id] : null
   function rememberPosition(trade: TradeRecord) {
     if (trade.exitTime != null) return
     setWorkspace((current) => ({
@@ -964,8 +970,16 @@ export default function App() {
   const correlationKey = `${active?.venue ?? "spot"}:${workspace.correlationSymbols.join(",")}`
   const scoredCandle = useRef(new Map<string, string>())
 
+  function slotCandleGrace(slot: Slot): number {
+    return Math.max(15_000, pollIntervalMs(slot.timeframe))
+  }
+
   function slotTapeStale(slot: Slot): boolean {
-    return isTapeStale(bookHeardAt(slot.symbol, slot.venue), clocks[slot.id]?.getTime() ?? null, tapeNow)
+    return isTapeStale(bookHeardAt(slot.symbol, slot.venue), clocks[slot.id]?.getTime() ?? null, tapeNow, slotCandleGrace(slot))
+  }
+
+  function slotArmTapeBlocked(slot: Slot): boolean {
+    return armTapeBlocked(bookHeardAt(slot.symbol, slot.venue), clocks[slot.id]?.getTime() ?? null, tapeNow, slotCandleGrace(slot))
   }
   useEffect(() => {
     let cancel = false
@@ -1312,6 +1326,7 @@ export default function App() {
                   smoothed={normalizeRule(slot.runs.find((run) => run.id === slot.selectedId)?.rule ?? "sma_cross") === "heikin_ashi"}
                   biasBadge={slotBias(slot)}
                   tapeStale={slotTapeStale(slot)}
+                  armBlocked={slotArmTapeBlocked(slot)}
                   onFlatten={() => void flattenSlot(slot)}
                 />
               </div>

@@ -41,6 +41,7 @@ export function MarketPane({
   smoothed = false,
   biasBadge = null,
   tapeStale = false,
+  armBlocked = false,
 }: {
   symbol: string | null
   candles: TapeCandle[]
@@ -74,7 +75,10 @@ export function MarketPane({
   barsPending?: boolean
   smoothed?: boolean
   biasBadge?: "with trend" | "against" | null
+  /** Badge when a prior book/candle stamp aged out. */
   tapeStale?: boolean
+  /** Block Arm until a fresh book tick or candle poll. */
+  armBlocked?: boolean
 }) {
   const rowRef = useRef<HTMLDivElement>(null)
   const [rowWidth, setRowWidth] = useState(0)
@@ -114,13 +118,13 @@ export function MarketPane({
           session={session}
           riskMode={riskMode}
           arm={arm}
-          tapeStale={tapeStale}
+          tapeStale={armBlocked}
           onRisk={onRisk}
           onChange={onAlert}
           onFlatten={onFlatten}
         />
         {symbol ? (
-          <AlertWatch symbol={symbol} venue={venue} alert={alert} deltaAlert={deltaAlert} session={session} tapeStale={tapeStale} />
+          <AlertWatch symbol={symbol} venue={venue} alert={alert} deltaAlert={deltaAlert} session={session} tapeStale={armBlocked} />
         ) : null}
       </div>
       <div ref={rowRef} className="chart-book-row flex min-h-0 flex-1 items-stretch">

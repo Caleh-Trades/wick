@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 
 import { requestFailure } from "../src/lib/api.ts"
 import { krakenProduct, liveMark, projectLadder, rollingFlow, stepDecimals, streamNames, takerSide, type Print } from "../src/lib/book.ts"
+import { armTapeBlocked, isTapeStale, TAPE_STALE_MS } from "../src/lib/stale-tape.ts"
 import { formatBookSize, formatCompact, formatPrice } from "../src/lib/format.ts"
 import { mergeForming } from "../src/lib/forming.ts"
 import { missingBars, priceDomain, priceTicks, spotTrades } from "../src/lib/plot.ts"
@@ -198,5 +199,16 @@ assert.ok(shortDaily)
 assert.match(shortDaily!, /daily/)
 assert.equal(requestFailure({ name: "TimeoutError", message: "signal timed out" }, "The tape didn't load."), "The tape took too long.")
 assert.equal(requestFailure(new Error("Kraken perpetuals didn't answer."), "The tape didn't load."), "Kraken perpetuals didn't answer.")
+
+const stamp = Date.parse("2026-10-12T12:00:00Z")
+assert.equal(isTapeStale(null, null, stamp), false)
+assert.equal(armTapeBlocked(null, null, stamp), true)
+assert.equal(isTapeStale(stamp - 1_000, null, stamp), false)
+assert.equal(armTapeBlocked(stamp - 1_000, null, stamp), false)
+assert.equal(isTapeStale(stamp - TAPE_STALE_MS - 1, null, stamp), true)
+assert.equal(armTapeBlocked(stamp - TAPE_STALE_MS - 1, null, stamp), true)
+assert.equal(isTapeStale(null, stamp - 20_000, stamp, 60_000), false)
+assert.equal(armTapeBlocked(null, stamp - 20_000, stamp, 60_000), false)
+assert.equal(isTapeStale(null, stamp - 61_000, stamp, 60_000), true)
 
 console.log("book ok")

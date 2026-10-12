@@ -7,6 +7,7 @@ import { SLOTS_MAX, SLOTS_MIN, clampSlots } from "@/lib/panes"
 import { marketById } from "@/lib/runs"
 import { marketSpec } from "@/lib/markets"
 import { timeStopDue } from "@/lib/time-stop"
+import { TAPE_STALE_MS } from "@/lib/stale-tape"
 import { holdBook, useBookView } from "@/lib/use-book"
 import { tapeKey, type Slot } from "@/lib/workspace"
 import type { MarketId, Tape, Venue } from "@/lib/types"
@@ -165,7 +166,11 @@ function QuoteRow({
   const market = marketById(symbol, venue)
   const tick = marketSpec(symbol, venue)?.tickSize
   const price = book.quote ?? book.last?.price ?? null
-  const stale = book.status === "stale" && price != null
+  // Book status flips stale after 3 quiet seconds; only badge the rail after 15s so a short gap is not an error wall.
+  const stale =
+    book.status === "stale" &&
+    price != null &&
+    (book.heardAt == null || Date.now() - book.heardAt > TAPE_STALE_MS)
   const change = book.changePct
   const stop = position?.stop ?? trade?.stop ?? null
   const mark = position && price != null && stop != null ? openR(position.side, position.entry, stop, price) : null

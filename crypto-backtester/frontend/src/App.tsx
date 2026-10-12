@@ -83,8 +83,7 @@ import {
 } from "@/lib/runs"
 import { dropPosition, lossStreak, nextSession, pinSymbol, pinsOf, resolveSession, ticketFills, upsertPosition, type ArmGate } from "@/lib/desk"
 import { runFromKept } from "@/lib/paper"
-import { armTapeBlocked, isTapeStale } from "@/lib/stale-tape"
-import { bookHeardAt, holdBook, peekBook, subscribeBooks, useBookView } from "@/lib/use-book"
+import { holdBook, peekBook, useBookView } from "@/lib/use-book"
 import {
   MAX_SLOTS,
   createSlot,
@@ -155,22 +154,33 @@ export default function App() {
   const held = workspace.slots
     .map((slot) => `${slot.venue}:${pinsOf(slot).slice().sort().join(",")}`)
     .join("|")
-  const bookHolds = useRef(new Map<string, () => void>())
+  /** Depth only for the chart symbol on a visible slot. Other pins keep a light quote socket. */
+  const bookHolds = useRef(new Map<string, { release: () => void; depth: boolean }>())
   useEffect(() => {
-    const wanted = new Set<string>()
+    const wanted = new Map<string, boolean>()
+    const shown = new Set(visibleSlots(workspaceRef.current).map((slot) => slot.id))
     for (const slot of workspaceRef.current.slots) {
       for (const symbol of pinsOf(slot)) {
         const key = `${slot.venue}:${symbol}`
-        wanted.add(key)
-        if (!bookHolds.current.has(key)) bookHolds.current.set(key, holdBook(symbol, slot.venue, true))
+        const depth = shown.has(slot.id) && symbol === slot.symbol
+        wanted.set(key, wanted.get(key) === true || depth)
       }
     }
-    for (const [key, release] of bookHolds.current) {
+    for (const [key, depth] of wanted) {
+      const existing = bookHolds.current.get(key)
+      if (existing && existing.depth === depth) continue
+      existing?.release()
+      const split = key.indexOf(":")
+      const venue = key.slice(0, split) as Venue
+      const symbol = key.slice(split + 1)
+      bookHolds.current.set(key, { release: holdBook(symbol, venue, depth), depth })
+    }
+    for (const [key, hold] of bookHolds.current) {
       if (wanted.has(key)) continue
-      release()
+      hold.release()
       bookHolds.current.delete(key)
     }
-  }, [held])
+  }, [held, workspace.activeId, workspace.pinnedId])
 
   const slotKeys = workspace.slots.map((slot) => `${slot.id}:${tapeKey(slot)}`).join("|")
   async function biasTapeFor(run: Run, slot: Slot): Promise<Tape | null> {
@@ -312,11 +322,16 @@ export default function App() {
           const base = tapesRef.current[key]
           if (!base || tapeKey(slot) !== key) return
           const merged = mergeFundingTape(base, tail, slot.venue)
+          const sameTail =
+            merged.candles.length === base.candles.length &&
+            merged.candles.at(-1)?.t === base.candles.at(-1)?.t &&
+            merged.candles.at(-1)?.close === base.candles.at(-1)?.close
+          setClocks((clock) => ({ ...clock, [slot.id]: new Date() }))
+          setStale(false)
+          if (sameTail) return
           const next = { ...tapesRef.current, [key]: merged }
           tapesRef.current = next
           setTapes(next)
-          setStale(false)
-          setClocks((clock) => ({ ...clock, [slot.id]: new Date() }))
           const run = slot.runs.find((item) => item.id === slot.selectedId)
           if (!run) return
           const outcome = await computeFor(run, slot, merged)
@@ -361,7 +376,7 @@ export default function App() {
         /* the desk keeps working when the key service is down */
       }
     }
-    const timer = window.setInterval(() => void poll(), 2000)
+    const timer = window.setInterval(() => void poll(), 5_000)
     void poll()
     return () => {
       stop = true
@@ -966,21 +981,8 @@ export default function App() {
     setWorkspace((current) => (current.lossHalt ? current : { ...current, lossHalt: true }))
   }, [streak, workspace.lossLimit, workspace.lossHalt])
   const session = lossHalted ? "stand-down" : resolveSession(workspace.session)
-  const tapeNow = useTapeNow()
   const correlationKey = `${active?.venue ?? "spot"}:${workspace.correlationSymbols.join(",")}`
   const scoredCandle = useRef(new Map<string, string>())
-
-  function slotCandleGrace(slot: Slot): number {
-    return Math.max(15_000, pollIntervalMs(slot.timeframe))
-  }
-
-  function slotTapeStale(slot: Slot): boolean {
-    return isTapeStale(bookHeardAt(slot.symbol, slot.venue), clocks[slot.id]?.getTime() ?? null, tapeNow, slotCandleGrace(slot))
-  }
-
-  function slotArmTapeBlocked(slot: Slot): boolean {
-    return armTapeBlocked(bookHeardAt(slot.symbol, slot.venue), clocks[slot.id]?.getTime() ?? null, tapeNow, slotCandleGrace(slot))
-  }
   useEffect(() => {
     let cancel = false
     void (async () => {
@@ -1234,7 +1236,7 @@ export default function App() {
         onAdd={addSlot}
         onSymbol={(id, symbol) => patchSlot(id, { symbol })}
         biasFor={slotBias}
-        staleFor={slotTapeStale}
+        candleClockFor={(slot) => clocks[slot.id] ?? null}
         positions={workspace.positions}
         openTrades={openTrades}
       />
@@ -1325,8 +1327,6 @@ export default function App() {
                   onRetry={() => retryTape(slot)}
                   smoothed={normalizeRule(slot.runs.find((run) => run.id === slot.selectedId)?.rule ?? "sma_cross") === "heikin_ashi"}
                   biasBadge={slotBias(slot)}
-                  tapeStale={slotTapeStale(slot)}
-                  armBlocked={slotArmTapeBlocked(slot)}
                   onFlatten={() => void flattenSlot(slot)}
                 />
               </div>
@@ -1530,20 +1530,6 @@ export default function App() {
 
 function pinKeys(workspace: Workspace): string[] {
   return [...new Set(workspace.slots.flatMap((slot) => pinsOf(slot).map((symbol) => `${slot.venue}:${symbol}`)))]
-}
-
-/** Tick once a second and on book repaints so the 15s stale badge can clear. */
-function useTapeNow(): number {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now()), 1000)
-    const stop = subscribeBooks(() => setNow(Date.now()))
-    return () => {
-      window.clearInterval(id)
-      stop()
-    }
-  }, [])
-  return now
 }
 
 function useJournalTrades(): TradeRecord[] {

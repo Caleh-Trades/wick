@@ -5,6 +5,7 @@ import { OrderBook } from "@/components/order-book"
 import { AlertControl, AlertWatch, FundingQuote } from "@/components/slot-tools"
 import { formatClock } from "@/lib/format"
 import type { ArmGate, RiskMode, SessionLight } from "@/lib/desk"
+import { useTapeFreshness } from "@/lib/use-tape-freshness"
 import type { FundingRate, RangeId, TapeCandle, Trade, Venue } from "@/lib/types"
 import type { SlotAlert } from "@/lib/workspace"
 
@@ -40,8 +41,6 @@ export function MarketPane({
   barsPending = true,
   smoothed = false,
   biasBadge = null,
-  tapeStale = false,
-  armBlocked = false,
 }: {
   symbol: string | null
   candles: TapeCandle[]
@@ -75,13 +74,10 @@ export function MarketPane({
   barsPending?: boolean
   smoothed?: boolean
   biasBadge?: "with trend" | "against" | null
-  /** Badge when a prior book/candle stamp aged out. */
-  tapeStale?: boolean
-  /** Block Arm until a fresh book tick or candle poll. */
-  armBlocked?: boolean
 }) {
   const rowRef = useRef<HTMLDivElement>(null)
   const [rowWidth, setRowWidth] = useState(0)
+  const { tapeStale, armBlocked } = useTapeFreshness(symbol, venue, interval, candleClock)
   useEffect(() => {
     const node = rowRef.current
     if (!node) return

@@ -12,6 +12,7 @@ const base = (import.meta.env.VITE_API_URL as string | undefined) ?? ""
 
 export type AccountSession = {
   token: string
+  id: string
   name: string
   revision: number
 }
@@ -40,7 +41,12 @@ export function readSession(): AccountSession | null {
     const parsed = JSON.parse(localStorage.getItem(SESSION_KEY) ?? "") as Partial<AccountSession>
     if (!parsed || typeof parsed.token !== "string" || typeof parsed.name !== "string") return null
     const revision = Number(parsed.revision)
-    return { token: parsed.token, name: parsed.name, revision: Number.isFinite(revision) ? revision : 0 }
+    return {
+      token: parsed.token,
+      id: typeof parsed.id === "string" ? parsed.id : "",
+      name: parsed.name,
+      revision: Number.isFinite(revision) ? revision : 0,
+    }
   } catch {
     return null
   }
@@ -96,26 +102,36 @@ export function forWire(desk: DeskBlob): DeskBlob {
 }
 
 export async function createAccount(name: string, password: string, desk: DeskBlob): Promise<AccountSession> {
-  const body = await request<{ token: string; account: { name: string }; revision: number }>("/api/accounts", {
+  const body = await request<{ token: string; account: { id?: string; name: string }; revision: number }>("/api/accounts", {
     method: "POST",
     body: JSON.stringify({ name, password, desk: forWire(desk) }),
   })
-  return { token: body.token, name: body.account.name, revision: body.revision }
+  return { token: body.token, id: body.account.id ?? "", name: body.account.name, revision: body.revision }
 }
 
 export async function loginAccount(name: string, password: string): Promise<{ session: AccountSession; desk: DeskBlob }> {
-  const body = await request<{ token: string; account: { name: string }; revision: number; desk: DeskBlob }>("/api/accounts/login", {
-    method: "POST",
-    body: JSON.stringify({ name, password }),
-  })
+  const body = await request<{ token: string; account: { id?: string; name: string }; revision: number; desk: DeskBlob }>(
+    "/api/accounts/login",
+    {
+      method: "POST",
+      body: JSON.stringify({ name, password }),
+    },
+  )
   return {
-    session: { token: body.token, name: body.account.name, revision: body.revision },
+    session: { token: body.token, id: body.account.id ?? "", name: body.account.name, revision: body.revision },
     desk: body.desk,
   }
 }
 
-export async function fetchDesk(token: string): Promise<{ revision: number; desk: DeskBlob }> {
-  return request("/api/accounts/desk", { headers: auth(token) })
+export async function fetchDesk(token: string): Promise<{ revision: number; desk: DeskBlob; account: { id: string; name: string } | null }> {
+  const body = await request<{ revision: number; desk: DeskBlob; account?: { id?: string; name?: string } }>("/api/accounts/desk", {
+    headers: auth(token),
+  })
+  const account =
+    body.account && typeof body.account.id === "string" && body.account.id && typeof body.account.name === "string"
+      ? { id: body.account.id, name: body.account.name }
+      : null
+  return { revision: body.revision, desk: body.desk, account }
 }
 
 export async function saveDesk(

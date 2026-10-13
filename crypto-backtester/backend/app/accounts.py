@@ -374,7 +374,11 @@ def read_desk(token: str) -> dict:
     found = account_from_token(token)
     if found is None:
         raise AccountError("Sign in again.", 401)
-    return {"revision": found["revision"], "desk": found["desk"]}
+    return {
+        "revision": found["revision"],
+        "account": {"id": found["id"], "name": found["name"]},
+        "desk": found["desk"],
+    }
 
 
 def save_desk(token: str, revision: object, desk: object) -> dict:

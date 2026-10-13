@@ -37,25 +37,41 @@ export function AccountSheet({ session, status, onCreate, onSignIn, onSignOut }:
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button type="button" size="xs" variant="outline" className="max-w-40 truncate normal-case tracking-normal" aria-label="Account, local only">
-          {session ? `${session.name} · local` : "Account · local"}
+        <Button
+          type="button"
+          size="xs"
+          variant="outline"
+          className="max-w-40 truncate normal-case tracking-normal"
+          aria-label={session ? `Account, ${session.name}` : "Account, local only"}
+        >
+          {session ? session.name : "Account · local"}
         </Button>
       </SheetTrigger>
       <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-md">
         <SheetHeader>
-          <SheetTitle>Account · local</SheetTitle>
+          <SheetTitle>{session ? session.name : "Account · local"}</SheetTitle>
           <SheetDescription>
-            Local only for now. Journal rows, fees, and kept runs sync on this host when you are signed in. The Vercel URL and this preview do not share the same trades.
+            {session
+              ? "Saved runs and journal trades are stored on this user id. Another browser that signs in with the same name loads them after a refresh."
+              : "Local only until you sign in. Saved runs and journal trades stay in this browser. Create or sign in to store them on one user id."}
           </SheetDescription>
         </SheetHeader>
         <div className="flex flex-col gap-5 px-4 pb-8">
-          <p className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase" role="status">
-            local-only
-          </p>
+          {session ? (
+            session.id ? (
+              <p className="font-mono text-[10px] tracking-wide text-muted-foreground" role="status">
+                User id {session.id}
+              </p>
+            ) : null
+          ) : (
+            <p className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase" role="status">
+              local-only
+            </p>
+          )}
           {session ? (
             <>
               <p className="text-sm leading-relaxed">
-                Signed in as <span className="font-medium">{session.name}</span> on this host. Another device on the same API can use this name. Preview and production stay separate.
+                Signed in as <span className="font-medium">{session.name}</span>. This user id is the same on every browser that uses this name. Keep this run and a logged trade write to the server. Export JSON on the desk stays a backup.
               </p>
               <p className="font-mono text-xs text-muted-foreground" role="status">
                 {status || "On this account"}
@@ -64,7 +80,7 @@ export function AccountSheet({ session, status, onCreate, onSignIn, onSignOut }:
                 Sign out
               </Button>
               <p className="text-xs leading-relaxed text-muted-foreground">
-                Signing out leaves a copy on this browser and stops sending changes. The account stays on this host.
+                Signing out leaves a copy on this browser and stops sending changes. The account stays on this server.
               </p>
             </>
           ) : (
@@ -97,7 +113,7 @@ export function AccountSheet({ session, status, onCreate, onSignIn, onSignOut }:
                 </Button>
               </div>
               <p className="text-xs leading-relaxed text-muted-foreground">
-                Create starts the account from the desk on this browser. Sign in replaces this browser with that account on the same host. The password is stored as a hash.
+                Create stores this browser's Saved runs and journal trades on a new user id. Sign in loads that user's rows. Until then the book stays here. The password is stored as a hash.
               </p>
             </>
           )}

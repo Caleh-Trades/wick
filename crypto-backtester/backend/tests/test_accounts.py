@@ -41,6 +41,7 @@ def test_two_devices_share_one_desk(monkeypatch, tmp_path):
     assert signed.status_code == 200
     other = signed.json()
     assert other["token"] != body["token"]
+    assert other["account"]["id"] == body["account"]["id"]
     assert other["desk"]["favourites"] == ["DOGEUSDT"]
     assert other["desk"]["journal"][0]["symbol"] == "ETHFIUSDT"
     assert other["desk"]["working"] == []
@@ -92,6 +93,7 @@ def test_two_devices_share_one_desk(monkeypatch, tmp_path):
     seen = second.get("/api/accounts/desk", headers={"Authorization": f"Bearer {other['token']}"})
     assert seen.status_code == 200
     assert seen.json()["revision"] == 3
+    assert seen.json()["account"]["id"] == body["account"]["id"]
     assert seen.json()["desk"]["journal"][0]["note"] == "from the first device"
     assert seen.json()["desk"]["favourites"] == ["SOLUSDT"]
     assert seen.json()["desk"]["workspace"]["slots"][0]["symbol"] == "BTCUSDT"
@@ -187,3 +189,126 @@ def test_a_large_trade_book_still_syncs(monkeypatch, tmp_path):
     signed = second.post("/api/accounts/login", json={"name": "Heavy desk", "password": "correct-horse"})
     assert signed.status_code == 200
     assert signed.json()["desk"]["trades"][-1]["fee"] == 0.12
+
+
+def test_saved_run_and_journal_follow_the_user_id(monkeypatch, tmp_path):
+    monkeypatch.setenv("WICK_ACCOUNT_STORE", str(tmp_path / "accounts.json"))
+    first = TestClient(app)
+    created = first.post(
+        "/api/accounts",
+        json={
+            "name": "Keeper",
+            "password": "correct-horse",
+            "desk": {
+                "strategies": [
+                    {
+                        "id": "s1",
+                        "name": "SMA 20/50",
+                        "symbol": "ETHUSDT",
+                        "market": "spot",
+                        "params": {"fast": 20, "slow": 50},
+                    }
+                ],
+                "runs": [
+                    {
+                        "id": "r1",
+                        "strategyId": "s1",
+                        "range": "1Y",
+                        "metrics": {"total_return_pct": 4.1, "trades": 2},
+                        "note": "kept on the desk",
+                        "candles": [{"t": 1, "close": 100}],
+                        "equity": [{"equity": 1}],
+                        "trades": [{"pnl": 1}],
+                    }
+                ],
+                "trades": [
+                    {
+                        "id": "fill-1",
+                        "strategyId": "s1",
+                        "runId": "r1",
+                        "symbol": "ETHUSDT",
+                        "market": "spot",
+                        "pnl": 10,
+                    },
+                    {
+                        "id": "journal-1",
+                        "strategyId": "s1",
+                        "runId": None,
+                        "symbol": "ETHUSDT",
+                        "market": "spot",
+                        "note": "logged by hand",
+                    },
+                ],
+            },
+        },
+    )
+    assert created.status_code == 200, created.text
+    user_id = created.json()["account"]["id"]
+    stored = created.json()["desk"]
+    run = stored["runs"][0]
+    strategy = stored["strategies"][0]
+    assert strategy["name"] == "SMA 20/50"
+    assert strategy["symbol"] == "ETHUSDT"
+    assert strategy["market"] == "spot"
+    assert strategy["params"] == {"fast": 20, "slow": 50}
+    assert run["metrics"]["total_return_pct"] == 4.1
+    assert run["note"] == "kept on the desk"
+    assert "candles" not in run
+    assert "equity" not in run
+    assert "trades" not in run
+    assert {row["id"] for row in stored["trades"]} == {"fill-1", "journal-1"}
+
+    second = TestClient(app)
+    signed = second.post("/api/accounts/login", json={"name": "Keeper", "password": "correct-horse"})
+    assert signed.status_code == 200
+    assert signed.json()["account"]["id"] == user_id
+    loaded = signed.json()["desk"]
+    assert loaded["runs"][0]["note"] == "kept on the desk"
+    assert loaded["strategies"][0]["symbol"] == "ETHUSDT"
+    assert {row["id"] for row in loaded["trades"]} == {"fill-1", "journal-1"}
+    assert "candles" not in loaded["runs"][0]
+
+    saved = second.put(
+        "/api/accounts/desk",
+        headers={"Authorization": f"Bearer {signed.json()['token']}"},
+        json={
+            "revision": signed.json()["revision"],
+            "desk": {
+                "strategies": loaded["strategies"],
+                "runs": [
+                    *loaded["runs"],
+                    {
+                        "id": "r2",
+                        "strategyId": "s1",
+                        "metrics": {"total_return_pct": 1.2},
+                        "note": "kept from the other browser",
+                        "candles": [{"t": 2, "close": 50}],
+                    },
+                ],
+                "trades": [
+                    *loaded["trades"],
+                    {
+                        "id": "journal-2",
+                        "strategyId": "s1",
+                        "runId": None,
+                        "symbol": "SOLUSDT",
+                        "market": "perp",
+                        "note": "logged on the other browser",
+                    },
+                ],
+            },
+        },
+    )
+    assert saved.status_code == 200
+
+    refreshed = first.get("/api/accounts/desk", headers={"Authorization": f"Bearer {created.json()['token']}"})
+    assert refreshed.status_code == 200
+    assert refreshed.json()["account"]["id"] == user_id
+    notes = {row["note"] for row in refreshed.json()["desk"]["runs"]}
+    assert "kept on the desk" in notes
+    assert "kept from the other browser" in notes
+    assert "candles" not in refreshed.json()["desk"]["runs"][1]
+    journal = {row["id"]: row for row in refreshed.json()["desk"]["trades"]}
+    assert journal["journal-2"]["note"] == "logged on the other browser"
+    assert journal["journal-2"]["market"] == "perp"
+    assert journal["fill-1"]["runId"] == "r1"

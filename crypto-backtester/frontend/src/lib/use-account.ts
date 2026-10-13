@@ -62,6 +62,7 @@ export function useAccountSync(
       try {
         const remote = await fetchDesk(token)
         if (cancel) return
+        adopt(remote.account)
         const localDesk = await captureDesk()
         if (cancel) return
         const local = canonicalDesk(localDesk)
@@ -139,6 +140,16 @@ export function useAccountSync(
     setStatus("Updated from the other device.")
   }
 
+  function adopt(account: { id: string; name: string } | null) {
+    if (!account) return
+    setSession((current) => {
+      if (!current || (current.id === account.id && current.name === account.name)) return current
+      const next = { ...current, id: account.id, name: account.name }
+      writeSession(next)
+      return next
+    })
+  }
+
   function remember(nextRevision: number) {
     revision.current = nextRevision
     setSession((current) => {
@@ -160,6 +171,7 @@ export function useAccountSync(
     try {
       const remote = await fetchDesk(active)
       if (active !== token) return
+      adopt(remote.account)
       const remoteJson = canonicalDesk(remote.desk)
       if (remote.revision === revision.current && remoteJson === held.current) return
       const local = await captureDesk()
